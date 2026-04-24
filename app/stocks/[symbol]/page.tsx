@@ -10,12 +10,13 @@ import { StockChart } from "@/components/StockChart";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getCurrentUser } from "@/lib/currentUser";
+import { AppError } from "@/lib/errors";
 import { calculateIndicators } from "@/lib/indicators";
+import { getCurrentUser } from "@/lib/currentUser";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
-import type { AiAnalysisResult } from "@/lib/types";
+import type { AiAnalysisResult, Candle, IndicatorSnapshot } from "@/lib/types";
 import { formatCurrency, formatNumber, formatPercent, toNumber } from "@/lib/utils";
 
 const rangeOptions = [
@@ -57,9 +58,10 @@ export default async function StockDetailPage({
   const interval = normalizeInterval(query.interval);
   const range = normalizeRange(query.range, interval);
   const user = await getCurrentUser();
+  const provider = getStockDataProvider();
   const quote = await getQuote(normalized, { allowStale: true });
   const quoteSymbol = quote.raw?.symbol ?? quote.symbol;
-  const candles = quote.raw ? await getStockDataProvider().getHistory(quoteSymbol, range, interval) : [];
+  const candles = quote.raw ? await provider.getHistory(quoteSymbol, range, interval) : [];
 
   const [latestAnalysis, watchlistItem] = await Promise.all([
     prisma.aiAnalysis.findFirst({
@@ -71,8 +73,8 @@ export default async function StockDetailPage({
     })
   ]);
 
-  const indicatorCandles = interval === "1d" && candles.length ? candles : quote.raw ? await getStockDataProvider().getHistory(quoteSymbol, "1y", "1d") : [];
-  const indicators = indicatorCandles.length ? calculateIndicators(quoteSymbol, indicatorCandles) : null;
+  const indicatorCandles = quote.raw ? await getIndicatorCandles(provider, quoteSymbol, interval, candles) : [];
+  const { indicators, indicatorError } = safeCalculateIndicators(quoteSymbol, indicatorCandles);
   const analysis = latestAnalysis?.outputJson as AiAnalysisResult | undefined;
   const displayName = quote.name ?? quoteSymbol;
 
@@ -123,7 +125,7 @@ export default async function StockDetailPage({
           <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} />
         </div>
         <div className="space-y-5">
-          {indicators ? <IndicatorPanel indicators={indicators} price={quote.price} /> : <EmptyCard title="技术指标" text="行情不可用，无法计算技术指标。" />}
+          {indicators ? <IndicatorPanel indicators={indicators} price={quote.price} /> : <EmptyCard title="技术指标" text={indicatorError ?? "行情不可用，无法计算技术指标。"} />}
           <Card>
             <CardHeader>
               <CardTitle>持仓设置</CardTitle>
@@ -149,6 +151,36 @@ export default async function StockDetailPage({
       </div>
     </div>
   );
+}
+
+async function getIndicatorCandles(provider: ReturnType<typeof getStockDataProvider>, symbol: string, interval: string, currentCandles: Candle[]) {
+  if (interval === "1d" && currentCandles.length >= 35) return currentCandles;
+  try {
+    return await provider.getHistory(symbol, "1y", "1d");
+  } catch {
+    return currentCandles;
+  }
+}
+
+function safeCalculateIndicators(symbol: string, candles: Candle[]): { indicators: IndicatorSnapshot | null; indicatorError: string | null } {
+  if (candles.length < 35) {
+    return {
+      indicators: null,
+      indicatorError: `当前只有 ${candles.length} 根 K 线，至少需要 35 根才能计算 RSI、MACD、均线和布林带。`
+    };
+  }
+
+  try {
+    return { indicators: calculateIndicators(symbol, candles), indicatorError: null };
+  } catch (error) {
+    if (error instanceof AppError && error.code === "INSUFFICIENT_DATA") {
+      return {
+        indicators: null,
+        indicatorError: `当前 K 线数量不足，至少需要 35 根才能计算技术指标。`
+      };
+    }
+    throw error;
+  }
 }
 
 function ChartControls({ symbol, range, interval }: { symbol: string; range: string; interval: string }) {
