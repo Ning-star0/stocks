@@ -39,6 +39,7 @@
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/stocks_ai?schema=public"
 STOCK_DATA_PROVIDER="mock"
 NEWS_PROVIDER="mock"
+TIANAPI_KEY=""
 ALPHA_VANTAGE_API_KEY=""
 FINNHUB_API_KEY=""
 OPENAI_API_KEY=""
@@ -347,6 +348,7 @@ interface NewsProvider {
 ```env
 NEWS_PROVIDER="mock"
 NEWS_PROVIDER="finnhub"
+NEWS_PROVIDER="tianapi"
 ```
 
 使用 Finnhub：
@@ -354,6 +356,15 @@ NEWS_PROVIDER="finnhub"
 ```env
 FINNHUB_API_KEY="your-key"
 ```
+
+使用天行数据财经新闻：
+
+```env
+NEWS_PROVIDER="tianapi"
+TIANAPI_KEY="your-key"
+```
+
+天行财经新闻接口适合内部数据分析和 AI 摘要。若要把原始新闻标题、摘要、链接用于公开终端展示，请先确认接口授权范围。
 
 新增新闻 provider 时：
 
