@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { generateNewsSearchQueries } from "@/lib/ai/generateNewsSearchQueries";
+import { generateNewsSearchPlan, type NewsSearchPlan } from "@/lib/ai/generateNewsSearchQueries";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { getNewsProvider } from "@/lib/news";
@@ -46,11 +46,14 @@ type TavilyResponse = {
 };
 
 export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<RelatedNewsSearchOutput> {
-  const queries = buildSearchQueries(input);
+  const searchPlan = await generateNewsSearchPlan(input);
+  const searchInput = enrichInputWithPlan(input, searchPlan);
+  const queries = buildSearchQueries(searchInput, searchPlan);
+  const strategyStatus = buildStrategyStatus(searchPlan);
   if (!queries.length) {
     return {
       provider: "news_provider",
-      status: "没有可用搜索关键词",
+      status: `${strategyStatus}；没有可用搜索关键词`,
       queries,
       rawResultCount: 0,
       filteredResultCount: 0,
@@ -60,45 +63,30 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
 
   if (normalizeEnv(process.env.TAVILY_API_KEY)) {
     try {
-      const tavily = await searchTavilyNews(input, queries);
+      const tavily = await searchTavilyNews(searchInput, queries);
       if (tavily.results.length) {
         return {
           provider: "tavily",
-          status: buildTavilyStatus(tavily.rawResultCount, tavily.filteredResultCount, tavily.results.length),
+          status: `${strategyStatus}；${buildTavilyStatus(tavily.rawResultCount, tavily.filteredResultCount, tavily.results.length)}`,
           queries,
           rawResultCount: tavily.rawResultCount,
           filteredResultCount: tavily.filteredResultCount,
           results: tavily.results
         };
       }
-      const aiQueries = await generateNewsSearchQueries(input);
-      const extraQueries = aiQueries.filter((query) => !queries.includes(query)).slice(0, 4);
-      if (extraQueries.length) {
-        const aiTavily = await searchTavilyNews(input, extraQueries);
-        if (aiTavily.results.length) {
-          return {
-            provider: "tavily",
-            status: `第一轮 Tavily 未命中；AI 生成搜索词后二次搜索：${buildTavilyStatus(aiTavily.rawResultCount, aiTavily.filteredResultCount, aiTavily.results.length)}`,
-            queries: [...queries, ...extraQueries],
-            rawResultCount: tavily.rawResultCount + aiTavily.rawResultCount,
-            filteredResultCount: aiTavily.filteredResultCount,
-            results: aiTavily.results
-          };
-        }
-      }
       return {
         provider: "tavily",
-        status: `Tavily 原始命中 ${tavily.rawResultCount} 条，AI 二次搜索仍未命中`,
-        queries: [...queries, ...extraQueries],
+        status: `${strategyStatus}；Tavily 原始命中 ${tavily.rawResultCount} 条，按策略过滤后未命中`,
+        queries,
         rawResultCount: tavily.rawResultCount,
         filteredResultCount: 0,
         results: []
       };
     } catch (error) {
-      const fallback = await searchViaConfiguredNewsProvider(input, queries);
+      const fallback = await searchViaConfiguredNewsProvider(searchInput, queries);
       return {
         provider: "news_provider",
-        status: `Tavily 调用失败，已回退到 ${process.env.NEWS_PROVIDER || "news provider"}：${error instanceof Error ? error.message : "未知错误"}`,
+        status: `${strategyStatus}；Tavily 调用失败，已回退到 ${process.env.NEWS_PROVIDER || "news provider"}：${error instanceof Error ? error.message : "未知错误"}`,
         queries,
         rawResultCount: fallback.rawResultCount,
         filteredResultCount: fallback.results.length,
@@ -107,10 +95,10 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
     }
   }
 
-  const fallbackResults = await searchViaConfiguredNewsProvider(input, queries);
+  const fallbackResults = await searchViaConfiguredNewsProvider(searchInput, queries);
   return {
     provider: "news_provider",
-    status: `未配置 TAVILY_API_KEY，已使用 ${process.env.NEWS_PROVIDER || "news provider"} 搜索`,
+    status: `${strategyStatus}；未配置 TAVILY_API_KEY，已使用 ${process.env.NEWS_PROVIDER || "news provider"} 搜索`,
     queries,
     rawResultCount: fallbackResults.rawResultCount,
     filteredResultCount: fallbackResults.results.length,
@@ -118,7 +106,33 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
   };
 }
 
-function buildSearchQueries(input: RelatedNewsSearchInput) {
+function enrichInputWithPlan(input: RelatedNewsSearchInput, searchPlan: NewsSearchPlan): RelatedNewsSearchInput {
+  return {
+    ...input,
+    sectorKeywords: uniqueText([...(input.sectorKeywords ?? []), ...searchPlanKeywords(searchPlan)])
+  };
+}
+
+function searchPlanKeywords(searchPlan: NewsSearchPlan) {
+  return uniqueText([
+    searchPlan.primarySector,
+    ...searchPlan.relatedDomains,
+    ...searchPlan.macroDrivers,
+    ...searchPlan.searchQueries.flatMap((query) => query.split(/\s+/).filter((token) => token.length >= 2))
+  ]).slice(0, 32);
+}
+
+function buildStrategyStatus(searchPlan: NewsSearchPlan) {
+  const source = searchPlan.fromAi ? "DeepSeek策略" : "规则策略";
+  const drivers = searchPlan.macroDrivers.slice(0, 4).join("/");
+  const domains = searchPlan.relatedDomains.slice(0, 4).join("/");
+  const parts = [`${source}：${searchPlan.primarySector || "未知领域"}`];
+  if (domains) parts.push(`领域 ${domains}`);
+  if (drivers) parts.push(`驱动 ${drivers}`);
+  return parts.join("，");
+}
+
+function buildSearchQueries(input: RelatedNewsSearchInput, searchPlan?: NewsSearchPlan) {
   const stockKeywords = buildStockNewsKeywords({
     symbol: input.symbol,
     name: input.name,
@@ -136,6 +150,7 @@ function buildSearchQueries(input: RelatedNewsSearchInput) {
   const sector = sectorKeywords.find((item) => item.trim().length >= 2 && item !== coreName);
   const output = new Set<string>();
 
+  for (const query of searchPlan?.searchQueries ?? []) output.add(query);
   for (const query of buildCatalystQueries(sectorKeywords, coreName || primaryName || "")) output.add(query);
 
   if (!isFundLike && primaryName && primaryName.toUpperCase() !== input.symbol.toUpperCase()) {
@@ -146,7 +161,7 @@ function buildSearchQueries(input: RelatedNewsSearchInput) {
   if (sector) output.add(`${sector} 行业 政策 订单 招标 采购`);
   if (!output.size) output.add(`${stockKeywords.slice(0, 4).join(" ")} 行业 新闻`.trim());
 
-  return [...output].filter((item) => item.length >= 4).slice(0, numberEnv("WEB_SEARCH_MAX_QUERIES", 4));
+  return [...output].filter((item) => item.length >= 4).slice(0, numberEnv("WEB_SEARCH_MAX_QUERIES", 6));
 }
 
 async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[]) {
