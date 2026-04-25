@@ -20,6 +20,8 @@ export function SectorNewsPanel() {
   const [news, setNews] = useState<NewsCardData[]>([]);
   const [selectedSector, setSelectedSector] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadWatches = useCallback(async () => {
@@ -81,12 +83,16 @@ export function SectorNewsPanel() {
 
   async function fetchNews() {
     setError(null);
+    setMessage(null);
+    setFetching(true);
     const response = await fetch("/api/news/fetch", { method: "POST" });
     const json = await response.json();
+    setFetching(false);
     if (!response.ok) {
       setError(json.error?.message ?? "抓取新闻失败。");
       return;
     }
+    setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。`);
     await loadNews(selectedSector);
   }
 
@@ -94,9 +100,9 @@ export function SectorNewsPanel() {
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>行业新闻窗口</CardTitle>
-        <Button size="sm" variant="outline" onClick={fetchNews}>
+        <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
           <RefreshCw className="h-4 w-4" />
-          抓取
+          {fetching ? "抓取中" : "抓取"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -116,6 +122,7 @@ export function SectorNewsPanel() {
             </Button>
           ))}
         </div>
+        {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">{message}</div> : null}
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载行业新闻...</div>

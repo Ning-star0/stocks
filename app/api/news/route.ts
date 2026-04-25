@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") ?? 1));
     const pageSize = Math.min(20, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") ?? 20)));
     const where = {
+      importance: { in: ["high", "medium"] },
       ...(query.symbol ? { symbols: { has: query.symbol } } : {}),
       ...(query.sector ? { sectors: { has: query.sector } } : {}),
       ...(query.from || query.to
@@ -53,7 +54,6 @@ export async function GET(request: NextRequest) {
     const rows = cacheKey ? await remember(cacheKey, 15 * 60, loadNews) : await loadNews();
 
     const news = rows
-      .filter((item) => item.importance !== "low")
       .map(serializeNewsItem)
       .sort((a, b) => importanceRank(b.importance as string | null) - importanceRank(a.importance as string | null));
     return NextResponse.json({ news, page, pageSize });

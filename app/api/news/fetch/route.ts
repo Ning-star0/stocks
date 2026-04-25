@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { deleteCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
@@ -8,6 +9,8 @@ import { getNewsProvider } from "@/lib/news";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
+import { getQuote } from "@/lib/services/quoteService";
+import type { NewsItem } from "@/lib/types";
 
 export async function POST() {
   try {
@@ -27,14 +30,20 @@ export async function POST() {
     ]);
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
-    const fetched = [];
+    const fetched: NewsItem[] = [];
 
     for (const symbol of symbols) {
       fetched.push(...(await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString())));
+      const name = await resolveSymbolName(symbol);
+      if (name) {
+        const namedNews = await provider.searchTopicNews([name], from.toISOString(), to.toISOString());
+        fetched.push(...namedNews.map((item) => attachSymbol(item, symbol, name)));
+      }
     }
 
     for (const watch of sectorWatches) {
-      fetched.push(...(await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString())));
+      const topicNews = await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString());
+      fetched.push(...topicNews.map((item) => attachSectorWatch(item, watch.sectorName, watch.keywords, watch.symbols)));
     }
 
     const savedById = new Map<string, Awaited<ReturnType<typeof upsertNewsItem>>>();
@@ -67,6 +76,12 @@ export async function POST() {
       );
     }
 
+    const affectedSymbols = new Set(symbols);
+    for (const item of saved) {
+      for (const symbol of item.symbols) affectedSymbols.add(symbol);
+    }
+    await Promise.all([...affectedSymbols].map((symbol) => deleteCache(`news:${symbol}:24h`)));
+
     return NextResponse.json({
       fetched: fetched.length,
       saved: saved.length,
@@ -76,4 +91,40 @@ export async function POST() {
   } catch (error) {
     return apiError(error);
   }
+}
+
+async function resolveSymbolName(symbol: string) {
+  try {
+    const quote = await getQuote(symbol, { allowStale: true });
+    const name = quote.name?.trim();
+    if (!name || name.toUpperCase() === symbol.toUpperCase()) return null;
+    if (name.includes("模拟")) return null;
+    return name;
+  } catch {
+    return null;
+  }
+}
+
+function attachSymbol(item: NewsItem, symbol: string, sectorName?: string): NewsItem {
+  return {
+    ...item,
+    symbols: uniqueUpper([...(item.symbols ?? []), symbol]),
+    sectors: uniqueText([...(item.sectors ?? []), ...(sectorName ? [sectorName] : [])])
+  };
+}
+
+function attachSectorWatch(item: NewsItem, sectorName: string, keywords: string[], symbols: string[]): NewsItem {
+  return {
+    ...item,
+    symbols: uniqueUpper([...(item.symbols ?? []), ...symbols]),
+    sectors: uniqueText([...(item.sectors ?? []), sectorName, ...keywords])
+  };
+}
+
+function uniqueUpper(values: string[]) {
+  return [...new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean))];
+}
+
+function uniqueText(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

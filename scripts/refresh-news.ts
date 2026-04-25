@@ -4,13 +4,15 @@ import { resolve } from "node:path";
 loadDotEnv();
 
 async function main() {
-  const [{ getNewsProvider }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }] = await Promise.all([
+  const [{ getNewsProvider }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }] = await Promise.all([
     import("@/lib/news"),
     import("@/lib/jobs/enqueueJob"),
     import("@/lib/jobs/jobTypes"),
     import("@/lib/news/importance"),
     import("@/lib/news/store"),
-    import("@/lib/prisma")
+    import("@/lib/prisma"),
+    import("@/lib/services/quoteService"),
+    import("@/lib/cache")
   ]);
   const user = await prisma.user.findFirst();
   if (!user) {
@@ -18,13 +20,25 @@ async function main() {
     return;
   }
   const provider = getNewsProvider();
-  const symbols = (await prisma.watchlistItem.findMany({ where: { watchlist: { userId: user.id } }, select: { symbol: true }, distinct: ["symbol"], take: 50 })).map((item) => item.symbol);
+  const [symbols, sectorWatches] = await Promise.all([
+    prisma.watchlistItem
+      .findMany({ where: { watchlist: { userId: user.id } }, select: { symbol: true }, distinct: ["symbol"], take: 50 })
+      .then((items) => items.map((item) => item.symbol)),
+    prisma.sectorWatch.findMany({ where: { userId: user.id }, take: 20 })
+  ]);
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const to = new Date().toISOString();
   let fetched = 0;
   let queued = 0;
   for (const symbol of symbols) {
-    for (const item of await provider.searchCompanyNews(symbol, from, to)) {
+    const items = await provider.searchCompanyNews(symbol, from, to);
+    const name = await resolveSymbolName(getQuote, symbol);
+    if (name) {
+      const namedItems = await provider.searchTopicNews([name], from, to);
+      items.push(...namedItems.map((item) => attachSymbol(item, symbol, name)));
+    }
+
+    for (const item of items) {
       fetched += 1;
       const row = await upsertNewsItem(item);
       const importance = calculateNewsImportance({ ...item, symbols: row.symbols }, symbols);
@@ -34,7 +48,25 @@ async function main() {
         queued += 1;
       }
     }
+    await deleteCache(`news:${symbol}:24h`);
   }
+
+  for (const watch of sectorWatches) {
+    const topicItems = await provider.searchTopicNews(watch.keywords, from, to);
+    for (const item of topicItems.map((newsItem) => attachSectorWatch(newsItem, watch.sectorName, watch.keywords, watch.symbols))) {
+      fetched += 1;
+      const row = await upsertNewsItem(item);
+      const importance = calculateNewsImportance({ ...item, symbols: row.symbols }, symbols);
+      await prisma.newsItem.update({ where: { id: row.id }, data: { importance: importance.level } });
+      if (importance.level === "high") {
+        const symbol = row.symbols[0] ?? null;
+        await enqueueJob({ userId: user.id, symbol, jobType: JOB_TYPES.NEWS_ANALYSIS, priority: JOB_PRIORITY.HIGH_IMPORTANCE_NEWS, inputHash: `news:${row.id}`, payload: { newsItemId: row.id } });
+        queued += 1;
+      }
+      await Promise.all(row.symbols.map((symbol) => deleteCache(`news:${symbol}:24h`)));
+    }
+  }
+
   console.log(JSON.stringify({ fetched, queued }, null, 2));
   await prisma.$disconnect();
 }
@@ -58,3 +90,41 @@ function loadDotEnv() {
   }
 }
 
+async function resolveSymbolName(
+  getQuote: (symbol: string, options?: { allowStale?: boolean }) => Promise<{ name?: string | null }>,
+  symbol: string
+) {
+  try {
+    const quote = await getQuote(symbol, { allowStale: true });
+    const name = quote.name?.trim();
+    if (!name || name.toUpperCase() === symbol.toUpperCase()) return null;
+    if (name.includes("模拟")) return null;
+    return name;
+  } catch {
+    return null;
+  }
+}
+
+function attachSymbol<T extends { symbols?: string[]; sectors?: string[] }>(item: T, symbol: string, sectorName?: string) {
+  return {
+    ...item,
+    symbols: uniqueUpper([...(item.symbols ?? []), symbol]),
+    sectors: uniqueText([...(item.sectors ?? []), ...(sectorName ? [sectorName] : [])])
+  };
+}
+
+function attachSectorWatch<T extends { symbols?: string[]; sectors?: string[] }>(item: T, sectorName: string, keywords: string[], symbols: string[]) {
+  return {
+    ...item,
+    symbols: uniqueUpper([...(item.symbols ?? []), ...symbols]),
+    sectors: uniqueText([...(item.sectors ?? []), sectorName, ...keywords])
+  };
+}
+
+function uniqueUpper(values: string[]) {
+  return [...new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean))];
+}
+
+function uniqueText(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}

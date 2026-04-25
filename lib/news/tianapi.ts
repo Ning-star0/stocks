@@ -34,7 +34,8 @@ export class TianApiNewsProvider implements NewsProvider {
   async searchCompanyNews(symbol: string, from: string, to: string): Promise<NewsItem[]> {
     const normalized = symbol.toUpperCase();
     const compact = normalized.replace(/\.(SH|SZ|BJ|HK)$/i, "");
-    const rows = await this.search({ word: compact, page: 1, num: 20 });
+    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 20 }));
+
     return rows
       .map((row) => normalizeTianApiNews(row, [normalized], []))
       .filter((item) => withinRange(item, from, to));

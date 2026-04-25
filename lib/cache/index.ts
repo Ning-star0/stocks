@@ -58,6 +58,16 @@ export async function setCache<T>(key: string, value: T, ttlSeconds: number): Pr
   }
 }
 
+export async function deleteCache(key: string): Promise<void> {
+  deleteMemoryKey(key);
+
+  try {
+    await prisma.cacheEntry.delete({ where: { key } });
+  } catch {
+    // Cache deletion is best effort; a missing DB row is fine.
+  }
+}
+
 export async function remember<T>(key: string, ttlSeconds: number, fn: () => Promise<T>): Promise<T> {
   const cached = await getCache<T>(key);
   if (cached !== null) return cached;
@@ -129,4 +139,3 @@ function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
-
