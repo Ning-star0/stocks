@@ -16,7 +16,7 @@ export type AnalyzeStockInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析。你不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位和用户风险偏好角度进行结构化分析。你的输出必须是严格 JSON，不要输出 Markdown。";
+  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析。你不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、新闻和用户风险偏好角度进行结构化分析。你的输出必须是严格 JSON，不要输出 Markdown。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
   if (!process.env.OPENAI_API_KEY) {
@@ -44,7 +44,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
             content:
               attempt === 0
                 ? userPrompt
-                : `${userPrompt}\n\n上一次输出不是合法 JSON，或没有通过 schema 校验。请只返回严格 JSON。`
+                : `${userPrompt}\n\n上一次输出没有通过 JSON schema 校验。请只返回一个 JSON 对象，所有枚举值必须严格使用 schema 中的英文值。`
           }
         ]
       };
@@ -52,8 +52,8 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
 
       const text = completion.choices[0]?.message?.content;
       if (!text) throw new Error("AI 返回了空内容。");
-      const parsed = JSON.parse(text);
-      return aiAnalysisSchema.parse(parsed);
+      const parsed = parseJsonObject(text);
+      return aiAnalysisSchema.parse(normalizeStockAnalysis(parsed));
     } catch (error) {
       lastError = error;
     }
@@ -85,7 +85,7 @@ ${JSON.stringify(input.userContext, null, 2)}
 相关新闻：
 ${JSON.stringify(input.recentNews ?? [], null, 2)}
 
-请返回以下 JSON schema：
+请只返回以下 JSON schema，不要 Markdown，不要解释：
 {
   "trend": "bullish | neutral | bearish",
   "confidence": 0.0,
@@ -109,6 +109,102 @@ ${JSON.stringify(input.recentNews ?? [], null, 2)}
   ],
   "disclaimer": "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
 }`;
+}
+
+function parseJsonObject(text: string) {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error("AI 返回内容不是可解析的 JSON 对象。");
+  }
+}
+
+function normalizeStockAnalysis(value: unknown) {
+  const record = isRecord(value) ? value : {};
+  const keyLevels = isRecord(record.keyLevels) ? record.keyLevels : {};
+  const actions = Array.isArray(record.possibleActions) ? record.possibleActions : [];
+
+  return {
+    trend: normalizeTrend(record.trend),
+    confidence: normalizeConfidence(record.confidence),
+    summary: toNonEmptyString(record.summary, "暂无摘要。"),
+    newsSummary: toNonEmptyString(record.newsSummary, "暂无已分析的相关新闻。"),
+    newsSentiment: normalizeNewsSentiment(record.newsSentiment),
+    catalystEvents: toStringArray(record.catalystEvents),
+    macroRisks: toStringArray(record.macroRisks),
+    sectorRisks: toStringArray(record.sectorRisks),
+    keyLevels: {
+      support: toNumberArray(keyLevels.support ?? record.support),
+      resistance: toNumberArray(keyLevels.resistance ?? record.resistance)
+    },
+    riskFactors: toStringArray(record.riskFactors).length ? toStringArray(record.riskFactors) : ["AI 输出未提供明确风险因素，请结合行情和新闻自行复核。"],
+    possibleActions: actions.length
+      ? actions.map(normalizeAction).filter(Boolean)
+      : [
+          {
+            action: "watch",
+            reason: "数据已生成结构化摘要，但操作计划不足，建议继续观察。",
+            invalidIf: "价格、成交量、技术指标或相关新闻发生明显变化。"
+          }
+        ],
+    disclaimer: toNonEmptyString(record.disclaimer, "本内容由 AI 生成，仅供研究参考，不构成投资建议。")
+  };
+}
+
+function normalizeTrend(value: unknown) {
+  const text = String(value ?? "").toLowerCase();
+  if (text.includes("bull") || text.includes("positive") || text.includes("看多") || text.includes("偏多")) return "bullish";
+  if (text.includes("bear") || text.includes("negative") || text.includes("看空") || text.includes("偏空")) return "bearish";
+  return "neutral";
+}
+
+function normalizeNewsSentiment(value: unknown) {
+  const text = String(value ?? "").toLowerCase();
+  if (text.includes("mixed") || text.includes("分歧") || text.includes("混合")) return "mixed";
+  if (text.includes("positive") || text.includes("利好") || text.includes("正面")) return "positive";
+  if (text.includes("negative") || text.includes("利空") || text.includes("负面")) return "negative";
+  return "neutral";
+}
+
+function normalizeAction(value: unknown) {
+  const record = isRecord(value) ? value : {};
+  const text = String(record.action ?? "").toLowerCase();
+  const action = text.includes("reduce") || text.includes("减") ? "reduce" : text.includes("entry") || text.includes("买") || text.includes("consider") ? "consider_entry" : text.includes("avoid") || text.includes("回避") ? "avoid" : text.includes("hold") || text.includes("持") ? "hold" : "watch";
+  return {
+    action,
+    reason: toNonEmptyString(record.reason, "AI 未提供原因。"),
+    invalidIf: toNonEmptyString(record.invalidIf, "关键数据发生明显变化。")
+  };
+}
+
+function normalizeConfidence(value: unknown) {
+  const number = typeof value === "number" ? value : Number(String(value ?? "").replace("%", ""));
+  if (!Number.isFinite(number)) return 0.5;
+  const normalized = number > 1 ? number / 100 : number;
+  return Math.min(1, Math.max(0, normalized));
+}
+
+function toNumberArray(value: unknown) {
+  const values = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  return values.map((item) => (typeof item === "number" ? item : Number.parseFloat(String(item)))).filter((item) => Number.isFinite(item));
+}
+
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
+function toNonEmptyString(value: unknown, fallback: string) {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function buildFallbackAnalysis(input: AnalyzeStockInput): AiAnalysisResult {
