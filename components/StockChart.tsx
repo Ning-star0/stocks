@@ -13,14 +13,14 @@ type ChartPoint = Candle & {
   ma60: number | null;
 };
 
-const VIEWBOX_WIDTH = 1000;
-const VIEWBOX_HEIGHT = 440;
+const VIEWBOX_WIDTH = 1200;
+const VIEWBOX_HEIGHT = 520;
 const PRICE_TOP = 42;
-const PRICE_HEIGHT = 260;
-const VOLUME_TOP = 326;
-const VOLUME_HEIGHT = 76;
-const CHART_LEFT = 10;
-const CHART_RIGHT = 72;
+const PRICE_HEIGHT = 330;
+const VOLUME_TOP = 404;
+const VOLUME_HEIGHT = 82;
+const CHART_LEFT = 8;
+const CHART_RIGHT = 74;
 const CHART_BOTTOM = 34;
 const CHART_WIDTH = VIEWBOX_WIDTH - CHART_LEFT - CHART_RIGHT;
 
@@ -60,11 +60,11 @@ export function StockChart({
   }
 
   if (!data.length) {
-    return <div className="flex h-[500px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>;
+    return <div className="flex h-[620px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>;
   }
 
   return (
-    <div className="w-full rounded-lg border bg-card p-3">
+    <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           {maSeries.map((item) => (
@@ -76,9 +76,9 @@ export function StockChart({
         <div className="text-xs text-muted-foreground">红涨绿跌，均线按当前周期 K 线计算</div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[220px_minmax(760px,1fr)]">
         {hovered ? <InfoPanel point={hovered} currency={currency} /> : null}
-        <div className="h-[500px] w-full overflow-hidden rounded-md bg-[#0d1118]">
+        <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
           <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setHoverIndex(null)}>
             <defs>
               <clipPath id="price-clip">

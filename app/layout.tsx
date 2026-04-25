@@ -20,7 +20,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body>
         <div className="min-h-screen bg-background terminal-grid">
           <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+            <div className="mx-auto flex w-full max-w-[1760px] items-center justify-between px-4 py-3 lg:px-6 2xl:px-8">
               <Link href="/" className="flex items-center gap-2 font-semibold">
                 <BarChart3 className="h-5 w-5 text-primary" />
                 股票 AI 监控
@@ -37,8 +37,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               ) : null}
             </div>
           </header>
-          <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
-          <footer className="mx-auto max-w-7xl px-4 pb-6 text-xs text-muted-foreground">
+          <main className="mx-auto w-full max-w-[1760px] px-4 py-6 lg:px-6 2xl:px-8">{children}</main>
+          <footer className="mx-auto w-full max-w-[1760px] px-4 pb-6 text-xs text-muted-foreground lg:px-6 2xl:px-8">
             本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
           </footer>
         </div>

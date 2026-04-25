@@ -99,7 +99,7 @@ export default async function StockDetailPage({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span className="text-2xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatCurrency(quote.price, quote.currency)}</span>
-            <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-emerald-500" : "text-red-500"}>{quote.changePct === null ? "--" : formatPercent(quote.changePct)}</span>
+            <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>{quote.changePct === null ? "--" : formatPercent(quote.changePct)}</span>
             <span>成交量 {quote.volume === null ? "--" : formatNumber(quote.volume)}</span>
             <span>{quote.updatedAt ? new Date(quote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
           </div>
@@ -107,7 +107,7 @@ export default async function StockDetailPage({
         <AnalyzeStockButton symbol={quoteSymbol} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">
           <Card>
             <CardHeader className="gap-3">
@@ -176,7 +176,7 @@ function safeCalculateIndicators(symbol: string, candles: Candle[]): { indicator
     if (error instanceof AppError && error.code === "INSUFFICIENT_DATA") {
       return {
         indicators: null,
-        indicatorError: `当前 K 线数量不足，至少需要 35 根才能计算技术指标。`
+        indicatorError: "当前 K 线数量不足，至少需要 35 根才能计算技术指标。"
       };
     }
     throw error;
