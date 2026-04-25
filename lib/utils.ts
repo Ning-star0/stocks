@@ -14,6 +14,20 @@ export function formatCurrency(value?: number | null, currency = process.env.NEX
   }).format(value);
 }
 
+export function isIndexSymbol(symbol?: string | null) {
+  if (!symbol) return false;
+  const normalized = symbol.trim().toUpperCase();
+  return ["000001.SH", "399001.SZ", "000688.SH", "000300.SH", "000905.SH", "399006.SZ"].includes(normalized);
+}
+
+export function formatPriceValue(value?: number | null, input?: { currency?: string | null; symbol?: string | null; unit?: string | null }) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  if (input?.unit === "point" || isIndexSymbol(input?.symbol)) {
+    return `${formatNumber(value)}点`;
+  }
+  return formatCurrency(value, input?.currency ?? undefined);
+}
+
 export function formatNumber(value?: number | null) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);

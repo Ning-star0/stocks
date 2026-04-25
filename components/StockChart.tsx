@@ -3,7 +3,7 @@
 import { MouseEvent, useMemo, useState } from "react";
 
 import type { Candle } from "@/lib/types";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { formatNumber, formatPriceValue } from "@/lib/utils";
 
 type ChartPoint = Candle & {
   date: string;
@@ -44,10 +44,14 @@ const maSeries = [
 export function StockChart({
   candles,
   currency,
+  symbol,
+  unit,
   interval = "1d"
 }: {
   candles: Candle[];
   currency?: string;
+  symbol?: string;
+  unit?: string;
   interval?: string;
 }) {
   const [cursor, setCursor] = useState<CursorPoint | null>(null);
@@ -103,7 +107,7 @@ export function StockChart({
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[220px_minmax(760px,1fr)]">
-        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} /> : null}
+        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
         <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
           <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setCursor(null)}>
             <defs>
@@ -133,8 +137,8 @@ export function StockChart({
               ))}
             </g>
 
-            <Axes data={data} scale={scale} currency={currency} />
-            {cursor ? <CursorCrosshair cursor={cursor} currency={currency} /> : null}
+            <Axes data={data} scale={scale} currency={currency} symbol={symbol} unit={unit} />
+            {cursor ? <CursorCrosshair cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
           </svg>
         </div>
       </div>
@@ -254,14 +258,14 @@ function Grid({ scale }: { scale: ReturnType<typeof buildScale> }) {
   );
 }
 
-function Axes({ data, scale, currency }: { data: ChartPoint[]; scale: ReturnType<typeof buildScale>; currency?: string }) {
+function Axes({ data, scale, currency, symbol, unit }: { data: ChartPoint[]; scale: ReturnType<typeof buildScale>; currency?: string; symbol?: string; unit?: string }) {
   const priceTicks = getPriceTicks(scale.priceMin, scale.priceMax, 5);
   const xTickIndexes = getIndexTicks(data.length, 6);
   return (
     <g>
       {priceTicks.map((tick) => (
         <text key={tick} x={CHART_LEFT + CHART_WIDTH + 8} y={scale.y(tick) + 4} fill="rgb(148,163,184)" fontSize={12}>
-          {formatAxisPrice(tick, currency)}
+          {formatAxisPrice(tick, currency, symbol, unit)}
         </text>
       ))}
       {xTickIndexes.map((index) => (
@@ -276,7 +280,7 @@ function Axes({ data, scale, currency }: { data: ChartPoint[]; scale: ReturnType
   );
 }
 
-function CursorCrosshair({ cursor, currency }: { cursor: CursorPoint; currency?: string }) {
+function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoint; currency?: string; symbol?: string; unit?: string }) {
   const tooltipWidth = 210;
   const tooltipHeight = cursor.volume === null ? 54 : 72;
   const tooltipX = cursor.x + tooltipWidth + 18 > CHART_LEFT + CHART_WIDTH ? cursor.x - tooltipWidth - 14 : cursor.x + 14;
@@ -291,7 +295,7 @@ function CursorCrosshair({ cursor, currency }: { cursor: CursorPoint; currency?:
 
       <rect x={CHART_LEFT + CHART_WIDTH + 5} y={priceLabelY - 12} width={64} height={20} rx={4} fill="#111827" stroke="rgba(148,163,184,0.35)" />
       <text x={CHART_LEFT + CHART_WIDTH + 37} y={priceLabelY + 3} fill="#e2e8f0" fontSize={11} textAnchor="middle">
-        {formatAxisPrice(cursor.price, currency)}
+        {formatAxisPrice(cursor.price, currency, symbol, unit)}
       </text>
 
       <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx={6} fill="rgba(15,23,42,0.96)" stroke="rgba(148,163,184,0.35)" />
@@ -299,18 +303,18 @@ function CursorCrosshair({ cursor, currency }: { cursor: CursorPoint; currency?:
         X: {cursor.timeLabel}
       </text>
       <text x={tooltipX + 10} y={tooltipY + 38} fill="#e2e8f0" fontSize={12}>
-        Y({cursor.yLabel}): {cursor.volume === null ? formatCurrency(cursor.price, currency) : formatNumber(cursor.volume)}
+        Y({cursor.yLabel}): {cursor.volume === null ? formatPriceValue(cursor.price, { currency, symbol, unit }) : formatNumber(cursor.volume)}
       </text>
       {cursor.volume !== null ? (
         <text x={tooltipX + 10} y={tooltipY + 58} fill="#94a3b8" fontSize={11}>
-          对应价格: {formatCurrency(cursor.price, currency)}
+          对应价格: {formatPriceValue(cursor.price, { currency, symbol, unit })}
         </text>
       ) : null}
     </g>
   );
 }
 
-function InfoPanel({ point, cursor, currency }: { point: ChartPoint; cursor: CursorPoint | null; currency?: string }) {
+function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoint; cursor: CursorPoint | null; currency?: string; symbol?: string; unit?: string }) {
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
@@ -323,7 +327,7 @@ function InfoPanel({ point, cursor, currency }: { point: ChartPoint; cursor: Cur
             <span>X 时间</span>
             <span className="text-right text-foreground">{cursor.timeLabel}</span>
             <span>Y 价格</span>
-            <span className="text-right tabular-nums text-foreground">{formatCurrency(cursor.price, currency)}</span>
+            <span className="text-right tabular-nums text-foreground">{formatPriceValue(cursor.price, { currency, symbol, unit })}</span>
             {cursor.volume !== null ? (
               <>
                 <span>Y 成交量</span>
@@ -337,13 +341,13 @@ function InfoPanel({ point, cursor, currency }: { point: ChartPoint; cursor: Cur
       <div className="mb-2 font-medium text-popover-foreground">最近 K 线：{point.date}</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
         <span>开盘</span>
-        <span className="text-right tabular-nums text-foreground">{formatCurrency(point.open, currency)}</span>
+        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.open, { currency, symbol, unit })}</span>
         <span>最高</span>
-        <span className="text-right tabular-nums text-foreground">{formatCurrency(point.high, currency)}</span>
+        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.high, { currency, symbol, unit })}</span>
         <span>最低</span>
-        <span className="text-right tabular-nums text-foreground">{formatCurrency(point.low, currency)}</span>
+        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.low, { currency, symbol, unit })}</span>
         <span>收盘</span>
-        <span className="text-right tabular-nums text-foreground">{formatCurrency(point.close, currency)}</span>
+        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.close, { currency, symbol, unit })}</span>
         <span>涨跌</span>
         <span className={`text-right tabular-nums ${up ? "text-red-400" : "text-emerald-400"}`}>
           {change >= 0 ? "+" : ""}
@@ -422,8 +426,10 @@ function getIndexTicks(length: number, count: number) {
   return [...output];
 }
 
-function formatAxisPrice(value: number, currency?: string) {
+function formatAxisPrice(value: number, currency?: string, symbol?: string, unit?: string) {
+  if (unit === "point") return value > 100 ? value.toFixed(2) : value.toFixed(3);
   if (currency === "CNY") return value > 100 ? value.toFixed(2) : value.toFixed(3);
+  if (symbol) return formatPriceValue(value, { currency, symbol, unit });
   return value > 100 ? value.toFixed(2) : value.toFixed(4);
 }
 

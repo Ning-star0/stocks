@@ -5,7 +5,7 @@ import { Activity, BarChart3 } from "lucide-react";
 
 import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatNumber, formatPercent, formatPriceValue } from "@/lib/utils";
 
 type StockCardProps = {
   symbol: string;
@@ -19,7 +19,8 @@ type StockCardProps = {
 };
 
 export function StockCard({ symbol, name, price, currency, changePercent, volume, trend, summary }: StockCardProps) {
-  const isUp = (changePercent ?? 0) >= 0;
+  const isUp = changePercent !== null && changePercent !== undefined && changePercent >= 0;
+
   return (
     <Link href={`/stocks/${symbol}`}>
       <Card className="h-full transition-colors hover:border-primary/60">
@@ -35,7 +36,7 @@ export function StockCard({ symbol, name, price, currency, changePercent, volume
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <div className="text-2xl font-semibold tabular-nums">{formatCurrency(price, currency ?? undefined)}</div>
+            <div className="text-2xl font-semibold tabular-nums">{formatPriceValue(price, { currency, symbol })}</div>
             <div className={isUp ? "text-sm text-emerald-500" : "text-sm text-red-500"}>{formatPercent(changePercent)}</div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">

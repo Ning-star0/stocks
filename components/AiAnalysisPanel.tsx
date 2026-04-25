@@ -4,18 +4,22 @@ import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AiAnalysisResult } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatPriceValue } from "@/lib/utils";
 
 export function AiAnalysisPanel({
   analysis,
   createdAt,
   fromCache,
-  currency
+  currency,
+  symbol,
+  unit
 }: {
   analysis?: AiAnalysisResult | null;
   createdAt?: string | Date | null;
   fromCache?: boolean;
   currency?: string;
+  symbol?: string;
+  unit?: string;
 }) {
   if (!analysis) {
     return (
@@ -60,8 +64,8 @@ export function AiAnalysisPanel({
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <LevelList title="支撑位" values={analysis.keyLevels.support} currency={currency} />
-          <LevelList title="压力位" values={analysis.keyLevels.resistance} currency={currency} />
+          <LevelList title="支撑位" values={analysis.keyLevels.support} currency={currency} symbol={symbol} unit={unit} />
+          <LevelList title="压力位" values={analysis.keyLevels.resistance} currency={currency} symbol={symbol} unit={unit} />
         </div>
 
         <Block title="风险因素">
@@ -95,7 +99,7 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function LevelList({ title, values, currency }: { title: string; values: number[]; currency?: string }) {
+function LevelList({ title, values, currency, symbol, unit }: { title: string; values: number[]; currency?: string; symbol?: string; unit?: string }) {
   return (
     <div className="rounded-md border border-border p-3">
       <div className="mb-2 text-xs uppercase text-muted-foreground">{title}</div>
@@ -103,7 +107,7 @@ function LevelList({ title, values, currency }: { title: string; values: number[
         {values.length ? (
           values.map((value) => (
             <span key={value} className="rounded bg-secondary px-2 py-1 text-sm tabular-nums">
-              {formatCurrency(value, currency)}
+              {formatPriceValue(value, { currency, symbol, unit })}
             </span>
           ))
         ) : (

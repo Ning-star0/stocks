@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
 import type { AiAnalysisResult, Candle, IndicatorSnapshot } from "@/lib/types";
-import { formatCurrency, formatNumber, formatPercent, toNumber } from "@/lib/utils";
+import { formatNumber, formatPercent, formatPriceValue, isIndexSymbol, toNumber } from "@/lib/utils";
 
 const rangeOptions = [
   { value: "1mo", label: "1月" },
@@ -78,6 +78,7 @@ export default async function StockDetailPage({
   const { indicators, indicatorError } = safeCalculateIndicators(quoteSymbol, indicatorCandles);
   const analysis = latestAnalysis?.outputJson as AiAnalysisResult | undefined;
   const displayName = quote.name ?? quoteSymbol;
+  const isIndex = isIndexSymbol(quoteSymbol);
 
   return (
     <div className="space-y-6">
@@ -99,7 +100,7 @@ export default async function StockDetailPage({
             {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <span className="text-2xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatCurrency(quote.price, quote.currency)}</span>
+            <span className="text-2xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatPriceValue(quote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
             <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
               {quote.changePct === null ? "--" : formatPercent(quote.changePct)}
             </span>
@@ -120,13 +121,13 @@ export default async function StockDetailPage({
               </div>
             </CardHeader>
             <CardContent>
-              {candles.length ? <StockChart candles={candles} currency={quote.currency} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
+              {candles.length ? <StockChart candles={candles} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
             </CardContent>
           </Card>
 
           <NewsPanel symbol={quoteSymbol} name={displayName} />
-          <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} />
-          {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} interval={interval} /> : null}
+          <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} />
+          {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : null}
         </div>
 
         <div className="space-y-5">
@@ -221,10 +222,14 @@ function ChartControls({ symbol, range, interval }: { symbol: string; range: str
 function OhlcvTable({
   candles,
   currency,
+  symbol,
+  unit,
   interval
 }: {
   candles: Array<{ timestamp: string; open: number; high: number; low: number; close: number; volume: number }>;
   currency?: string;
+  symbol?: string;
+  unit?: string;
   interval: string;
 }) {
   const intraday = isIntraday(interval);
@@ -249,10 +254,10 @@ function OhlcvTable({
             {candles.map((candle) => (
               <TableRow key={candle.timestamp}>
                 <TableCell>{intraday ? new Date(candle.timestamp).toLocaleString("zh-CN") : new Date(candle.timestamp).toLocaleDateString("zh-CN")}</TableCell>
-                <TableCell className="tabular-nums">{formatCurrency(candle.open, currency)}</TableCell>
-                <TableCell className="tabular-nums">{formatCurrency(candle.high, currency)}</TableCell>
-                <TableCell className="tabular-nums">{formatCurrency(candle.low, currency)}</TableCell>
-                <TableCell className="tabular-nums">{formatCurrency(candle.close, currency)}</TableCell>
+                <TableCell className="tabular-nums">{formatPriceValue(candle.open, { currency, symbol, unit })}</TableCell>
+                <TableCell className="tabular-nums">{formatPriceValue(candle.high, { currency, symbol, unit })}</TableCell>
+                <TableCell className="tabular-nums">{formatPriceValue(candle.low, { currency, symbol, unit })}</TableCell>
+                <TableCell className="tabular-nums">{formatPriceValue(candle.close, { currency, symbol, unit })}</TableCell>
                 <TableCell className="tabular-nums">{formatNumber(candle.volume)}</TableCell>
               </TableRow>
             ))}

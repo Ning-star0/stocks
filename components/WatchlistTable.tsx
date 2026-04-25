@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AiAnalysisResult } from "@/lib/types";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatNumber, formatPercent, formatPriceValue } from "@/lib/utils";
 
 type QuoteWithStatus = {
   symbol: string;
@@ -189,7 +189,11 @@ export function WatchlistTable() {
                         <div className="text-xs text-muted-foreground">{item.symbol}</div>
                       </TableCell>
                       <TableCell className="font-medium tabular-nums">
-                        {quote?.price === null || !quote ? <span className="text-xs text-red-400">{formatQuoteStatus(quote?.status)}</span> : formatCurrency(quote.price, quote.currency)}
+                        {quote?.price === null || !quote ? (
+                          <span className="text-xs text-red-400">{formatQuoteStatus(quote?.status)}</span>
+                        ) : (
+                          formatPriceValue(quote.price, { currency: quote.currency, symbol: quote.symbol })
+                        )}
                       </TableCell>
                       <TableCell className={quote?.changePct === null || !quote ? "tabular-nums text-muted-foreground" : quote.changePct >= 0 ? "tabular-nums text-red-500" : "tabular-nums text-emerald-500"}>
                         {quote?.changePct === null || !quote ? "--" : formatPercent(quote.changePct)}
@@ -246,7 +250,7 @@ function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: bo
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <div className="text-2xl font-semibold tabular-nums">{loading ? "--" : formatNumber(quote?.price)}</div>
+            <div className="text-2xl font-semibold tabular-nums">{loading ? "--" : formatPriceValue(quote?.price, { symbol: quote?.symbol ?? item.symbol, unit: "point" })}</div>
             <div className={`text-sm tabular-nums ${changeClass}`}>{loading ? "--" : formatPercent(quote?.changePct)}</div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
