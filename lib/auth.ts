@@ -47,31 +47,46 @@ export async function verifyPassword(password: string, encodedHash: string) {
 
 export async function createSessionCookie(email: string) {
   const store = await cookies();
+  const cookie = createSessionCookieData(email);
+  store.set(cookie.name, cookie.value, cookie.options);
+}
+
+export function createSessionCookieData(email: string) {
   const maxAge = numberEnv("AUTH_SESSION_DAYS", 7) * 24 * 60 * 60;
   const token = createSessionToken({
     email,
     exp: Math.floor(Date.now() / 1000) + maxAge
   });
-  const secureCookie = process.env.AUTH_COOKIE_SECURE === "true";
 
-  store.set(AUTH_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: secureCookie,
-    path: "/",
-    maxAge
-  });
+  return {
+    name: AUTH_COOKIE_NAME,
+    value: token,
+    options: sessionCookieOptions(maxAge)
+  };
 }
 
 export async function clearSessionCookie() {
   const store = await cookies();
-  store.set(AUTH_COOKIE_NAME, "", {
+  const cookie = clearSessionCookieData();
+  store.set(cookie.name, cookie.value, cookie.options);
+}
+
+export function clearSessionCookieData() {
+  return {
+    name: AUTH_COOKIE_NAME,
+    value: "",
+    options: sessionCookieOptions(0)
+  };
+}
+
+function sessionCookieOptions(maxAge: number) {
+  return {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.AUTH_COOKIE_SECURE === "true",
     path: "/",
-    maxAge: 0
-  });
+    maxAge
+  } as const;
 }
 
 export async function getSession() {

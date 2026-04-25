@@ -1,14 +1,12 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -18,26 +16,32 @@ export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
     setLoading(true);
 
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.get("email"),
-        password: form.get("password")
-      })
-    });
-    const json = await response.json();
 
-    if (!response.ok) {
-      setError(json.error?.message ?? "登录失败。");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          email: form.get("email"),
+          password: form.get("password")
+        })
+      });
+      const json = await response.json();
+
+      if (!response.ok) {
+        setError(json.error?.message ?? "登录失败。");
+        setLoading(false);
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next") || "/";
+      window.location.assign(safeNextPath(next));
+    } catch {
+      setError("登录请求失败，请检查服务是否正常运行。");
       setLoading(false);
-      return;
     }
-
-    const params = new URLSearchParams(window.location.search);
-    const next = params.get("next") || "/";
-    router.replace(next.startsWith("/") ? next : "/");
-    router.refresh();
   }
 
   return (
@@ -68,4 +72,9 @@ export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
       </CardContent>
     </Card>
   );
+}
+
+function safeNextPath(next: string) {
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/login")) return "/";
+  return next;
 }

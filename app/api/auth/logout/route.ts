@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { clearSessionCookie } from "@/lib/auth";
+import { clearSessionCookieData } from "@/lib/auth";
 
 export async function POST() {
-  await clearSessionCookie();
-  return NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true });
+  const cookie = clearSessionCookieData();
+  response.cookies.set(cookie.name, cookie.value, cookie.options);
+  return response;
 }
