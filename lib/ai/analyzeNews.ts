@@ -16,7 +16,7 @@ export type AnalyzeNewsInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的金融新闻分析助手。你只能基于提供的新闻内容进行分析。你不能夸大新闻影响，不能给出确定性投资建议。你需要判断新闻的情绪、影响方向、影响级别、相关股票、相关行业和风险点。输出必须是严格 JSON，不要输出 Markdown。";
+  "你是一个谨慎的金融新闻分析助手。你只能基于提供的新闻内容进行分析。你不能夸大新闻影响，不能给出确定性投资建议。你需要判断新闻的情绪、影响方向、影响级别、相关股票、相关行业和风险点。无论新闻原文是英文、繁体中文或其他语言，summary、riskNotes、whyItMatters 必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown。";
 
 export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysisResult> {
   if (!normalizeApiKey(process.env.OPENAI_API_KEY)) return fallbackNewsAnalysis(input, "DeepSeek API key 未配置，使用关键词规则兜底。");
@@ -42,7 +42,7 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
             content:
               attempt === 0
                 ? prompt
-                : `${prompt}\n\n上一次输出没有通过校验。请只返回严格 JSON，枚举值必须使用英文值。`
+                : `${prompt}\n\n上一次输出没有通过校验。请只返回严格 JSON，枚举值必须使用英文值。summary、riskNotes、whyItMatters 必须使用简体中文。`
           }
         ]
       };
@@ -79,6 +79,13 @@ ${input.publishedAt}
 正文或摘要：
 ${truncate(input.content ?? input.title, 6000)}
 
+输出语言要求：
+1. summary 必须是简体中文，控制在 120 字以内。
+2. riskNotes 必须是简体中文数组。
+3. whyItMatters 必须是简体中文。
+4. sentiment、impactLevel 等枚举值仍然使用英文。
+5. 原文标题和链接可以保留原始语言，但不要把英文原文整段复制到 summary。
+
 相关股票候选：
 ${JSON.stringify(input.candidateSymbols ?? [])}
 
@@ -114,14 +121,19 @@ function normalizeNewsAnalysis(value: unknown, input: AnalyzeNewsInput) {
   const record = isRecord(value) ? value : {};
   const riskNotes = toStringArray(record.riskNotes);
   const affectedSectors = toStringArray(record.affectedSectors);
+  const impactLevel = normalizeImpact(record.impactLevel ?? record.importance);
+  const sentiment = normalizeSentiment(record.sentiment);
   return {
-    summary: toNonEmptyString(record.summary, truncate(input.content || input.title, 280)),
-    sentiment: normalizeSentiment(record.sentiment),
-    impactLevel: normalizeImpact(record.impactLevel ?? record.importance),
+    summary: ensureSimplifiedChineseSummary(toNonEmptyString(record.summary, buildChineseFallbackSummary(input, sentiment, impactLevel)), input, sentiment, impactLevel),
+    sentiment,
+    impactLevel,
     affectedSymbols: normalizeSymbolArray(record.affectedSymbols, input.candidateSymbols ?? []),
     affectedSectors: affectedSectors.length ? affectedSectors : input.candidateSectors ?? [],
-    riskNotes: riskNotes.length ? riskNotes : ["AI 新闻分析可能遗漏上下文，请结合原文和市场数据复核。"],
-    whyItMatters: toNonEmptyString(record.whyItMatters, "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"),
+    riskNotes: riskNotes.length && riskNotes.every(hasCjk) ? riskNotes : ["新闻分析可能遗漏上下文，请结合原文、公告和市场数据复核。"],
+    whyItMatters: ensureSimplifiedChineseText(
+      toNonEmptyString(record.whyItMatters, "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"),
+      "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"
+    ),
     confidence: normalizeConfidence(record.confidence)
   };
 }
@@ -178,7 +190,7 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason: string): NewsAnal
   const impactLevel = text.includes("fed") || text.includes("earnings") || text.includes("guidance") || text.includes("业绩") ? "medium" : "low";
 
   return {
-    summary: truncate(input.content || input.title, 280),
+    summary: buildChineseFallbackSummary(input, sentiment, impactLevel),
     sentiment,
     impactLevel,
     affectedSymbols: input.candidateSymbols ?? [],
@@ -187,6 +199,36 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason: string): NewsAnal
     whyItMatters: "该消息可能影响市场情绪或短期交易定位，但当前上下文有限。",
     confidence: 0.35
   };
+}
+
+function buildChineseFallbackSummary(input: AnalyzeNewsInput, sentiment: string, impactLevel: string) {
+  const title = truncate(input.title.replace(/\s+/g, " ").trim(), 80);
+  const source = input.source ? `来自 ${input.source}，` : "";
+  return `${source}该新闻围绕“${title}”。系统初步判断情绪为${sentimentLabel(sentiment)}、影响级别为${impactLabel(impactLevel)}，具体影响需结合原文和行情确认。`;
+}
+
+function ensureSimplifiedChineseSummary(value: string, input: AnalyzeNewsInput, sentiment: string, impactLevel: string) {
+  return hasCjk(value) ? truncate(value, 180) : buildChineseFallbackSummary(input, sentiment, impactLevel);
+}
+
+function ensureSimplifiedChineseText(value: string, fallback: string) {
+  return hasCjk(value) ? value : fallback;
+}
+
+function hasCjk(value: string) {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function sentimentLabel(value: string) {
+  if (value === "positive") return "正面";
+  if (value === "negative") return "负面";
+  return "中性";
+}
+
+function impactLabel(value: string) {
+  if (value === "high") return "高";
+  if (value === "medium") return "中";
+  return "低";
 }
 
 function truncate(value: string, maxLength: number) {

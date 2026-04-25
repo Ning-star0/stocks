@@ -29,7 +29,7 @@ export type AnalyzeStockInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行结构化分析。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
+  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行结构化分析。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
   if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
@@ -95,6 +95,7 @@ function buildUserPrompt(input: AnalyzeStockInput) {
 6. newsSummary 必须综合 recentNews 和 webSearchResults 的共同主线，控制在 120 字以内，不要逐条复述。
 7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把“ETF 涨跌、净值变化、成交额”当成核心催化。
 8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
+9. summary、newsSummary、webSearchSummary、catalystEvents、macroRisks、sectorRisks、riskFactors、possibleActions.reason、possibleActions.invalidIf 必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
 
 股票代码：
 ${input.symbol}
@@ -207,20 +208,20 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
     confidence: normalizeConfidence(record.confidence),
     analysisAsOf: toNonEmptyString(record.analysisAsOf, input.analysisAsOf ?? new Date().toISOString()),
     dataScope,
-    summary: toNonEmptyString(record.summary, buildDefaultSummary(input, dataScope)),
-    newsSummary: toNonEmptyString(record.newsSummary, buildFallbackNewsSummary(input.recentNews, input.webSearchResults)),
+    summary: ensureChineseAnalysisText(toNonEmptyString(record.summary, buildDefaultSummary(input, dataScope)), buildDefaultSummary(input, dataScope)),
+    newsSummary: ensureChineseAnalysisText(toNonEmptyString(record.newsSummary, buildFallbackNewsSummary(input.recentNews, input.webSearchResults)), buildFallbackNewsSummary(input.recentNews, input.webSearchResults)),
     newsSentiment: normalizeNewsSentiment(record.newsSentiment),
-    webSearchSummary: toNonEmptyString(record.webSearchSummary, buildWebSearchSummary(webSearchResults)),
+    webSearchSummary: ensureChineseAnalysisText(toNonEmptyString(record.webSearchSummary, buildWebSearchSummary(webSearchResults)), buildWebSearchSummary(webSearchResults)),
     newsReferences,
     webSearchResults,
-    catalystEvents: toStringArray(record.catalystEvents),
-    macroRisks: toStringArray(record.macroRisks),
-    sectorRisks: toStringArray(record.sectorRisks),
+    catalystEvents: toChineseStringArray(record.catalystEvents),
+    macroRisks: toChineseStringArray(record.macroRisks),
+    sectorRisks: toChineseStringArray(record.sectorRisks),
     keyLevels: {
       support: toNumberArray(keyLevels.support ?? record.support),
       resistance: toNumberArray(keyLevels.resistance ?? record.resistance)
     },
-    riskFactors: riskFactors.length ? riskFactors : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
+    riskFactors: riskFactors.length && riskFactors.every(hasCjk) ? riskFactors : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
     possibleActions: actions.length
       ? actions.map(normalizeAction).filter(Boolean)
       : [
@@ -280,8 +281,8 @@ function normalizeAction(value: unknown) {
             : "watch";
   return {
     action,
-    reason: toNonEmptyString(record.reason, "AI 未提供原因。"),
-    invalidIf: toNonEmptyString(record.invalidIf, "关键数据发生明显变化。")
+    reason: ensureChineseAnalysisText(toNonEmptyString(record.reason, "AI 未提供原因。"), "AI 未提供原因。"),
+    invalidIf: ensureChineseAnalysisText(toNonEmptyString(record.invalidIf, "关键数据发生明显变化。"), "关键数据发生明显变化。")
   };
 }
 
@@ -384,18 +385,32 @@ function buildDefaultSummary(input: AnalyzeStockInput, scope: ReturnType<typeof 
 function buildFallbackNewsSummary(recentNews: unknown, webSearchResults: unknown) {
   const combined = [...(Array.isArray(recentNews) ? recentNews : []), ...(Array.isArray(webSearchResults) ? webSearchResults : [])];
   if (!combined.length) return "暂无已分析的相关新闻或联网检索结果。";
-  return combined
+  const text = combined
     .slice(0, 3)
     .map((item) => {
       const news = item as { title?: string; summary?: string; aiSummary?: string };
       return news.aiSummary ?? news.summary ?? news.title ?? "未命名新闻";
     })
     .join(" ");
+  if (hasCjk(text)) return text.length > 160 ? `${text.slice(0, 160)}...` : text;
+  return `已检索到 ${combined.length} 条相关新闻候选，但原文或摘要不是简体中文；系统已纳入标题、来源和时间作为参考，具体内容需点开原文复核。`;
 }
 
 function buildWebSearchSummary(results: Array<{ title: string }>) {
   if (!results.length) return "本次没有可用的联网新闻检索结果。";
   return `本次联网新闻检索返回 ${results.length} 条候选结果，已按相关性和时间筛选后纳入参考。`;
+}
+
+function toChineseStringArray(value: unknown) {
+  return toStringArray(value).filter(hasCjk);
+}
+
+function ensureChineseAnalysisText(value: string, fallback: string) {
+  return hasCjk(value) ? value : fallback;
+}
+
+function hasCjk(value: string) {
+  return /[\u3400-\u9fff]/.test(value);
 }
 
 function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {
