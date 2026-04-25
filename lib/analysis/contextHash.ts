@@ -18,6 +18,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
+    analysisPromptVersion: 2,
     symbol: input.symbol.toUpperCase(),
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),
@@ -82,4 +83,3 @@ function compare(a: number | null | undefined, b: number | null | undefined) {
   if (a < b) return "below";
   return "equal";
 }
-

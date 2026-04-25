@@ -12,11 +12,24 @@ export type AnalyzeStockInput = {
   indicators: unknown;
   historySummary: unknown;
   userContext: unknown;
+  analysisAsOf?: string;
+  dataScope?: {
+    quoteTime?: string | null;
+    historyRange?: string;
+    historyInterval?: string;
+    historyFrom?: string | null;
+    historyTo?: string | null;
+    historyCandles?: number;
+    newsWindow?: string;
+    newsCount?: number;
+    webSearchStatus?: string;
+  };
   recentNews?: unknown;
+  webSearchResults?: unknown;
 };
 
 const systemPrompt =
-  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析。你不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、相关新闻和用户风险偏好角度进行结构化分析。你的输出必须是严格 JSON，不要输出 Markdown。";
+  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行结构化分析。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
   if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
@@ -44,7 +57,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
             content:
               attempt === 0
                 ? userPrompt
-                : `${userPrompt}\n\n上一次输出没有通过 JSON schema 校验。请只返回一个 JSON 对象，枚举值必须严格使用 schema 中的英文值。`
+                : `${userPrompt}\n\n上一次输出没有通过 JSON/schema 校验。请只返回一个 JSON 对象，枚举值必须严格使用 schema 中的英文值，不能输出 Markdown。`
           }
         ]
       };
@@ -53,7 +66,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
       const text = completion.choices[0]?.message?.content;
       if (!text) throw new Error("AI 返回了空内容。");
       const parsed = parseJsonObject(text);
-      return aiAnalysisSchema.parse(normalizeStockAnalysis(parsed));
+      return aiAnalysisSchema.parse(normalizeStockAnalysis(parsed, input));
     } catch (error) {
       lastError = error;
       if (error instanceof AppError && (error.code === "DATA_PROVIDER_ERROR" || error.code === "RATE_LIMIT")) break;
@@ -71,10 +84,23 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
 }
 
 function buildUserPrompt(input: AnalyzeStockInput) {
-  return `请分析以下股票数据，并返回严格 JSON。请同时考虑当前报价、历史价格、技术指标、用户持仓和风险偏好、最近相关新闻、行业新闻和宏观风险。不要给出确定性买卖指令。
+  return `请分析以下股票数据，并返回严格 JSON。
+
+重要要求：
+1. summary 需要明确说明“本分析截至什么时间”，并说明历史数据和新闻数据的覆盖范围。
+2. 不能给出确定性买卖指令，不能承诺收益。
+3. 新闻链接只能来自 recentNews 或 webSearchResults，不允许编造 URL。
+4. webSearchResults 是后端联网新闻检索得到的结果，不代表 AI 自己浏览网页；请把它作为外部新闻参考。
+5. 如果新闻不足或没有当日新闻，请明确说明“新闻样本有限”或“未检索到当日强相关新闻”。
 
 股票代码：
 ${input.symbol}
+
+分析生成时间：
+${input.analysisAsOf ?? new Date().toISOString()}
+
+数据覆盖范围：
+${JSON.stringify(input.dataScope ?? {}, null, 2)}
 
 当前报价：
 ${JSON.stringify(input.quote, null, 2)}
@@ -85,19 +111,54 @@ ${JSON.stringify(input.indicators, null, 2)}
 历史价格摘要：
 ${JSON.stringify(input.historySummary, null, 2)}
 
-用户上下文：
+用户持仓和风险上下文：
 ${JSON.stringify(input.userContext, null, 2)}
 
-相关新闻：
+已入库的高重要性相关新闻：
 ${JSON.stringify(input.recentNews ?? [], null, 2)}
+
+联网新闻检索结果：
+${JSON.stringify(input.webSearchResults ?? [], null, 2)}
 
 请只返回以下 JSON schema，不要 Markdown，不要解释：
 {
   "trend": "bullish | neutral | bearish",
   "confidence": 0.0,
+  "analysisAsOf": "",
+  "dataScope": {
+    "quoteTime": "",
+    "historyRange": "",
+    "historyInterval": "",
+    "historyFrom": "",
+    "historyTo": "",
+    "historyCandles": 0,
+    "newsWindow": "",
+    "newsCount": 0,
+    "webSearchStatus": ""
+  },
   "summary": "",
   "newsSummary": "",
   "newsSentiment": "positive | neutral | negative | mixed",
+  "webSearchSummary": "",
+  "newsReferences": [
+    {
+      "title": "",
+      "source": "",
+      "publishedAt": "",
+      "url": "",
+      "sentiment": "positive | neutral | negative",
+      "impactLevel": "low | medium | high"
+    }
+  ],
+  "webSearchResults": [
+    {
+      "title": "",
+      "source": "",
+      "publishedAt": "",
+      "url": "",
+      "summary": ""
+    }
+  ],
   "catalystEvents": [],
   "macroRisks": [],
   "sectorRisks": [],
@@ -129,18 +190,26 @@ function parseJsonObject(text: string) {
   }
 }
 
-function normalizeStockAnalysis(value: unknown) {
+function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
   const record = isRecord(value) ? value : {};
   const keyLevels = isRecord(record.keyLevels) ? record.keyLevels : {};
   const actions = Array.isArray(record.possibleActions) ? record.possibleActions : [];
   const riskFactors = toStringArray(record.riskFactors);
+  const dataScope = normalizeDataScope(record.dataScope, input);
+  const newsReferences = normalizeNewsReferences(record.newsReferences, input.recentNews);
+  const webSearchResults = normalizeWebSearchResults(record.webSearchResults, input.webSearchResults);
 
   return {
     trend: normalizeTrend(record.trend),
     confidence: normalizeConfidence(record.confidence),
-    summary: toNonEmptyString(record.summary, "暂无摘要。"),
-    newsSummary: toNonEmptyString(record.newsSummary, "暂无已分析的相关新闻。"),
+    analysisAsOf: toNonEmptyString(record.analysisAsOf, input.analysisAsOf ?? new Date().toISOString()),
+    dataScope,
+    summary: toNonEmptyString(record.summary, buildDefaultSummary(input, dataScope)),
+    newsSummary: toNonEmptyString(record.newsSummary, buildFallbackNewsSummary(input.recentNews, input.webSearchResults)),
     newsSentiment: normalizeNewsSentiment(record.newsSentiment),
+    webSearchSummary: toNonEmptyString(record.webSearchSummary, buildWebSearchSummary(webSearchResults)),
+    newsReferences,
+    webSearchResults,
     catalystEvents: toStringArray(record.catalystEvents),
     macroRisks: toStringArray(record.macroRisks),
     sectorRisks: toStringArray(record.sectorRisks),
@@ -154,11 +223,27 @@ function normalizeStockAnalysis(value: unknown) {
       : [
           {
             action: "watch",
-            reason: "AI 未提供完整操作计划，建议继续观察关键价位和成交量变化。",
+            reason: "AI 未提供完整操作计划，建议继续观察关键价位、成交量和新闻变化。",
             invalidIf: "价格、成交量、技术指标或相关新闻发生明显变化。"
           }
         ],
     disclaimer: toNonEmptyString(record.disclaimer, "本内容由 AI 生成，仅供研究参考，不构成投资建议。")
+  };
+}
+
+function normalizeDataScope(value: unknown, input: AnalyzeStockInput) {
+  const record = isRecord(value) ? value : {};
+  const fallback = input.dataScope ?? {};
+  return {
+    quoteTime: toNullableString(record.quoteTime, fallback.quoteTime ?? getQuoteTime(input.quote)),
+    historyRange: toNonEmptyString(record.historyRange, fallback.historyRange ?? "1y"),
+    historyInterval: toNonEmptyString(record.historyInterval, fallback.historyInterval ?? "1d"),
+    historyFrom: toNullableString(record.historyFrom, fallback.historyFrom ?? null),
+    historyTo: toNullableString(record.historyTo, fallback.historyTo ?? null),
+    historyCandles: toInteger(record.historyCandles, fallback.historyCandles ?? 0),
+    newsWindow: toNonEmptyString(record.newsWindow, fallback.newsWindow ?? "最近 7 天，高重要性新闻优先"),
+    newsCount: toInteger(record.newsCount, fallback.newsCount ?? countArray(input.recentNews)),
+    webSearchStatus: toNonEmptyString(record.webSearchStatus, fallback.webSearchStatus ?? "未执行联网新闻检索")
   };
 }
 
@@ -204,6 +289,53 @@ function normalizeConfidence(value: unknown) {
   return Math.min(1, Math.max(0, normalized));
 }
 
+function normalizeNewsReferences(value: unknown, fallback: unknown) {
+  const values = Array.isArray(value) && value.length ? value : Array.isArray(fallback) ? fallback : [];
+  return values.map(toNewsReference).filter((item): item is NonNullable<ReturnType<typeof toNewsReference>> => Boolean(item)).slice(0, 10);
+}
+
+function normalizeWebSearchResults(value: unknown, fallback: unknown) {
+  const values = Array.isArray(value) && value.length ? value : Array.isArray(fallback) ? fallback : [];
+  return values.map(toWebSearchResult).filter((item): item is NonNullable<ReturnType<typeof toWebSearchResult>> => Boolean(item)).slice(0, 8);
+}
+
+function toNewsReference(value: unknown) {
+  const record = isRecord(value) ? value : {};
+  const title = String(record.title ?? "").trim();
+  if (!title) return null;
+  return {
+    title,
+    source: toNullableString(record.source, null),
+    publishedAt: toNullableString(record.publishedAt, null),
+    url: normalizeUrl(record.url),
+    sentiment: toNullableString(record.sentiment, null),
+    impactLevel: toNullableString(record.impactLevel, null)
+  };
+}
+
+function toWebSearchResult(value: unknown) {
+  const record = isRecord(value) ? value : {};
+  const title = String(record.title ?? "").trim();
+  if (!title) return null;
+  return {
+    title,
+    source: toNullableString(record.source, null),
+    publishedAt: toNullableString(record.publishedAt, null),
+    url: normalizeUrl(record.url),
+    summary: toNullableString(record.summary, null)
+  };
+}
+
+function normalizeUrl(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  try {
+    return new URL(text).toString();
+  } catch {
+    return null;
+  }
+}
+
 function toNumberArray(value: unknown) {
   const values = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
   return values.map((item) => (typeof item === "number" ? item : Number.parseFloat(String(item)))).filter((item) => Number.isFinite(item));
@@ -219,8 +351,48 @@ function toNonEmptyString(value: unknown, fallback: string) {
   return text || fallback;
 }
 
+function toNullableString(value: unknown, fallback: string | null) {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function toInteger(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function countArray(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function getQuoteTime(quote: unknown) {
+  const record = isRecord(quote) ? quote : {};
+  return typeof record.timestamp === "string" ? record.timestamp : null;
+}
+
+function buildDefaultSummary(input: AnalyzeStockInput, scope: ReturnType<typeof normalizeDataScope>) {
+  return `本分析截至 ${input.analysisAsOf ?? new Date().toISOString()}，报价时间 ${scope.quoteTime ?? "未知"}，历史数据范围 ${scope.historyRange ?? "未知"} / ${scope.historyInterval ?? "未知"}。当前数据不足以形成更完整的 AI 摘要。`;
+}
+
+function buildFallbackNewsSummary(recentNews: unknown, webSearchResults: unknown) {
+  const combined = [...(Array.isArray(recentNews) ? recentNews : []), ...(Array.isArray(webSearchResults) ? webSearchResults : [])];
+  if (!combined.length) return "暂无已分析的相关新闻或联网检索结果。";
+  return combined
+    .slice(0, 3)
+    .map((item) => {
+      const news = item as { title?: string; summary?: string; aiSummary?: string };
+      return news.aiSummary ?? news.summary ?? news.title ?? "未命名新闻";
+    })
+    .join(" ");
+}
+
+function buildWebSearchSummary(results: Array<{ title: string }>) {
+  if (!results.length) return "本次没有可用的联网新闻检索结果。";
+  return `本次联网新闻检索返回 ${results.length} 条候选结果，已按相关性和时间筛选后纳入参考。`;
 }
 
 function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {
@@ -238,17 +410,25 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
       : quote.changePercent && quote.changePercent < -1
         ? "bearish"
         : "neutral";
+  const dataScope = normalizeDataScope(null, input);
+  const newsReferences = normalizeNewsReferences(null, input.recentNews);
+  const webSearchResults = normalizeWebSearchResults(null, input.webSearchResults);
 
   return {
     trend,
     confidence: 0.42,
+    analysisAsOf: input.analysisAsOf ?? new Date().toISOString(),
+    dataScope,
     isFallback: true,
     fallbackReason: reason,
-    summary: reason,
-    newsSummary: buildFallbackNewsSummary(input.recentNews),
+    summary: `${reason} 本分析截至 ${input.analysisAsOf ?? new Date().toISOString()}，报价时间 ${dataScope.quoteTime ?? "未知"}，历史数据范围 ${dataScope.historyRange}/${dataScope.historyInterval}。`,
+    newsSummary: buildFallbackNewsSummary(input.recentNews, input.webSearchResults),
     newsSentiment: "neutral",
+    webSearchSummary: buildWebSearchSummary(webSearchResults),
+    newsReferences,
+    webSearchResults,
     catalystEvents: [],
-    macroRisks: ["宏观环境和利率变化可能快速影响市场风险偏好。"],
+    macroRisks: ["宏观环境、利率、流动性和政策变化可能快速影响市场风险偏好。"],
     sectorRisks: [],
     keyLevels: {
       support: [indicators.bollingerLower, indicators.sma50, price * 0.97]
@@ -259,29 +439,19 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
         .map((value) => Number(value.toFixed(2)))
     },
     riskFactors: [
-      "本地兜底分析没有完整纳入实时新闻、基本面和更广泛的市场背景。",
-      "技术指标存在滞后，在市场状态快速切换时可能失效。"
+      "本地兜底分析没有完整纳入基本面和更广泛的市场背景。",
+      "技术指标存在滞后，在市场状态快速切换时可能失效。",
+      "新闻检索结果可能遗漏上下文，需点开原文复核。"
     ],
     possibleActions: [
       {
         action: trend === "bearish" ? "watch" : "hold",
         reason: "在真实 AI 服务恢复前，可将其作为临时监控备注使用。",
-        invalidIf: "价格、成交量或 RSI 状态发生明显变化。"
+        invalidIf: "价格、成交量、RSI 状态或相关新闻发生明显变化。"
       }
     ],
     disclaimer: "本内容由系统本地规则生成，仅供研究参考，不构成投资建议。"
   };
-}
-
-function buildFallbackNewsSummary(recentNews: unknown) {
-  if (!Array.isArray(recentNews) || recentNews.length === 0) return "暂无已分析的相关新闻。";
-  return recentNews
-    .slice(0, 3)
-    .map((item) => {
-      const news = item as { title?: string; summary?: string; aiSummary?: string };
-      return news.aiSummary ?? news.summary ?? news.title ?? "未命名新闻";
-    })
-    .join(" ");
 }
 
 function normalizeApiKey(value?: string) {

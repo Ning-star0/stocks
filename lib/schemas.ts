@@ -72,10 +72,41 @@ const aiActionSchema = z.object({
   invalidIf: z.string().min(1)
 });
 
+const analysisNewsReferenceSchema = z.object({
+  title: z.string().min(1),
+  source: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
+  url: z.string().url().nullable().optional(),
+  sentiment: z.string().nullable().optional(),
+  impactLevel: z.string().nullable().optional()
+});
+
+const webSearchResultSchema = z.object({
+  title: z.string().min(1),
+  source: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
+  url: z.string().url().nullable().optional(),
+  summary: z.string().nullable().optional()
+});
+
 export const aiAnalysisSchema = z.object({
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
   summary: z.string().min(1),
+  analysisAsOf: z.string().optional(),
+  dataScope: z
+    .object({
+      quoteTime: z.string().nullable().optional(),
+      historyRange: z.string().optional(),
+      historyInterval: z.string().optional(),
+      historyFrom: z.string().nullable().optional(),
+      historyTo: z.string().nullable().optional(),
+      historyCandles: z.number().int().nonnegative().optional(),
+      newsWindow: z.string().optional(),
+      newsCount: z.number().int().nonnegative().optional(),
+      webSearchStatus: z.string().optional()
+    })
+    .optional(),
   isFallback: z.boolean().optional(),
   fallbackReason: z.string().optional(),
   keyLevels: z.object({
@@ -85,6 +116,9 @@ export const aiAnalysisSchema = z.object({
   riskFactors: z.array(z.string()),
   newsSummary: z.string().default("暂无已分析的相关新闻。"),
   newsSentiment: z.enum(["positive", "neutral", "negative", "mixed"]).default("neutral"),
+  webSearchSummary: z.string().optional().default(""),
+  newsReferences: z.array(analysisNewsReferenceSchema).optional().default([]),
+  webSearchResults: z.array(webSearchResultSchema).optional().default([]),
   catalystEvents: z.array(z.string()).default([]),
   macroRisks: z.array(z.string()).default([]),
   sectorRisks: z.array(z.string()).default([]),

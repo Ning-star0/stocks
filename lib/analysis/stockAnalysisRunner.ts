@@ -5,10 +5,13 @@ import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
+import { getNewsProvider } from "@/lib/news";
+import { buildStockNewsKeywords, filterRelevantNewsForStock } from "@/lib/news/relevance";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
+import type { NewsItem } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 
 export type StockAnalysisRunInput = {
@@ -22,7 +25,7 @@ export type StockAnalysisRunInput = {
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const startedAt = Date.now();
   const symbol = input.symbol.toUpperCase();
-  const context = await buildStockAnalysisContext(input.userId, symbol);
+  const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: true });
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
   const cacheKey = `ai_analysis:${canonicalSymbol}:${inputHash}`;
@@ -75,7 +78,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt };
 }
 
-export async function buildStockAnalysisContext(userId: string, symbol: string) {
+export async function buildStockAnalysisContext(userId: string, symbol: string, options: { includeWebSearch?: boolean } = {}) {
   const provider = getStockDataProvider();
   const quoteStatus = await getQuote(symbol, { allowStale: true });
   if (!quoteStatus.raw) throw new AppError("DATA_PROVIDER_ERROR", quoteStatus.error ?? "行情不可用，无法构造分析上下文。");
@@ -88,10 +91,19 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
     prisma.watchlistItem.findFirst({ where: { symbol: { in: [symbol, canonicalSymbol] }, watchlist: { userId } } }),
     prisma.sectorWatch.findMany({ where: { userId } })
   ]);
+
   const indicators = calculateIndicators(canonicalSymbol, history);
   const historySummary = summarizeHistory(history);
   const userContext = watchlistItem ? serializeWatchlistItem(watchlistItem) : { symbol: canonicalSymbol };
-  const highImpactNews = await getHighImpactNewsForStock(canonicalSymbol, sectorWatches.map((watch) => watch.sectorName));
+  const sectorNames = sectorWatches.map((watch) => watch.sectorName);
+  const highImpactNews = await getHighImpactNewsForStock(canonicalSymbol, sectorNames);
+  const supplementalNews = options.includeWebSearch
+    ? await getSupplementalWebNews({
+        symbol: canonicalSymbol,
+        name: quote.name,
+        sectorKeywords: [...sectorNames, ...sectorWatches.flatMap((watch) => watch.keywords)]
+      })
+    : [];
   const highImpactNewsIds = highImpactNews.map((item) => item.id);
   const contextHash = createAnalysisContextHash({
     symbol: canonicalSymbol,
@@ -106,22 +118,57 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
       riskLevel: watchlistItem?.riskLevel ?? null
     }
   });
-  const recentNews = highImpactNews.slice(0, 8).map((item) => ({
+
+  const highImpactReferences = highImpactNews.map((item) => ({
     id: item.id,
     title: item.title,
+    url: item.url,
     source: item.source,
     publishedAt: item.publishedAt.toISOString(),
     summary: item.analyses[0]?.aiSummary ?? item.summary ?? item.title,
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
+  const webSearchResults = supplementalNews.slice(0, 6).map((item) => ({
+    title: item.title,
+    url: item.url ?? null,
+    source: item.source ?? null,
+    publishedAt: item.publishedAt ?? null,
+    summary: item.summary ?? item.rawContent ?? item.title
+  }));
+  const recentNews = dedupeAnalysisNews([
+    ...highImpactReferences,
+    ...webSearchResults.map((item) => ({
+      ...item,
+      id: item.url ?? item.title,
+      sentiment: null,
+      impactLevel: "web_search"
+    }))
+  ]).slice(0, 8);
+  const analysisAsOf = new Date().toISOString();
+  const firstHistory = history[0]?.timestamp ?? null;
+  const lastHistory = history[history.length - 1]?.timestamp ?? null;
+  const dataScope = {
+    quoteTime: quote.timestamp ?? quoteStatus.updatedAt,
+    historyRange: "1y",
+    historyInterval: "1d",
+    historyFrom: firstHistory,
+    historyTo: lastHistory,
+    historyCandles: history.length,
+    newsWindow: "最近 7 天，高重要性新闻优先；联网检索结果作为补充参考",
+    newsCount: recentNews.length,
+    webSearchStatus: options.includeWebSearch ? `已联网检索 ${webSearchResults.length} 条候选新闻` : "未执行联网新闻检索"
+  };
   const aiInput = {
     symbol: canonicalSymbol,
     quote,
     indicators,
     historySummary,
     userContext,
-    recentNews
+    analysisAsOf,
+    dataScope,
+    recentNews,
+    webSearchResults
   };
 
   return {
@@ -149,6 +196,40 @@ async function getHighImpactNewsForStock(symbol: string, sectors: string[]) {
     orderBy: [{ publishedAt: "desc" }],
     take: 10
   });
+}
+
+async function getSupplementalWebNews(input: { symbol: string; name?: string | null; sectorKeywords: string[] }) {
+  try {
+    const provider = getNewsProvider();
+    const to = new Date();
+    const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const keywords = [...buildStockNewsKeywords({ symbol: input.symbol, name: input.name }), ...input.sectorKeywords]
+      .map((keyword) => keyword.trim())
+      .filter((keyword) => keyword.length >= 2 && !/^\d+$/.test(keyword));
+    const uniqueKeywords = [...new Set(keywords)].slice(0, 5);
+    if (!uniqueKeywords.length) return [] as NewsItem[];
+
+    const rows = await provider.searchTopicNews(uniqueKeywords, from.toISOString(), to.toISOString());
+    return filterRelevantNewsForStock(rows, {
+      symbol: input.symbol,
+      name: input.name,
+      keywords: uniqueKeywords
+    }).slice(0, 8);
+  } catch {
+    return [] as NewsItem[];
+  }
+}
+
+function dedupeAnalysisNews<T extends { title: string; url?: string | null }>(items: T[]) {
+  const seen = new Set<string>();
+  const output: T[] = [];
+  for (const item of items) {
+    const key = (item.url || item.title).trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(item);
+  }
+  return output;
 }
 
 async function logAiUsage(input: {

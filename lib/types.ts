@@ -78,6 +78,18 @@ export interface AiAnalysisResult {
   trend: Trend;
   confidence: number;
   summary: string;
+  analysisAsOf?: string;
+  dataScope?: {
+    quoteTime?: string | null;
+    historyRange?: string;
+    historyInterval?: string;
+    historyFrom?: string | null;
+    historyTo?: string | null;
+    historyCandles?: number;
+    newsWindow?: string;
+    newsCount?: number;
+    webSearchStatus?: string;
+  };
   isFallback?: boolean;
   fallbackReason?: string;
   keyLevels: {
@@ -87,6 +99,22 @@ export interface AiAnalysisResult {
   riskFactors: string[];
   newsSummary: string;
   newsSentiment: StockNewsSentiment;
+  webSearchSummary?: string;
+  newsReferences?: Array<{
+    title: string;
+    source?: string | null;
+    publishedAt?: string | null;
+    url?: string | null;
+    sentiment?: string | null;
+    impactLevel?: string | null;
+  }>;
+  webSearchResults?: Array<{
+    title: string;
+    source?: string | null;
+    publishedAt?: string | null;
+    url?: string | null;
+    summary?: string | null;
+  }>;
   catalystEvents: string[];
   macroRisks: string[];
   sectorRisks: string[];
