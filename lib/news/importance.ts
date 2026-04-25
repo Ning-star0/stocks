@@ -43,8 +43,9 @@ export function calculateNewsImportance(newsItem: ImportanceNewsItem, userSymbol
   score += match(title, ["sec", "lawsuit", "investigation", "probe", "证监会", "监管", "处罚", "立案", "调查", "诉讼", "风险警示"], 4, reasons, "regulatory/legal risk");
   score += match(title, ["merger", "acquisition", "buyout", "并购", "收购", "重组", "合并", "定增", "回购"], 4, reasons, "deal activity");
   score += match(title, ["ceo", "cfo", "resignation", "董事长", "总经理", "辞职", "离任", "高管"], 3, reasons, "executive change");
+  score += match(title, ["中标", "订单", "合同", "项目", "招标", "特高压", "电网投资", "电力设备"], 4, reasons, "sector catalyst");
 
-  if (trustedSources.some((trusted) => source.includes(trusted))) {
+  if (trustedSources.some((trusted) => source.includes(trusted.toLowerCase()))) {
     score += 3;
     reasons.push("trusted source");
   }

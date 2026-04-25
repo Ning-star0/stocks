@@ -124,7 +124,7 @@ export default async function StockDetailPage({
             </CardContent>
           </Card>
 
-          <NewsPanel symbol={quoteSymbol} />
+          <NewsPanel symbol={quoteSymbol} name={displayName} />
           <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} />
           {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} interval={interval} /> : null}
         </div>

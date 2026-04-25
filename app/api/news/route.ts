@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { remember } from "@/lib/cache";
 import { apiError } from "@/lib/errors";
+import { isNewsRelevantToStock } from "@/lib/news/relevance";
+import { serializeNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { newsQuerySchema } from "@/lib/schemas";
-import { serializeNewsItem } from "@/lib/news/store";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") ?? 1));
     const pageSize = Math.min(20, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") ?? 20)));
     const includeLow = request.nextUrl.searchParams.get("includeLow") === "1";
+    const name = request.nextUrl.searchParams.get("name");
     const where = {
       ...(includeLow ? {} : { importance: { in: ["high", "medium"] } }),
       ...(query.symbol ? { symbols: { has: query.symbol } } : {}),
@@ -54,7 +56,8 @@ export async function GET(request: NextRequest) {
       });
     const rows = cacheKey ? await remember(cacheKey, 15 * 60, loadNews) : await loadNews();
 
-    const news = rows
+    const relevantRows = query.symbol && name ? rows.filter((row) => isNewsRelevantToStock(row, { symbol: query.symbol!, name })) : rows;
+    const news = relevantRows
       .map(serializeNewsItem)
       .sort((a, b) => importanceRank(b.importance as string | null) - importanceRank(a.importance as string | null));
     return NextResponse.json({ news, page, pageSize });

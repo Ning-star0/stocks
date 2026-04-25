@@ -33,7 +33,8 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const analysis = item.analyses?.[0];
   const sentiment = analysis?.sentiment ?? item.sentiment;
   const impact = analysis?.impactLevel ?? item.importance;
-  const summary = analysis?.aiSummary ?? item.summary ?? "暂无 AI 摘要";
+  const summary = analysis?.aiSummary ?? item.summary ?? "暂无摘要";
+  const canAnalyze = Boolean(onAnalyze && impact === "high" && !analysis);
 
   return (
     <article className="rounded-lg border bg-card p-4">
@@ -50,13 +51,13 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span>{item.source ?? "未知来源"}</span>
             <span>{new Date(item.publishedAt).toLocaleString("zh-CN")}</span>
-            {item.symbols.length ? <span>{item.symbols.join(", ")}</span> : null}
+            {item.sectors.length ? <span>{item.sectors.slice(0, 3).join(", ")}</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          {onAnalyze ? (
-            <Button size="sm" variant="outline" onClick={() => onAnalyze(item.id)}>
-              新闻分析
+          {canAnalyze ? (
+            <Button size="sm" variant="outline" onClick={() => onAnalyze?.(item.id)}>
+              AI 精读
             </Button>
           ) : null}
           {item.url ? (
@@ -69,6 +70,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
         </div>
       </div>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">{summary}</p>
+      {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{analysis.whyItMatters}</p> : null}
       {analysis?.riskNotes?.length ? (
         <div className="mt-3 space-y-1">
           {analysis.riskNotes.slice(0, 3).map((note) => (

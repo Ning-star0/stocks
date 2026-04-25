@@ -7,6 +7,7 @@ import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
 import { calculateNewsImportance } from "@/lib/news/importance";
+import { buildStockNewsKeywords, filterRelevantNewsForStock, isNewsRelevantToStock } from "@/lib/news/relevance";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
@@ -31,19 +32,31 @@ export async function POST() {
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
     const fetched: NewsItem[] = [];
+    let filteredOut = 0;
 
     for (const symbol of symbols) {
-      fetched.push(...(await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString())));
       const name = await resolveSymbolName(symbol);
-      if (name) {
-        const namedNews = await provider.searchTopicNews([name], from.toISOString(), to.toISOString());
-        fetched.push(...namedNews.map((item) => attachSymbol(item, symbol, name)));
-      }
+      const keywords = buildStockNewsKeywords({ symbol, name });
+
+      const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
+      const relevantCodeNews = filterRelevantNewsForStock(codeNews, { symbol, name, keywords });
+      filteredOut += codeNews.length - relevantCodeNews.length;
+      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+
+      const topicKeywords = keywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 4);
+      const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString());
+      const relevantTopicNews = filterRelevantNewsForStock(topicNews, { symbol, name, keywords });
+      filteredOut += topicNews.length - relevantTopicNews.length;
+      fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
     }
 
     for (const watch of sectorWatches) {
       const topicNews = await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString());
-      fetched.push(...topicNews.map((item) => attachSectorWatch(item, watch.sectorName, watch.keywords, watch.symbols)));
+      const relevantTopicNews = topicNews.filter((item) =>
+        watch.keywords.some((keyword) => isNewsRelevantToStock(item, { symbol: watch.symbols[0] ?? keyword, name: watch.sectorName, keywords: [keyword, watch.sectorName] }))
+      );
+      filteredOut += topicNews.length - relevantTopicNews.length;
+      fetched.push(...relevantTopicNews.map((item) => attachSectorWatch(item, watch.sectorName, watch.keywords, watch.symbols)));
     }
 
     const savedById = new Map<string, Awaited<ReturnType<typeof upsertNewsItem>>>();
@@ -92,6 +105,7 @@ export async function POST() {
     return NextResponse.json({
       fetched: fetched.length,
       saved: saved.length,
+      filteredOut,
       queued: queued.length,
       news: saved.map(serializeNewsItem)
     });

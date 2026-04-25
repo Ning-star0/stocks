@@ -45,20 +45,18 @@ export class TianApiNewsProvider implements NewsProvider {
   }
 
   async searchTopicNews(keywords: string[], from: string, to: string): Promise<NewsItem[]> {
-    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, 2);
-    const rows: TianApiNewsRow[] = [];
+    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, 3);
+    if (!cleanKeywords.length) return [];
 
+    const rows: TianApiNewsRow[] = [];
     for (const keyword of cleanKeywords) {
       rows.push(...(await this.search({ word: keyword, page: 1, num: 10 })));
     }
 
-    if (!rows.length) {
-      rows.push(...(await this.search({ page: 1, num: 20 })));
-    }
-
     return dedupeRows(rows)
       .map((row) => normalizeTianApiNews(row, [], cleanKeywords))
-      .filter((item) => withinRange(item, from, to));
+      .filter((item) => withinRange(item, from, to))
+      .filter((item) => containsAnyKeyword(item, cleanKeywords));
   }
 
   private async search(input: { word?: string; page?: number; num?: number }) {
@@ -70,7 +68,7 @@ export class TianApiNewsProvider implements NewsProvider {
     url.searchParams.set("form", "1");
     if (input.word) url.searchParams.set("word", input.word);
 
-    const cacheKey = `news:tianapi:${hashUrlWithoutKey(url)}`;
+    const cacheKey = `news:tianapi:v2:${hashUrlWithoutKey(url)}`;
     return remember(cacheKey, numberEnv("NEWS_CACHE_TTL_SECONDS", 900), async () => this.fetchWithRetry(url));
   }
 
@@ -120,6 +118,26 @@ function mapTianApiError(payload: TianApiResponse) {
   return new AppError("DATA_PROVIDER_ERROR", payload.msg ?? "天行财经新闻接口返回错误。", payload);
 }
 
+function normalizeTianApiNews(row: TianApiNewsRow, symbols: string[], sectors: string[]): NewsItem {
+  const title = row.title?.trim() || "未命名财经新闻";
+  const summary = row.description?.trim() || title;
+  return {
+    title,
+    url: row.url,
+    source: row.source ?? "天行财经",
+    publishedAt: parseTianApiTime(row.ctime).toISOString(),
+    rawContent: summary,
+    summary,
+    symbols,
+    sectors
+  };
+}
+
+function containsAnyKeyword(item: NewsItem, keywords: string[]) {
+  const text = `${item.title} ${item.summary ?? ""} ${item.rawContent ?? ""}`.toLowerCase().replace(/\s+/g, "");
+  return keywords.some((keyword) => keyword.length >= 2 && text.includes(keyword.toLowerCase().replace(/\s+/g, "")));
+}
+
 async function waitForTianApiSlot() {
   const now = Date.now();
   const nextAt = tianApiState.__tianApiNextAt ?? 0;
@@ -134,21 +152,6 @@ function normalizeEnvValue(value?: string) {
 function isPlaceholderKey(value: string) {
   const normalized = value.trim().toLowerCase();
   return normalized === "change_me_tianapi_key" || normalized === "your_tianapi_key" || normalized.includes("change_me");
-}
-
-function normalizeTianApiNews(row: TianApiNewsRow, symbols: string[], sectors: string[]): NewsItem {
-  const title = row.title?.trim() || "未命名财经新闻";
-  const summary = row.description?.trim() || title;
-  return {
-    title,
-    url: row.url,
-    source: row.source ?? "天行财经",
-    publishedAt: parseTianApiTime(row.ctime).toISOString(),
-    rawContent: summary,
-    summary,
-    symbols,
-    sectors
-  };
 }
 
 function parseTianApiTime(value?: string) {
