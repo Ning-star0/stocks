@@ -37,6 +37,7 @@ const intradayRangeOptions = [
 ];
 
 const intervalOptions = [
+  { value: "1m", label: "1分" },
   { value: "60m", label: "60分" },
   { value: "30m", label: "30分" },
   { value: "15m", label: "15分" },
@@ -275,14 +276,15 @@ function EmptyCard({ title, text }: { title: string; text: string }) {
 
 function normalizeInterval(value?: string) {
   if (!value) return "1d";
-  if (["60m", "30m", "15m", "1d", "1wk", "1mo"].includes(value)) return value;
+  if (["1m", "60m", "30m", "15m", "1d", "1wk", "1mo"].includes(value)) return value;
   return "1d";
 }
 
 function normalizeRange(value: string | undefined, interval: string) {
   const allowed = isIntraday(interval) ? intradayRangeOptions.map((option) => option.value) : rangeOptions.map((option) => option.value);
   if (value && allowed.includes(value)) return value;
-  return isIntraday(interval) ? "1mo" : "1y";
+  if (interval === "1m") return "1d";
+  return isIntraday(interval) ? "1mo" : "6mo";
 }
 
 function isIntraday(interval: string) {

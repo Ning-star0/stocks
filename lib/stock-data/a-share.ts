@@ -158,12 +158,9 @@ function readNumber(value: number | "-" | undefined) {
 
 function rangeToLimit(range: string, interval: string) {
   if (isIntraday(interval)) {
-    if (range === "1d") return 16;
-    if (range === "5d") return 80;
-    if (range === "1mo") return 320;
-    if (range === "3mo") return 960;
-    if (range === "6mo") return 1800;
-    return 960;
+    const barsPerDay = Math.ceil(240 / intervalMinutes(interval));
+    const tradingDays = intradayTradingDays(range);
+    return Math.min(barsPerDay * tradingDays, 5000);
   }
   if (range === "1mo") return 30;
   if (range === "3mo") return 90;
@@ -173,6 +170,23 @@ function rangeToLimit(range: string, interval: string) {
   if (range === "5y") return 1300;
   if (range === "all") return 5000;
   return 260;
+}
+
+function intervalMinutes(interval: string) {
+  if (interval === "1m") return 1;
+  if (interval === "5m") return 5;
+  if (interval === "15m") return 15;
+  if (interval === "30m") return 30;
+  return 60;
+}
+
+function intradayTradingDays(range: string) {
+  if (range === "1d") return 1;
+  if (range === "5d") return 5;
+  if (range === "1mo") return 22;
+  if (range === "3mo") return 66;
+  if (range === "6mo") return 126;
+  return 22;
 }
 
 function normalizeInterval(interval: string) {
