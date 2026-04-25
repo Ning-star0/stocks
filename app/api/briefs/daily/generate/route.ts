@@ -18,7 +18,29 @@ export async function POST() {
       prisma.sectorWatch.findMany({ where: { userId: user.id } }),
       prisma.newsItem.findMany({
         where: { publishedAt: { gte: since } },
-        include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
+        select: {
+          id: true,
+          title: true,
+          url: true,
+          source: true,
+          publishedAt: true,
+          summary: true,
+          symbols: true,
+          sectors: true,
+          sentiment: true,
+          importance: true,
+          analyses: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              aiSummary: true,
+              sentiment: true,
+              impactLevel: true,
+              riskNotes: true,
+              whyItMatters: true
+            }
+          }
+        },
         orderBy: { publishedAt: "desc" },
         take: 30
       })
@@ -54,4 +76,3 @@ export async function POST() {
 function startOfDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
-

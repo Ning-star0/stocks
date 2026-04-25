@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
+import { Prisma as PrismaSql } from "@prisma/client";
 
-import { getCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { MARKET_INDICES } from "@/lib/marketIndices";
@@ -21,31 +22,34 @@ export async function GET() {
 
     const [alerts, highImpactNews] = await Promise.all([
       prisma.alert.findMany({ where: { userId: user.id, isActive: true }, orderBy: { createdAt: "desc" }, take: 20 }),
-      prisma.newsItem.findMany({
-        where: { importance: "high", symbols: { hasSome: symbols } },
-        orderBy: { publishedAt: "desc" },
-        take: 10
-      })
+      symbols.length
+        ? prisma.newsItem.findMany({
+            where: { importance: "high", symbols: { hasSome: symbols } },
+            select: {
+              id: true,
+              title: true,
+              url: true,
+              source: true,
+              publishedAt: true,
+              summary: true,
+              symbols: true,
+              sectors: true,
+              sentiment: true,
+              importance: true,
+              createdAt: true
+            },
+            orderBy: { publishedAt: "desc" },
+            take: 10
+          })
+        : Promise.resolve([])
     ]);
 
     const marketIndexSymbols = MARKET_INDICES.map((item) => item.symbol);
     const [quotes, marketQuotes] = await Promise.all([
       getQuotesBatch(symbols, { cacheOnly: true, allowStale: true }),
-      getQuotesBatch(marketIndexSymbols, { allowStale: true })
+      getQuotesBatch(marketIndexSymbols, { cacheOnly: true, allowStale: true })
     ]);
-    const latestAnalyses: Record<string, unknown> = {};
-    for (const symbol of symbols) {
-      const cachedAnalysis = await getCache<unknown>(`latest_analysis:${symbol}`);
-      if (cachedAnalysis) {
-        latestAnalyses[symbol] = cachedAnalysis;
-      } else {
-        const latest = await prisma.aiAnalysis.findFirst({
-          where: { userId: user.id, symbol },
-          orderBy: { createdAt: "desc" }
-        });
-        latestAnalyses[symbol] = latest ? { id: latest.id, createdAt: latest.createdAt, outputJson: latest.outputJson } : null;
-      }
-    }
+    const latestAnalyses = await loadLatestAnalyses(user.id, symbols);
 
     return NextResponse.json({
       user: { id: user.id, email: user.email },
@@ -72,6 +76,35 @@ export async function GET() {
   } catch (error) {
     return apiError(error);
   }
+}
+
+async function loadLatestAnalyses(userId: string, symbols: string[]) {
+  const output: Record<string, unknown> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
+  if (!symbols.length) return output;
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      symbol: string;
+      createdAt: Date;
+      outputJson: Prisma.JsonValue;
+    }>
+  >(PrismaSql.sql`
+    SELECT DISTINCT ON ("symbol") "id", "symbol", "createdAt", "outputJson"
+    FROM "AiAnalysis"
+    WHERE "userId" = ${userId}
+      AND "symbol" IN (${PrismaSql.join(symbols)})
+    ORDER BY "symbol", "createdAt" DESC
+  `);
+
+  for (const row of rows) {
+    output[row.symbol] = {
+      id: row.id,
+      createdAt: row.createdAt,
+      outputJson: row.outputJson
+    };
+  }
+  return output;
 }
 
 function numberEnv(name: string, fallback: number) {

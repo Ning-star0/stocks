@@ -13,13 +13,13 @@ export async function upsertNewsItem(item: NewsItem) {
   const publishedAt = item.publishedAt ? new Date(item.publishedAt) : new Date();
   const titleHash = newsTitleHash(item.title, item.source, publishedAt);
   const createData = {
-    title: item.title,
+    title: limitText(item.title, 300),
     titleHash,
     url: item.url ?? null,
     source: item.source ?? null,
     publishedAt,
-    rawContent: item.rawContent ?? null,
-    summary: item.summary ?? null,
+    rawContent: item.rawContent ? limitText(item.rawContent, 2000) : null,
+    summary: item.summary ? limitText(item.summary, 600) : null,
     symbols: uniqueUpper(item.symbols ?? []),
     sectors: uniqueText(item.sectors ?? []),
     sentiment: null,
@@ -40,12 +40,12 @@ export async function upsertNewsItem(item: NewsItem) {
     return tx.newsItem.update({
       where: { id: existing.id },
       data: {
-        title: item.title,
+        title: limitText(item.title, 300),
         url: existing.url ?? item.url ?? null,
         source: item.source ?? existing.source,
         publishedAt,
-        rawContent: item.rawContent ?? existing.rawContent,
-        summary: item.summary ?? existing.summary,
+        rawContent: item.rawContent ? limitText(item.rawContent, 2000) : existing.rawContent,
+        summary: item.summary ? limitText(item.summary, 600) : existing.summary,
         symbols: uniqueUpper([...existing.symbols, ...(item.symbols ?? [])]),
         sectors: uniqueText([...existing.sectors, ...(item.sectors ?? [])])
       }
@@ -101,6 +101,11 @@ export function serializeNewsItem<
       createdAt: toIsoString(analysis.createdAt)
     }))
   };
+}
+
+function limitText(value: string, maxLength: number) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
 }
 
 function toIsoString(value: Date | string | number | null | undefined) {

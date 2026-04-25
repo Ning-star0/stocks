@@ -3,6 +3,7 @@ import type { Alert } from "@prisma/client";
 import { calculateIndicators } from "@/lib/indicators";
 import { prisma } from "@/lib/prisma";
 import { serializeAlert } from "@/lib/serializers";
+import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
 
 export type AlertEvaluation = {
@@ -19,7 +20,7 @@ export async function evaluateAlert(alert: Alert): Promise<AlertEvaluation> {
 
   const provider = getStockDataProvider();
   const symbol = alert.symbol.toUpperCase();
-  const quote = await provider.getQuote(symbol);
+  const quote = await getQuote(symbol, { allowStale: true });
   const historyNeeded = alert.alertType === "rsi" || alert.alertType === "volume";
   const history = historyNeeded ? await provider.getHistory(symbol, "3mo", "1d") : [];
   const currentValue = getAlertCurrentValue(alert, quote.price, quote.volume, history);
@@ -66,7 +67,8 @@ export async function evaluateAlertsForUser(userId: string) {
 export async function evaluateAllActiveAlerts() {
   const alerts = await prisma.alert.findMany({
     where: { isActive: true, triggeredAt: null },
-    orderBy: { createdAt: "asc" }
+    orderBy: { createdAt: "asc" },
+    take: numberEnv("MAX_ALERTS_PER_RUN", 100)
   });
 
   const results: AlertEvaluation[] = [];
@@ -86,10 +88,15 @@ export async function evaluateAllActiveAlerts() {
   return results;
 }
 
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function getAlertCurrentValue(
   alert: Alert,
-  price: number,
-  volume: number,
+  price: number | null,
+  volume: number | null,
   history: Array<{ close: number; volume: number; timestamp: string; open: number; high: number; low: number; symbol: string }>
 ) {
   if (alert.alertType === "price") return price;
@@ -99,11 +106,10 @@ function getAlertCurrentValue(
   }
 
   if (alert.alertType === "volume") {
-    if (!history.length) return null;
+    if (!history.length || volume === null) return null;
     const averageVolume = history.reduce((sum, candle) => sum + candle.volume, 0) / history.length;
     return averageVolume > 0 ? Number((volume / averageVolume).toFixed(4)) : null;
   }
 
   return null;
 }
-

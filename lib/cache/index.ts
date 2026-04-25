@@ -33,7 +33,6 @@ export async function getCache<T>(key: string): Promise<T | null> {
   try {
     const row = await prisma.cacheEntry.findUnique({ where: { key } });
     if (!row || row.expiresAt.getTime() <= Date.now()) {
-      if (row) await prisma.cacheEntry.delete({ where: { key } }).catch(() => undefined);
       return null;
     }
     putMemory(key, row.value, row.expiresAt.getTime());
@@ -45,13 +44,14 @@ export async function getCache<T>(key: string): Promise<T | null> {
 
 export async function setCache<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-  putMemory(key, value, expiresAt.getTime());
+  const cacheValue = stripLargeFields(value);
+  putMemory(key, cacheValue, expiresAt.getTime());
 
   try {
     await prisma.cacheEntry.upsert({
       where: { key },
-      update: { value: value as Prisma.InputJsonValue, expiresAt },
-      create: { key, value: value as Prisma.InputJsonValue, expiresAt }
+      update: { value: cacheValue as Prisma.InputJsonValue, expiresAt },
+      create: { key, value: cacheValue as Prisma.InputJsonValue, expiresAt }
     });
   } catch {
     // Memory cache fallback keeps local development usable without Redis or DB cache.
@@ -96,7 +96,7 @@ function putMemory(key: string, value: unknown, expiresAt: number) {
   if (size > maxValueBytes) return;
 
   if (memoryCache.has(key)) deleteMemoryKey(key);
-  memoryCache.set(key, { value: stripLargeFields(value), expiresAt, size });
+  memoryCache.set(key, { value, expiresAt, size });
   globalCache.__stockAiMemoryCacheBytes = (globalCache.__stockAiMemoryCacheBytes ?? 0) + size;
   evictIfNeeded();
 }

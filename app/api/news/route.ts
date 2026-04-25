@@ -44,10 +44,34 @@ export async function GET(request: NextRequest) {
     const loadNews = () =>
       prisma.newsItem.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          titleHash: true,
+          url: true,
+          source: true,
+          publishedAt: true,
+          summary: true,
+          symbols: true,
+          sectors: true,
+          sentiment: true,
+          importance: true,
+          createdAt: true,
           analyses: {
             orderBy: { createdAt: "desc" },
-            take: 1
+            take: 1,
+            select: {
+              id: true,
+              aiSummary: true,
+              sentiment: true,
+              affectedSymbols: true,
+              affectedSectors: true,
+              impactLevel: true,
+              riskNotes: true,
+              whyItMatters: true,
+              confidence: true,
+              createdAt: true
+            }
           }
         },
         orderBy: { publishedAt: "desc" },

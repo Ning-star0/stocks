@@ -10,9 +10,10 @@ import { saveNewsAnalysis } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 
 const workerId = `${process.pid}-${randomUUID()}`;
+let lastTimeoutSweepAt = 0;
 
 export async function processNextJob() {
-  await failTimedOutJobs();
+  await failTimedOutJobsIfDue();
   const job = await lockNextQueuedJob();
   if (!job) return null;
 
@@ -42,6 +43,13 @@ export async function processNextJob() {
       }
     });
   }
+}
+
+async function failTimedOutJobsIfDue() {
+  const now = Date.now();
+  if (now - lastTimeoutSweepAt < numberEnv("JOB_TIMEOUT_SWEEP_INTERVAL_SECONDS", 60) * 1000) return;
+  lastTimeoutSweepAt = now;
+  await failTimedOutJobs();
 }
 
 async function lockNextQueuedJob() {
@@ -152,7 +160,22 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     const [watchlists, sectorWatches, newsItems] = await Promise.all([
       prisma.watchlist.findMany({ where: { userId: job.userId }, include: { items: true } }),
       prisma.sectorWatch.findMany({ where: { userId: job.userId } }),
-      prisma.newsItem.findMany({ orderBy: { publishedAt: "desc" }, take: 30 })
+      prisma.newsItem.findMany({
+        select: {
+          id: true,
+          title: true,
+          url: true,
+          source: true,
+          publishedAt: true,
+          summary: true,
+          symbols: true,
+          sectors: true,
+          sentiment: true,
+          importance: true
+        },
+        orderBy: { publishedAt: "desc" },
+        take: 30
+      })
     ]);
     const output = await generateDailyBrief({
       watchlistItems: watchlists.flatMap((watchlist) => watchlist.items),

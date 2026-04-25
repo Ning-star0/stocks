@@ -4,18 +4,21 @@ import { resolve } from "node:path";
 loadDotEnv();
 
 async function main() {
-  const [{ mapWithConcurrency }, { setCache }, { prisma }, { getStockDataProvider }] = await Promise.all([
+  const [{ mapWithConcurrency }, { setCache }, { MARKET_INDICES }, { prisma }, { getStockDataProvider }] = await Promise.all([
     import("@/lib/concurrency/pLimit"),
     import("@/lib/cache"),
+    import("@/lib/marketIndices"),
     import("@/lib/prisma"),
     import("@/lib/stock-data")
   ]);
   const items = await prisma.watchlistItem.findMany({ select: { symbol: true }, distinct: ["symbol"], take: numberEnv("MAX_BATCH_SYMBOLS", 50) });
+  const symbols = [...new Set([...items.map((item) => item.symbol), ...MARKET_INDICES.map((item) => item.symbol)])];
   const provider = getStockDataProvider();
-  const results = await mapWithConcurrency(items, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2), async (item) => {
-    const quote = await provider.getQuote(item.symbol);
-    await setCache(`quote:${item.symbol}`, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
-    return item.symbol;
+  const results = await mapWithConcurrency(symbols, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2), async (symbol) => {
+    const quote = await provider.getQuote(symbol);
+    await setCache(`quote:${quote.symbol}`, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
+    if (quote.symbol !== symbol) await setCache(`quote:${symbol}`, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
+    return quote.symbol;
   });
   console.log(JSON.stringify({ refreshed: results.length, symbols: results }, null, 2));
   await prisma.$disconnect();
@@ -44,4 +47,3 @@ function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
-

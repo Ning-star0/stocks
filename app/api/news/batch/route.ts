@@ -30,7 +30,36 @@ export async function POST(request: NextRequest) {
           importance: { in: ["high", "medium"] },
           publishedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
         },
-        include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
+        select: {
+          id: true,
+          title: true,
+          titleHash: true,
+          url: true,
+          source: true,
+          publishedAt: true,
+          summary: true,
+          symbols: true,
+          sectors: true,
+          sentiment: true,
+          importance: true,
+          createdAt: true,
+          analyses: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              aiSummary: true,
+              sentiment: true,
+              affectedSymbols: true,
+              affectedSectors: true,
+              impactLevel: true,
+              riskNotes: true,
+              whyItMatters: true,
+              confidence: true,
+              createdAt: true
+            }
+          }
+        },
         orderBy: [{ importance: "desc" }, { publishedAt: "desc" }],
         take: body.pageSize
       });
@@ -48,4 +77,3 @@ function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
-

@@ -1,4 +1,5 @@
 import { calculateIndicators } from "@/lib/indicators";
+import { setCache } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
 import { getStockDataProvider } from "@/lib/stock-data";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
@@ -14,6 +15,7 @@ export async function updateSymbolMarketData(symbol: string): Promise<SymbolUpda
   const provider = getStockDataProvider();
   const [quote, history] = await Promise.all([provider.getQuote(normalized), provider.getHistory(normalized, "1y", "1d")]);
   const indicators = calculateIndicators(normalized, history);
+  await setCache(`quote:${quote.symbol}`, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
 
   await prisma.$transaction([
     prisma.priceSnapshot.create({
@@ -52,7 +54,8 @@ export async function updateSymbolMarketData(symbol: string): Promise<SymbolUpda
 export async function updateAllWatchlistMarketData() {
   const items = await prisma.watchlistItem.findMany({
     select: { symbol: true },
-    distinct: ["symbol"]
+    distinct: ["symbol"],
+    take: numberEnv("MAX_BATCH_SYMBOLS", 50)
   });
 
   const results: Array<{ symbol: string; ok: true; data: SymbolUpdateResult } | { symbol: string; ok: false; error: string }> = [];
@@ -67,4 +70,9 @@ export async function updateAllWatchlistMarketData() {
   }
 
   return results;
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }

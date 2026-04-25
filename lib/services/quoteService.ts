@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { getCache, setCache } from "@/lib/cache";
+import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { getStockDataProvider } from "@/lib/stock-data";
 import type { Quote } from "@/lib/types";
 
@@ -28,16 +30,17 @@ type GetQuoteOptions = {
 export async function getQuote(symbol: string, options: GetQuoteOptions = {}): Promise<QuoteWithStatus> {
   const normalized = symbol.toUpperCase();
   const cacheKey = `quote:${normalized}`;
-  const cached = await readQuoteCache(cacheKey);
+  const freshCached = await getCache<Quote>(cacheKey);
+  if (freshCached) return toQuoteWithStatus(freshCached, "cached");
 
-  if (cached?.fresh) return toQuoteWithStatus(cached.quote, "cached");
+  const cached = options.allowStale || options.cacheOnly ? await readQuoteCacheRow(cacheKey) : null;
   if (options.cacheOnly) {
-    if (options.allowStale && cached?.quote) return toQuoteWithStatus(cached.quote, "stale");
+    if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale");
     if (options.allowStale) {
       const snapshot = await readLatestSnapshot(normalized);
       if (snapshot) return snapshot;
     }
-    return unavailableQuote(normalized, cached?.quote ? "stale" : "unavailable");
+    return unavailableQuote(normalized, cached ? "stale" : "unavailable");
   }
 
   try {
@@ -45,7 +48,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
     await writeQuoteCache(cacheKey, quote);
     return toQuoteWithStatus(quote, "normal");
   } catch (error) {
-    if (options.allowStale && cached?.quote) return toQuoteWithStatus(cached.quote, "stale", errorMessage(error));
+    if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale", errorMessage(error));
     if (options.allowStale) {
       const snapshot = await readLatestSnapshot(normalized);
       if (snapshot) return { ...snapshot, error: errorMessage(error) };
@@ -55,11 +58,10 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
 }
 
 export async function getQuotesBatch(symbols: string[], options: GetQuoteOptions = {}) {
-  const output: Record<string, QuoteWithStatus> = {};
-  for (const symbol of [...new Set(symbols.map((item) => item.toUpperCase()))].slice(0, numberEnv("MAX_BATCH_SYMBOLS", 50))) {
-    output[symbol] = await getQuote(symbol, options);
-  }
-  return output;
+  const uniqueSymbols = [...new Set(symbols.map((item) => item.toUpperCase()))].slice(0, numberEnv("MAX_BATCH_SYMBOLS", 50));
+  const limit = options.cacheOnly ? numberEnv("MAX_CACHE_READ_CONCURRENT", 4) : numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2);
+  const rows = await mapWithConcurrency(uniqueSymbols, Math.max(1, limit), async (symbol) => [symbol, await getQuote(symbol, options)] as const);
+  return Object.fromEntries(rows);
 }
 
 export function getQuoteProviderInfo() {
@@ -70,28 +72,17 @@ export function getQuoteProviderInfo() {
   };
 }
 
-async function readQuoteCache(key: string) {
+async function readQuoteCacheRow(key: string) {
   try {
     const row = await prisma.cacheEntry.findUnique({ where: { key } });
-    if (!row) return null;
-    return {
-      quote: row.value as unknown as Quote,
-      fresh: row.expiresAt.getTime() > Date.now()
-    };
+    return row ? (row.value as unknown as Quote) : null;
   } catch {
     return null;
   }
 }
 
 async function writeQuoteCache(key: string, quote: Quote) {
-  const expiresAt = new Date(Date.now() + numberEnv("QUOTE_CACHE_TTL_SECONDS", 30) * 1000);
-  await prisma.cacheEntry
-    .upsert({
-      where: { key },
-      update: { value: JSON.parse(JSON.stringify(quote)), expiresAt },
-      create: { key, value: JSON.parse(JSON.stringify(quote)), expiresAt }
-    })
-    .catch(() => undefined);
+  await setCache(key, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
 }
 
 async function readLatestSnapshot(symbol: string): Promise<QuoteWithStatus | null> {

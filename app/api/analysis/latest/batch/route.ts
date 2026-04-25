@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
+import { Prisma as PrismaSql } from "@prisma/client";
 import { z } from "zod";
 
-import { getCache, setCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -16,24 +17,7 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
     const body = requestSchema.parse(await request.json());
     const symbols = [...new Set(body.symbols)];
-    const analyses: Record<string, unknown> = {};
-
-    for (const symbol of symbols) {
-      const cacheKey = `latest_analysis:${symbol}`;
-      const cached = await getCache<unknown>(cacheKey);
-      if (cached) {
-        analyses[symbol] = cached;
-        continue;
-      }
-      const latest = await prisma.aiAnalysis.findFirst({
-        where: { userId: user.id, symbol },
-        orderBy: { createdAt: "desc" }
-      });
-      analyses[symbol] = latest
-        ? { id: latest.id, symbol: latest.symbol, createdAt: latest.createdAt, outputJson: latest.outputJson }
-        : null;
-      await setCache(cacheKey, analyses[symbol], numberEnv("LATEST_ANALYSIS_CACHE_TTL_SECONDS", 300));
-    }
+    const analyses = await loadLatestAnalyses(user.id, symbols);
 
     return NextResponse.json({ analyses });
   } catch (error) {
@@ -41,8 +25,36 @@ export async function POST(request: NextRequest) {
   }
 }
 
+async function loadLatestAnalyses(userId: string, symbols: string[]) {
+  const output: Record<string, unknown> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
+  if (!symbols.length) return output;
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      symbol: string;
+      createdAt: Date;
+      outputJson: Prisma.JsonValue;
+    }>
+  >(PrismaSql.sql`
+    SELECT DISTINCT ON ("symbol") "id", "symbol", "createdAt", "outputJson"
+    FROM "AiAnalysis"
+    WHERE "userId" = ${userId}
+      AND "symbol" IN (${PrismaSql.join(symbols)})
+    ORDER BY "symbol", "createdAt" DESC
+  `);
+
+  for (const row of rows) {
+    output[row.symbol] = {
+      id: row.id,
+      symbol: row.symbol,
+      createdAt: row.createdAt,
+      outputJson: row.outputJson
+    };
+  }
+  return output;
+}
+
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
-

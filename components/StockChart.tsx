@@ -149,22 +149,31 @@ export function StockChart({
 function buildChartData(candles: Candle[], isIntraday: boolean): ChartPoint[] {
   const ordered = [...candles].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const closes = ordered.map((item) => item.close);
+  const ma5 = buildMovingAverageSeries(closes, 5);
+  const ma10 = buildMovingAverageSeries(closes, 10);
+  const ma20 = buildMovingAverageSeries(closes, 20);
+  const ma60 = buildMovingAverageSeries(closes, 60);
   return ordered.map((candle, index) => ({
     ...candle,
     date: isIntraday
       ? new Date(candle.timestamp).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
       : new Date(candle.timestamp).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }),
-    ma5: movingAverage(closes, index, 5),
-    ma10: movingAverage(closes, index, 10),
-    ma20: movingAverage(closes, index, 20),
-    ma60: movingAverage(closes, index, 60)
+    ma5: ma5[index],
+    ma10: ma10[index],
+    ma20: ma20[index],
+    ma60: ma60[index]
   }));
 }
 
-function movingAverage(values: number[], index: number, period: number) {
-  if (index + 1 < period) return null;
-  const slice = values.slice(index + 1 - period, index + 1);
-  return slice.reduce((sum, value) => sum + value, 0) / period;
+function buildMovingAverageSeries(values: number[], period: number) {
+  const output: Array<number | null> = Array(values.length).fill(null);
+  let sum = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    sum += values[index];
+    if (index >= period) sum -= values[index - period];
+    if (index + 1 >= period) output[index] = sum / period;
+  }
+  return output;
 }
 
 function buildScale(data: ChartPoint[]) {
