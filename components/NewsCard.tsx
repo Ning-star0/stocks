@@ -42,7 +42,9 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
           <div className="flex flex-wrap items-center gap-2">
             <ImpactLevelBadge level={impact} />
             <NewsSentimentBadge sentiment={sentiment} />
-            {analysis?.confidence !== null && analysis?.confidence !== undefined ? <span className="text-xs text-muted-foreground">置信度 {(analysis.confidence * 100).toFixed(0)}%</span> : null}
+            {analysis?.confidence !== null && analysis?.confidence !== undefined ? (
+              <span className="text-xs text-muted-foreground">置信度 {(analysis.confidence * 100).toFixed(0)}%</span>
+            ) : null}
           </div>
           <h3 className="text-base font-semibold leading-6">{item.title}</h3>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">

@@ -42,6 +42,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   }
 
   const outputJson = await analyzeStock(context.aiInput);
+  const isFallback = Boolean(outputJson.isFallback);
   const jsonSafeInput = JSON.parse(JSON.stringify({ ...context.aiInput, contextHash: inputHash, highImpactNewsIds: context.highImpactNewsIds }));
   const jsonSafeOutput = JSON.parse(JSON.stringify(outputJson)) as Prisma.InputJsonValue;
   const analysis = await prisma.aiAnalysis.create({
@@ -53,15 +54,21 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     }
   });
 
-  await setCache(cacheKey, { analysisId: analysis.id, outputJson }, numberEnv("AI_ANALYSIS_CACHE_TTL_SECONDS", 21600));
-  await setCache(`latest_analysis:${canonicalSymbol}`, { id: analysis.id, createdAt: analysis.createdAt, outputJson }, numberEnv("LATEST_ANALYSIS_CACHE_TTL_SECONDS", 300));
+  if (!isFallback) {
+    await setCache(cacheKey, { analysisId: analysis.id, outputJson }, numberEnv("AI_ANALYSIS_CACHE_TTL_SECONDS", 21600));
+  }
+  await setCache(
+    `latest_analysis:${canonicalSymbol}`,
+    { id: analysis.id, createdAt: analysis.createdAt, outputJson },
+    isFallback ? 60 : numberEnv("LATEST_ANALYSIS_CACHE_TTL_SECONDS", 300)
+  );
   await logAiUsage({
     userId: input.userId,
     symbol: canonicalSymbol,
     jobType: "stock_analysis",
     inputHash,
     cacheHit: false,
-    reason: input.reason,
+    reason: isFallback ? `${input.reason}:fallback` : input.reason,
     promptTokens: context.estimatedTokens
   });
 

@@ -76,6 +76,8 @@ export const aiAnalysisSchema = z.object({
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
   summary: z.string().min(1),
+  isFallback: z.boolean().optional(),
+  fallbackReason: z.string().optional(),
   keyLevels: z.object({
     support: z.array(z.number()),
     resistance: z.array(z.number())

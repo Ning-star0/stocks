@@ -18,6 +18,7 @@ type Brief = {
 export function DailyMarketBriefPanel() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -40,17 +41,19 @@ export function DailyMarketBriefPanel() {
   }, [load]);
 
   async function generate() {
-    setLoading(true);
+    setGenerating(true);
     setError(null);
-    const response = await fetch("/api/briefs/daily/generate", { method: "POST" });
-    const json = await response.json();
-    if (!response.ok) {
-      setError(json.error?.message ?? "生成每日简报失败。");
+    try {
+      const response = await fetch("/api/briefs/daily/generate", { method: "POST" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message ?? "生成每日简报失败。");
+      setBrief(json.brief);
+    } catch (generateError) {
+      setError(generateError instanceof Error ? generateError.message : "生成每日简报失败。");
+    } finally {
+      setGenerating(false);
       setLoading(false);
-      return;
     }
-    setBrief(json.brief);
-    setLoading(false);
   }
 
   return (
@@ -60,9 +63,9 @@ export function DailyMarketBriefPanel() {
           <FileText className="h-4 w-4 text-primary" />
           <CardTitle>每日市场简报</CardTitle>
         </div>
-        <Button size="sm" variant="outline" onClick={generate}>
-          <RefreshCw className="h-4 w-4" />
-          生成
+        <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
+          <RefreshCw className={generating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          {generating ? "生成中" : "生成"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -76,7 +79,7 @@ export function DailyMarketBriefPanel() {
             <BriefBlock title="自选股" text={brief.watchlistSummary} />
             <BriefBlock title="行业" text={brief.sectorSummary} />
             <BriefBlock title="风险" text={brief.riskSummary} />
-            <p className="border-t pt-3 text-xs text-muted-foreground">AI 市场简报可能遗漏上下文，仅供研究参考。</p>
+            <p className="border-t pt-3 text-xs text-muted-foreground">AI 市场简报可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
           </>
         )}
       </CardContent>

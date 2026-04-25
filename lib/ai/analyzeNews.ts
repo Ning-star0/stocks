@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 import { createChatCompletion } from "@/lib/ai/deepseek";
+import { AppError } from "@/lib/errors";
 import { newsAnalysisSchema } from "@/lib/schemas";
 import type { NewsAnalysisResult } from "@/lib/types";
 
@@ -15,10 +16,10 @@ export type AnalyzeNewsInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的金融新闻分析助手。你只能基于提供的新闻内容进行分析。你不能夸大新闻影响，不能给出确定性投资建议。请判断新闻情绪、影响方向、影响级别、相关股票、相关行业和风险点。必须输出严格 JSON，不要输出 Markdown。";
+  "你是一个谨慎的金融新闻分析助手。你只能基于提供的新闻内容进行分析。你不能夸大新闻影响，不能给出确定性投资建议。你需要判断新闻的情绪、影响方向、影响级别、相关股票、相关行业和风险点。输出必须是严格 JSON，不要输出 Markdown。";
 
 export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysisResult> {
-  if (!process.env.OPENAI_API_KEY) return fallbackNewsAnalysis(input);
+  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) return fallbackNewsAnalysis(input, "DeepSeek API key 未配置，使用关键词规则兜底。");
 
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -38,7 +39,10 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: attempt === 0 ? prompt : `${prompt}\n\n上一次输出没有通过校验。请只返回严格 JSON，枚举值必须使用英文值。`
+            content:
+              attempt === 0
+                ? prompt
+                : `${prompt}\n\n上一次输出没有通过校验。请只返回严格 JSON，枚举值必须使用英文值。`
           }
         ]
       };
@@ -49,13 +53,15 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
       return newsAnalysisSchema.parse(normalizeNewsAnalysis(parseJsonObject(text), input));
     } catch (error) {
       lastError = error;
+      if (error instanceof AppError && (error.code === "DATA_PROVIDER_ERROR" || error.code === "RATE_LIMIT")) break;
     }
   }
 
-  return fallbackNewsAnalysis(
-    input,
-    `AI 新闻分析返回内容未通过 JSON/schema 校验，系统已改用关键词规则兜底。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
-  );
+  const reason =
+    lastError instanceof AppError
+      ? `AI 新闻分析请求失败，使用关键词规则兜底。原因：${lastError.message}`
+      : `AI 新闻分析返回内容未通过 JSON/schema 校验，使用关键词规则兜底。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`;
+  return fallbackNewsAnalysis(input, reason);
 }
 
 function buildPrompt(input: AnalyzeNewsInput) {
@@ -79,7 +85,7 @@ ${JSON.stringify(input.candidateSymbols ?? [])}
 相关行业候选：
 ${JSON.stringify(input.candidateSectors ?? [])}
 
-请只返回严格 JSON：
+请返回严格 JSON：
 {
   "summary": "",
   "sentiment": "positive | neutral | negative",
@@ -106,13 +112,15 @@ function parseJsonObject(text: string) {
 
 function normalizeNewsAnalysis(value: unknown, input: AnalyzeNewsInput) {
   const record = isRecord(value) ? value : {};
+  const riskNotes = toStringArray(record.riskNotes);
+  const affectedSectors = toStringArray(record.affectedSectors);
   return {
     summary: toNonEmptyString(record.summary, truncate(input.content || input.title, 280)),
     sentiment: normalizeSentiment(record.sentiment),
     impactLevel: normalizeImpact(record.impactLevel ?? record.importance),
     affectedSymbols: normalizeSymbolArray(record.affectedSymbols, input.candidateSymbols ?? []),
-    affectedSectors: toStringArray(record.affectedSectors).length ? toStringArray(record.affectedSectors) : input.candidateSectors ?? [],
-    riskNotes: toStringArray(record.riskNotes).length ? toStringArray(record.riskNotes) : ["AI 新闻分析可能遗漏上下文，请结合原文和市场数据复核。"],
+    affectedSectors: affectedSectors.length ? affectedSectors : input.candidateSectors ?? [],
+    riskNotes: riskNotes.length ? riskNotes : ["AI 新闻分析可能遗漏上下文，请结合原文和市场数据复核。"],
     whyItMatters: toNonEmptyString(record.whyItMatters, "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"),
     confidence: normalizeConfidence(record.confidence)
   };
@@ -158,10 +166,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason = "当前未配置 OPENAI_API_KEY，新闻分析使用关键词规则兜底，可能遗漏上下文。"): NewsAnalysisResult {
+function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason: string): NewsAnalysisResult {
   const text = `${input.title} ${input.content ?? ""}`.toLowerCase();
-  const negativeTerms = ["risk", "miss", "cut", "probe", "lawsuit", "delay", "weak", "loss", "下滑", "调查", "诉讼"];
-  const positiveTerms = ["beat", "growth", "upgrade", "launch", "partnership", "demand", "approval", "增长", "上调", "合作"];
+  const negativeTerms = ["risk", "miss", "cut", "probe", "lawsuit", "delay", "weak", "loss", "下滑", "调查", "诉讼", "亏损"];
+  const positiveTerms = ["beat", "growth", "upgrade", "launch", "partnership", "demand", "approval", "增长", "上调", "合作", "中标"];
   const sentiment = negativeTerms.some((term) => text.includes(term))
     ? "negative"
     : positiveTerms.some((term) => text.includes(term))
@@ -183,4 +191,10 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason = "当前未配置
 
 function truncate(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function normalizeApiKey(value?: string) {
+  const key = value?.trim().replace(/^["']|["']$/g, "");
+  if (!key || key.includes("CHANGE_ME")) return null;
+  return key;
 }

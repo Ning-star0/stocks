@@ -6,6 +6,7 @@ export type ShouldRunStockAnalysisInput = {
   latestAnalysis?: {
     createdAt: Date | string;
     inputJson?: unknown;
+    outputJson?: unknown;
   } | null;
   currentQuote: Quote;
   currentIndicators: IndicatorSnapshot;
@@ -18,6 +19,7 @@ export type ShouldRunStockAnalysisInput = {
 export function shouldRunStockAnalysis(input: ShouldRunStockAnalysisInput) {
   if (input.forceRefresh) return result(true, "force_refresh", false);
   if (!input.latestAnalysis) return result(true, "no_historical_analysis", false);
+  if (isFallbackAnalysis(input.latestAnalysis.outputJson)) return result(true, "previous_analysis_was_fallback", true);
 
   const latestCreatedAt = new Date(input.latestAnalysis.createdAt);
   if (Date.now() - latestCreatedAt.getTime() > 6 * 60 * 60 * 1000) return result(true, "analysis_older_than_6h", true);
@@ -48,6 +50,11 @@ export function shouldRunStockAnalysis(input: ShouldRunStockAnalysisInput) {
   return result(false, "context_unchanged", true);
 }
 
+function isFallbackAnalysis(outputJson: unknown) {
+  const output = outputJson as { isFallback?: boolean } | null;
+  return Boolean(output?.isFallback);
+}
+
 function result(shouldRun: boolean, reason: string, staleAnalysisAllowed: boolean) {
   return { shouldRun, reason, staleAnalysisAllowed };
 }
@@ -67,4 +74,3 @@ function extractPreviousState(inputJson: unknown) {
     highImpactNewsIds: value.highImpactNewsIds ?? []
   };
 }
-

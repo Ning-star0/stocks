@@ -78,6 +78,8 @@ export interface AiAnalysisResult {
   trend: Trend;
   confidence: number;
   summary: string;
+  isFallback?: boolean;
+  fallbackReason?: string;
   keyLevels: {
     support: number[];
     resistance: number[];

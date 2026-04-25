@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
@@ -22,13 +25,11 @@ type TianApiNewsRow = {
   description?: string;
 };
 
-function requireTianApiKey() {
-  const key = normalizeEnvValue(process.env.TIANAPI_KEY || process.env.TIANAPI_API_KEY || process.env.TIAN_API_KEY);
-  if (!key || isPlaceholderKey(key)) {
-    throw new AppError("DATA_PROVIDER_ERROR", "使用天行财经新闻源需要在 .env 配置真实的 TIANAPI_KEY，并重启网站和 worker。");
-  }
-  return key;
-}
+const MIN_REQUEST_INTERVAL_MS = 450;
+
+const tianApiState = globalThis as unknown as {
+  __tianApiNextAt?: number;
+};
 
 export class TianApiNewsProvider implements NewsProvider {
   private readonly baseUrl = "https://apis.tianapi.com/caijing/index";
@@ -36,7 +37,7 @@ export class TianApiNewsProvider implements NewsProvider {
   async searchCompanyNews(symbol: string, from: string, to: string): Promise<NewsItem[]> {
     const normalized = symbol.toUpperCase();
     const compact = normalized.replace(/\.(SH|SZ|BJ|HK)$/i, "");
-    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 20 }));
+    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 10 }));
 
     return rows
       .map((row) => normalizeTianApiNews(row, [normalized], []))
@@ -44,15 +45,15 @@ export class TianApiNewsProvider implements NewsProvider {
   }
 
   async searchTopicNews(keywords: string[], from: string, to: string): Promise<NewsItem[]> {
-    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean);
+    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, 2);
     const rows: TianApiNewsRow[] = [];
 
-    for (const keyword of cleanKeywords.slice(0, 5)) {
-      rows.push(...(await this.search({ word: keyword, page: 1, num: 20 })));
+    for (const keyword of cleanKeywords) {
+      rows.push(...(await this.search({ word: keyword, page: 1, num: 10 })));
     }
 
     if (!rows.length) {
-      rows.push(...(await this.search({ page: 1, num: 30 })));
+      rows.push(...(await this.search({ page: 1, num: 20 })));
     }
 
     return dedupeRows(rows)
@@ -69,19 +70,61 @@ export class TianApiNewsProvider implements NewsProvider {
     url.searchParams.set("form", "1");
     if (input.word) url.searchParams.set("word", input.word);
 
-    const response = await fetch(url, { next: { revalidate: 900 } });
-    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：${response.status}`);
-
-    const payload = (await response.json()) as TianApiResponse;
-    if (payload.code === 200) return payload.result?.list ?? [];
-    if (payload.code === 130) throw new AppError("RATE_LIMIT", "天行财经新闻接口调用频率超限。", payload);
-    if (payload.code === 150) throw new AppError("RATE_LIMIT", "天行财经新闻接口可用次数不足。", payload);
-    if (payload.code === 190 || payload.code === 230 || payload.code === 240) {
-      throw new AppError("DATA_PROVIDER_ERROR", "天行财经新闻 API key 无效。请确认 .env 里的 TIANAPI_KEY 是天行数据控制台的真实 key，保存后重启 stocks-web。", payload);
-    }
-    if (payload.code === 250) return [];
-    throw new AppError("DATA_PROVIDER_ERROR", payload.msg ?? "天行财经新闻接口返回错误。", payload);
+    const cacheKey = `news:tianapi:${hashUrlWithoutKey(url)}`;
+    return remember(cacheKey, numberEnv("NEWS_CACHE_TTL_SECONDS", 900), async () => this.fetchWithRetry(url));
   }
+
+  private async fetchWithRetry(url: URL) {
+    let lastPayload: TianApiResponse | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await waitForTianApiSlot();
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：HTTP ${response.status}`);
+
+      const payload = (await response.json()) as TianApiResponse;
+      lastPayload = payload;
+      if (payload.code === 200) return payload.result?.list ?? [];
+      if (payload.code === 250) return [];
+      if (payload.code === 130 && attempt === 0) {
+        await sleep(1200);
+        continue;
+      }
+      throw mapTianApiError(payload);
+    }
+
+    throw mapTianApiError(lastPayload ?? { code: 100, msg: "unknown" });
+  }
+}
+
+function requireTianApiKey() {
+  const key = normalizeEnvValue(process.env.TIANAPI_KEY || process.env.TIANAPI_API_KEY || process.env.TIAN_API_KEY);
+  if (!key || isPlaceholderKey(key)) {
+    throw new AppError("DATA_PROVIDER_ERROR", "天行财经新闻 API key 未配置。请在 .env 中设置 TIANAPI_KEY 后重启网站和 worker。");
+  }
+  return key;
+}
+
+function mapTianApiError(payload: TianApiResponse) {
+  if (payload.code === 130) {
+    return new AppError("RATE_LIMIT", "天行财经新闻接口 QPS 频率超限。系统已降低请求频率，请稍等 1 分钟后再抓取。", payload);
+  }
+  if (payload.code === 150) {
+    return new AppError("RATE_LIMIT", "天行财经新闻接口每日可用次数不足。", payload);
+  }
+  if (payload.code === 160) {
+    return new AppError("DATA_PROVIDER_ERROR", "天行财经新闻接口未申请权限。请在天行控制台申请“财经新闻”接口。", payload);
+  }
+  if (payload.code === 190 || payload.code === 230 || payload.code === 240) {
+    return new AppError("DATA_PROVIDER_ERROR", "天行财经新闻 API key 无效或缺少 key。请确认 .env 的 TIANAPI_KEY 是控制台真实 key。", payload);
+  }
+  return new AppError("DATA_PROVIDER_ERROR", payload.msg ?? "天行财经新闻接口返回错误。", payload);
+}
+
+async function waitForTianApiSlot() {
+  const now = Date.now();
+  const nextAt = tianApiState.__tianApiNextAt ?? 0;
+  if (nextAt > now) await sleep(nextAt - now);
+  tianApiState.__tianApiNextAt = Date.now() + MIN_REQUEST_INTERVAL_MS;
 }
 
 function normalizeEnvValue(value?: string) {
@@ -131,4 +174,19 @@ function dedupeRows(rows: TianApiNewsRow[]) {
     output.push(row);
   }
   return output;
+}
+
+function hashUrlWithoutKey(url: URL) {
+  const clone = new URL(url);
+  clone.searchParams.set("key", "hidden");
+  return createHash("sha256").update(clone.toString()).digest("hex").slice(0, 24);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }

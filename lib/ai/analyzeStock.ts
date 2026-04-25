@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 import { createChatCompletion } from "@/lib/ai/deepseek";
+import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
 import type { AiAnalysisResult } from "@/lib/types";
 
@@ -15,11 +16,11 @@ export type AnalyzeStockInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析。你不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、新闻和用户风险偏好角度进行结构化分析。你的输出必须是严格 JSON，不要输出 Markdown。";
+  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析。你不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、相关新闻和用户风险偏好角度进行结构化分析。你的输出必须是严格 JSON，不要输出 Markdown。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
-  if (!process.env.OPENAI_API_KEY) {
-    return buildFallbackAnalysis(input);
+  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
+    return buildFallbackAnalysis(input, "DeepSeek API key 未配置，系统已改用本地规则生成临时分析。");
   }
 
   const client = new OpenAI({
@@ -43,7 +44,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
             content:
               attempt === 0
                 ? userPrompt
-                : `${userPrompt}\n\n上一次输出没有通过 JSON schema 校验。请只返回一个 JSON 对象，所有枚举值必须严格使用 schema 中的英文值。`
+                : `${userPrompt}\n\n上一次输出没有通过 JSON schema 校验。请只返回一个 JSON 对象，枚举值必须严格使用 schema 中的英文值。`
           }
         ]
       };
@@ -55,7 +56,12 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
       return aiAnalysisSchema.parse(normalizeStockAnalysis(parsed));
     } catch (error) {
       lastError = error;
+      if (error instanceof AppError && (error.code === "DATA_PROVIDER_ERROR" || error.code === "RATE_LIMIT")) break;
     }
+  }
+
+  if (lastError instanceof AppError) {
+    return buildFallbackAnalysis(input, `AI 服务请求失败，系统已改用本地规则生成临时分析。原因：${lastError.message}`);
   }
 
   return buildFallbackAnalysis(
@@ -127,6 +133,7 @@ function normalizeStockAnalysis(value: unknown) {
   const record = isRecord(value) ? value : {};
   const keyLevels = isRecord(record.keyLevels) ? record.keyLevels : {};
   const actions = Array.isArray(record.possibleActions) ? record.possibleActions : [];
+  const riskFactors = toStringArray(record.riskFactors);
 
   return {
     trend: normalizeTrend(record.trend),
@@ -141,13 +148,13 @@ function normalizeStockAnalysis(value: unknown) {
       support: toNumberArray(keyLevels.support ?? record.support),
       resistance: toNumberArray(keyLevels.resistance ?? record.resistance)
     },
-    riskFactors: toStringArray(record.riskFactors).length ? toStringArray(record.riskFactors) : ["AI 输出未提供明确风险因素，请结合行情和新闻自行复核。"],
+    riskFactors: riskFactors.length ? riskFactors : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
     possibleActions: actions.length
       ? actions.map(normalizeAction).filter(Boolean)
       : [
           {
             action: "watch",
-            reason: "数据已生成结构化摘要，但操作计划不足，建议继续观察。",
+            reason: "AI 未提供完整操作计划，建议继续观察关键价位和成交量变化。",
             invalidIf: "价格、成交量、技术指标或相关新闻发生明显变化。"
           }
         ],
@@ -173,7 +180,16 @@ function normalizeNewsSentiment(value: unknown) {
 function normalizeAction(value: unknown) {
   const record = isRecord(value) ? value : {};
   const text = String(record.action ?? "").toLowerCase();
-  const action = text.includes("reduce") || text.includes("减") ? "reduce" : text.includes("entry") || text.includes("买") || text.includes("consider") ? "consider_entry" : text.includes("avoid") || text.includes("回避") ? "avoid" : text.includes("hold") || text.includes("持") ? "hold" : "watch";
+  const action =
+    text.includes("reduce") || text.includes("减")
+      ? "reduce"
+      : text.includes("entry") || text.includes("买") || text.includes("consider")
+        ? "consider_entry"
+        : text.includes("avoid") || text.includes("回避")
+          ? "avoid"
+          : text.includes("hold") || text.includes("持有")
+            ? "hold"
+            : "watch";
   return {
     action,
     reason: toNonEmptyString(record.reason, "AI 未提供原因。"),
@@ -207,7 +223,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function buildFallbackAnalysis(input: AnalyzeStockInput, reason = "当前未配置 OPENAI_API_KEY，系统返回基于报价和技术指标的本地兜底分析，用于开发和演示。"): AiAnalysisResult {
+function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {
   const quote = input.quote as { price?: number; changePercent?: number };
   const indicators = input.indicators as {
     sma20?: number | null;
@@ -226,6 +242,8 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason = "当前未配�
   return {
     trend,
     confidence: 0.42,
+    isFallback: true,
+    fallbackReason: reason,
     summary: reason,
     newsSummary: buildFallbackNewsSummary(input.recentNews),
     newsSentiment: "neutral",
@@ -234,10 +252,10 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason = "当前未配�
     sectorRisks: [],
     keyLevels: {
       support: [indicators.bollingerLower, indicators.sma50, price * 0.97]
-        .filter((value): value is number => typeof value === "number")
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
         .map((value) => Number(value.toFixed(2))),
       resistance: [indicators.bollingerUpper, price * 1.03]
-        .filter((value): value is number => typeof value === "number")
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
         .map((value) => Number(value.toFixed(2)))
     },
     riskFactors: [
@@ -247,11 +265,11 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason = "当前未配�
     possibleActions: [
       {
         action: trend === "bearish" ? "watch" : "hold",
-        reason: "在配置真实 AI 服务前，可将其作为监控备注使用。",
+        reason: "在真实 AI 服务恢复前，可将其作为临时监控备注使用。",
         invalidIf: "价格、成交量或 RSI 状态发生明显变化。"
       }
     ],
-    disclaimer: "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
+    disclaimer: "本内容由系统本地规则生成，仅供研究参考，不构成投资建议。"
   };
 }
 
@@ -264,4 +282,10 @@ function buildFallbackNewsSummary(recentNews: unknown) {
       return news.aiSummary ?? news.summary ?? news.title ?? "未命名新闻";
     })
     .join(" ");
+}
+
+function normalizeApiKey(value?: string) {
+  const key = value?.trim().replace(/^["']|["']$/g, "");
+  if (!key || key.includes("CHANGE_ME")) return null;
+  return key;
 }

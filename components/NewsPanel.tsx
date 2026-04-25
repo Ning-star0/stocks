@@ -23,7 +23,7 @@ export function NewsPanel({ symbol }: { symbol: string }) {
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载新闻失败。");
       const visibleNews = (json.news ?? []).filter((item: NewsCardData) => item.importance !== "low");
-      setNews(visibleNews);
+      setNews(sortNews(visibleNews));
       setUpdatedAt(new Date().toLocaleString("zh-CN"));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载新闻失败。");
@@ -40,29 +40,32 @@ export function NewsPanel({ symbol }: { symbol: string }) {
     setError(null);
     setMessage(null);
     setFetching(true);
-    const response = await fetch("/api/news/fetch", { method: "POST" });
-    const json = await response.json();
-    setFetching(false);
-    if (!response.ok) {
-      setError(json.error?.message ?? "抓取新闻失败。");
-      return;
+    try {
+      const response = await fetch("/api/news/fetch", { method: "POST" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message ?? "抓取新闻失败。");
+      setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。抓取不会触发股票综合分析。`);
+      await load();
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : "抓取新闻失败。");
+    } finally {
+      setFetching(false);
     }
-    setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。抓取不会触发股票综合分析。`);
-    await load();
   }
 
   async function analyze(id: string) {
-    const response = await fetch(`/api/news/${id}/analyze`, { method: "POST" });
-    const json = await response.json();
-    if (!response.ok) {
-      setError(json.error?.message ?? "创建新闻分析任务失败。");
-      return;
+    try {
+      const response = await fetch(`/api/news/${id}/analyze`, { method: "POST" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message ?? "创建新闻分析任务失败。");
+      if (json.jobId) {
+        setMessage("新闻分析任务已加入队列，worker 处理完成后会显示结果。");
+        return;
+      }
+      await load();
+    } catch (analyzeError) {
+      setError(analyzeError instanceof Error ? analyzeError.message : "创建新闻分析任务失败。");
     }
-    if (json.jobId) {
-      setMessage("新闻分析任务已加入队列，worker 处理完成后会显示结果。");
-      return;
-    }
-    await load();
   }
 
   return (
@@ -76,7 +79,7 @@ export function NewsPanel({ symbol }: { symbol: string }) {
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
-          <RefreshCw className="h-4 w-4" />
+          <RefreshCw className={fetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
           {fetching ? "抓取中" : "抓取新闻"}
         </Button>
       </CardHeader>
@@ -87,11 +90,24 @@ export function NewsPanel({ symbol }: { symbol: string }) {
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载新闻...</div>
         ) : news.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无 high/medium 相关新闻。点击“抓取新闻”后会更新此面板。</div>
+          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            暂无 high/medium 相关新闻。点击“抓取新闻”后会更新此面板。
+          </div>
         ) : (
           news.slice(0, 10).map((item) => <NewsCard key={item.id} item={item} onAnalyze={analyze} />)
         )}
       </CardContent>
     </Card>
   );
+}
+
+function sortNews(items: NewsCardData[]) {
+  const weight: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  return [...items].sort((a, b) => {
+    const impactA = String(a.analyses?.[0]?.impactLevel ?? a.importance ?? "low");
+    const impactB = String(b.analyses?.[0]?.impactLevel ?? b.importance ?? "low");
+    const levelDiff = (weight[impactB] ?? 0) - (weight[impactA] ?? 0);
+    if (levelDiff) return levelDiff;
+    return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+  });
 }

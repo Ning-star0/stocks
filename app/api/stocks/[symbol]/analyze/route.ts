@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     });
     const cacheKey = `ai_analysis:${canonicalSymbol}:${contextHash}`;
     const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
-    if (cached) {
+    if (cached && !forceRefresh) {
       await logCacheHit(user.id, canonicalSymbol, contextHash, "stock_analysis_cache_hit");
       return NextResponse.json({
         analysis: {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
       });
     }
     const existingByHash = await findAnalysisByContextHash(user.id, canonicalSymbol, contextHash);
-    if (existingByHash) {
+    if (existingByHash && !forceRefresh) {
       return NextResponse.json({
         analysis: { id: existingByHash.id, createdAt: existingByHash.createdAt, outputJson: existingByHash.outputJson },
         fromCache: true,
@@ -147,8 +147,13 @@ async function findAnalysisByContextHash(userId: string, symbol: string, context
   });
   return rows.find((row) => {
     const input = row.inputJson as { contextHash?: string } | null;
-    return input?.contextHash === contextHash;
+    return input?.contextHash === contextHash && !isFallbackAnalysis(row.outputJson);
   }) ?? null;
+}
+
+function isFallbackAnalysis(outputJson: unknown) {
+  const output = outputJson as { isFallback?: boolean } | null;
+  return Boolean(output?.isFallback);
 }
 
 function priorityForReason(reason: string) {
