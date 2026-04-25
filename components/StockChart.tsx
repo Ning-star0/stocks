@@ -76,40 +76,41 @@ export function StockChart({
         <div className="text-xs text-muted-foreground">红涨绿跌，均线按当前周期 K 线计算</div>
       </div>
 
-      <div className="relative h-[500px] w-full overflow-hidden rounded-md bg-[#0d1118]">
-        <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setHoverIndex(null)}>
-          <defs>
-            <clipPath id="price-clip">
-              <rect x={CHART_LEFT} y={PRICE_TOP} width={CHART_WIDTH} height={PRICE_HEIGHT} />
-            </clipPath>
-            <clipPath id="volume-clip">
-              <rect x={CHART_LEFT} y={VOLUME_TOP} width={CHART_WIDTH} height={VOLUME_HEIGHT} />
-            </clipPath>
-          </defs>
+      <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
+        {hovered ? <InfoPanel point={hovered} currency={currency} /> : null}
+        <div className="h-[500px] w-full overflow-hidden rounded-md bg-[#0d1118]">
+          <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setHoverIndex(null)}>
+            <defs>
+              <clipPath id="price-clip">
+                <rect x={CHART_LEFT} y={PRICE_TOP} width={CHART_WIDTH} height={PRICE_HEIGHT} />
+              </clipPath>
+              <clipPath id="volume-clip">
+                <rect x={CHART_LEFT} y={VOLUME_TOP} width={CHART_WIDTH} height={VOLUME_HEIGHT} />
+              </clipPath>
+            </defs>
 
-          <rect x={0} y={0} width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="#0d1118" />
-          <Grid scale={scale} />
+            <rect x={0} y={0} width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="#0d1118" />
+            <Grid scale={scale} />
 
-          <g clipPath="url(#price-clip)">
-            {data.map((point, index) => (
-              <CandleShape key={`${point.timestamp}-${index}`} point={point} index={index} scale={scale} candleWidth={candleWidth} />
-            ))}
-            {maSeries.map((item) => (
-              <path key={item.key} d={buildLinePath(data, item.key, scale)} fill="none" stroke={item.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-            ))}
-          </g>
+            <g clipPath="url(#price-clip)">
+              {data.map((point, index) => (
+                <CandleShape key={`${point.timestamp}-${index}`} point={point} index={index} scale={scale} candleWidth={candleWidth} />
+              ))}
+              {maSeries.map((item) => (
+                <path key={item.key} d={buildLinePath(data, item.key, scale)} fill="none" stroke={item.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+              ))}
+            </g>
 
-          <g clipPath="url(#volume-clip)">
-            {data.map((point, index) => (
-              <VolumeBar key={`${point.timestamp}-volume-${index}`} point={point} index={index} scale={scale} />
-            ))}
-          </g>
+            <g clipPath="url(#volume-clip)">
+              {data.map((point, index) => (
+                <VolumeBar key={`${point.timestamp}-volume-${index}`} point={point} index={index} scale={scale} />
+              ))}
+            </g>
 
-          <Axes data={data} scale={scale} currency={currency} />
-          {hovered ? <Crosshair point={hovered} index={data.indexOf(hovered)} scale={scale} /> : null}
-        </svg>
-
-        {hovered ? <Tooltip point={hovered} currency={currency} /> : null}
+            <Axes data={data} scale={scale} currency={currency} />
+            {hovered ? <Crosshair point={hovered} index={data.indexOf(hovered)} scale={scale} /> : null}
+          </svg>
+        </div>
       </div>
     </div>
   );
@@ -260,12 +261,12 @@ function Crosshair({ point, index, scale }: { point: ChartPoint; index: number; 
   );
 }
 
-function Tooltip({ point, currency }: { point: ChartPoint; currency?: string }) {
+function InfoPanel({ point, currency }: { point: ChartPoint; currency?: string }) {
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
   return (
-    <div className="absolute left-3 top-3 w-64 rounded-md border border-border bg-popover/95 p-3 text-xs shadow-lg backdrop-blur">
+    <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-xs shadow-lg backdrop-blur">
       <div className="mb-2 font-medium text-popover-foreground">{point.date}</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
         <span>开盘</span>
