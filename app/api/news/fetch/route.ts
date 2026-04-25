@@ -8,6 +8,7 @@ import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import { buildStockNewsKeywords, filterRelevantNewsForStock, isNewsRelevantToStock } from "@/lib/news/relevance";
+import { searchRelatedNews } from "@/lib/news/webSearch";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
@@ -33,10 +34,12 @@ export async function POST() {
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
     const fetched: NewsItem[] = [];
     let filteredOut = 0;
+    let webSearchFallback = 0;
 
     for (const symbol of symbols) {
       const name = await resolveSymbolName(symbol);
       const keywords = buildStockNewsKeywords({ symbol, name });
+      const beforeSymbolFetch = fetched.length;
 
       const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
       const relevantCodeNews = filterRelevantNewsForStock(codeNews, { symbol, name, keywords });
@@ -48,6 +51,18 @@ export async function POST() {
       const relevantTopicNews = filterRelevantNewsForStock(topicNews, { symbol, name, keywords });
       filteredOut += topicNews.length - relevantTopicNews.length;
       fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+
+      if (fetched.length === beforeSymbolFetch) {
+        const webSearch = await searchRelatedNews({
+          symbol,
+          name,
+          sectorKeywords: keywords,
+          days: 7,
+          maxResults: 8
+        });
+        if (webSearch.results.length) webSearchFallback += 1;
+        fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+      }
     }
 
     for (const watch of sectorWatches) {
@@ -106,6 +121,7 @@ export async function POST() {
       fetched: fetched.length,
       saved: saved.length,
       filteredOut,
+      webSearchFallback,
       queued: queued.length,
       news: saved.map(serializeNewsItem)
     });

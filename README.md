@@ -40,6 +40,9 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/stocks_ai?schema=pub
 STOCK_DATA_PROVIDER="mock"
 NEWS_PROVIDER="mock"
 TIANAPI_KEY=""
+TAVILY_API_KEY=""
+WEB_SEARCH_MAX_QUERIES=3
+WEB_SEARCH_CACHE_TTL_SECONDS=1800
 ALPHA_VANTAGE_API_KEY=""
 FINNHUB_API_KEY=""
 OPENAI_API_KEY=""
@@ -300,6 +303,8 @@ AI 输出包含：
 - high 新闻才允许进入 AI 分析队列
 - 股票综合分析最多传入 8 条新闻
 - 综合分析只传标题、来源、发布时间、摘要、情绪和影响级别，不传完整正文
+- 如果普通新闻源没有命中相关新闻，后台会调用 `lib/news/webSearch.ts` 做联网新闻搜索，并把结果 URL 一起传给 AI。
+- 配置 `TAVILY_API_KEY` 后优先使用 Tavily 联网搜索；未配置时回退到当前 `NEWS_PROVIDER`。
 
 ## 替换股票数据源
 
@@ -368,6 +373,16 @@ TIANAPI_KEY="your-key"
 ```
 
 天行财经新闻接口适合内部数据分析和 AI 摘要。若要把原始新闻标题、摘要、链接用于公开终端展示，请先确认接口授权范围。
+
+使用联网新闻搜索补充股票相关新闻：
+
+```env
+TAVILY_API_KEY="your-tavily-key"
+WEB_SEARCH_MAX_QUERIES=3
+WEB_SEARCH_CACHE_TTL_SECONDS=1800
+```
+
+股票综合分析任务会先用股票名称、代码和行业关键词生成搜索词，再走 Tavily 搜索相关新闻。返回给 AI 的内容只包含标题、来源、发布时间、摘要和 URL，不传完整网页正文。没有 `TAVILY_API_KEY` 时，系统会回退到当前 `NEWS_PROVIDER`，例如天行财经新闻。
 
 新增新闻 provider 时：
 

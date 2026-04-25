@@ -5,13 +5,11 @@ import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
-import { getNewsProvider } from "@/lib/news";
-import { buildStockNewsKeywords, filterRelevantNewsForStock } from "@/lib/news/relevance";
+import { searchRelatedNews } from "@/lib/news/webSearch";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
-import type { NewsItem } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 
 export type StockAnalysisRunInput = {
@@ -82,6 +80,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const provider = getStockDataProvider();
   const quoteStatus = await getQuote(symbol, { allowStale: true });
   if (!quoteStatus.raw) throw new AppError("DATA_PROVIDER_ERROR", quoteStatus.error ?? "行情不可用，无法构造分析上下文。");
+
   const quote = quoteStatus.raw;
   const canonicalSymbol = quote.symbol;
   const history = await provider.getHistory(canonicalSymbol, "1y", "1d").catch((error) => {
@@ -95,15 +94,22 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const indicators = calculateIndicators(canonicalSymbol, history);
   const historySummary = summarizeHistory(history);
   const userContext = watchlistItem ? serializeWatchlistItem(watchlistItem) : { symbol: canonicalSymbol };
-  const sectorNames = sectorWatches.map((watch) => watch.sectorName);
-  const highImpactNews = await getHighImpactNewsForStock(canonicalSymbol, sectorNames);
+  const sectorKeywords = [...sectorWatches.map((watch) => watch.sectorName), ...sectorWatches.flatMap((watch) => watch.keywords)];
+  const highImpactNews = await getHighImpactNewsForStock(canonicalSymbol, sectorKeywords);
   const supplementalNews = options.includeWebSearch
-    ? await getSupplementalWebNews({
+    ? await searchRelatedNews({
         symbol: canonicalSymbol,
         name: quote.name,
-        sectorKeywords: [...sectorNames, ...sectorWatches.flatMap((watch) => watch.keywords)]
+        sectorKeywords,
+        days: 7,
+        maxResults: 8
       })
-    : [];
+    : {
+        provider: "news_provider" as const,
+        status: "未执行联网新闻检索",
+        queries: [],
+        results: []
+      };
   const highImpactNewsIds = highImpactNews.map((item) => item.id);
   const contextHash = createAnalysisContextHash({
     symbol: canonicalSymbol,
@@ -129,7 +135,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
-  const webSearchResults = supplementalNews.slice(0, 6).map((item) => ({
+  const webSearchResults = supplementalNews.results.slice(0, 6).map((item) => ({
     title: item.title,
     url: item.url ?? null,
     source: item.source ?? null,
@@ -157,7 +163,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     historyCandles: history.length,
     newsWindow: "最近 7 天，高重要性新闻优先；联网检索结果作为补充参考",
     newsCount: recentNews.length,
-    webSearchStatus: options.includeWebSearch ? `已联网检索 ${webSearchResults.length} 条候选新闻` : "未执行联网新闻检索"
+    webSearchStatus: supplementalNews.status
   };
   const aiInput = {
     symbol: canonicalSymbol,
@@ -196,28 +202,6 @@ async function getHighImpactNewsForStock(symbol: string, sectors: string[]) {
     orderBy: [{ publishedAt: "desc" }],
     take: 10
   });
-}
-
-async function getSupplementalWebNews(input: { symbol: string; name?: string | null; sectorKeywords: string[] }) {
-  try {
-    const provider = getNewsProvider();
-    const to = new Date();
-    const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const keywords = [...buildStockNewsKeywords({ symbol: input.symbol, name: input.name }), ...input.sectorKeywords]
-      .map((keyword) => keyword.trim())
-      .filter((keyword) => keyword.length >= 2 && !/^\d+$/.test(keyword));
-    const uniqueKeywords = [...new Set(keywords)].slice(0, 5);
-    if (!uniqueKeywords.length) return [] as NewsItem[];
-
-    const rows = await provider.searchTopicNews(uniqueKeywords, from.toISOString(), to.toISOString());
-    return filterRelevantNewsForStock(rows, {
-      symbol: input.symbol,
-      name: input.name,
-      keywords: uniqueKeywords
-    }).slice(0, 8);
-  } catch {
-    return [] as NewsItem[];
-  }
 }
 
 function dedupeAnalysisNews<T extends { title: string; url?: string | null }>(items: T[]) {
