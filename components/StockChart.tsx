@@ -20,7 +20,7 @@ type CursorPoint = {
   volume: number | null;
   timeLabel: string;
   nearestIndex: number;
-  yLabel: "价格" | "成交量";
+  area: "price" | "volume";
 };
 
 const VIEWBOX_WIDTH = 1200;
@@ -85,7 +85,7 @@ export function StockChart({
       volume: isVolumeArea ? volumeFromY(volumeY, scale) : null,
       timeLabel: timeLabelForX(data, x, scale, isIntraday),
       nearestIndex,
-      yLabel: isVolumeArea ? "成交量" : "价格"
+      area: isVolumeArea ? "volume" : "price"
     });
   }
 
@@ -103,10 +103,10 @@ export function StockChart({
             </span>
           ))}
         </div>
-        <div className="text-xs text-muted-foreground">红涨绿跌，十字线显示鼠标当前位置的时间和数值</div>
+        <div className="text-xs text-muted-foreground">红涨绿跌，均线按当前周期 K 线计算</div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[220px_minmax(760px,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[200px_minmax(780px,1fr)]">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
         <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
           <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setCursor(null)}>
@@ -290,7 +290,7 @@ function Axes({ data, scale, currency, symbol, unit }: { data: ChartPoint[]; sca
 }
 
 function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoint; currency?: string; symbol?: string; unit?: string }) {
-  const tooltipWidth = 210;
+  const tooltipWidth = 196;
   const tooltipHeight = cursor.volume === null ? 54 : 72;
   const tooltipX = cursor.x + tooltipWidth + 18 > CHART_LEFT + CHART_WIDTH ? cursor.x - tooltipWidth - 14 : cursor.x + 14;
   const tooltipY = cursor.y + tooltipHeight + 14 > VOLUME_TOP + VOLUME_HEIGHT ? cursor.y - tooltipHeight - 14 : cursor.y + 14;
@@ -309,14 +309,15 @@ function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoi
 
       <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx={6} fill="rgba(15,23,42,0.96)" stroke="rgba(148,163,184,0.35)" />
       <text x={tooltipX + 10} y={tooltipY + 18} fill="#e2e8f0" fontSize={12}>
-        X: {cursor.timeLabel}
+        {cursor.timeLabel}
       </text>
       <text x={tooltipX + 10} y={tooltipY + 38} fill="#e2e8f0" fontSize={12}>
-        Y({cursor.yLabel}): {cursor.volume === null ? formatPriceValue(cursor.price, { currency, symbol, unit }) : formatNumber(cursor.volume)}
+        {cursor.area === "volume" ? "成交量 " : "价格 "}
+        {cursor.volume === null ? formatPriceValue(cursor.price, { currency, symbol, unit }) : formatNumber(cursor.volume)}
       </text>
       {cursor.volume !== null ? (
         <text x={tooltipX + 10} y={tooltipY + 58} fill="#94a3b8" fontSize={11}>
-          对应价格: {formatPriceValue(cursor.price, { currency, symbol, unit })}
+          价格 {formatPriceValue(cursor.price, { currency, symbol, unit })}
         </text>
       ) : null}
     </g>
@@ -328,18 +329,17 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
   return (
-    <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-xs shadow-lg backdrop-blur">
+    <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-[13px] leading-6 shadow-lg backdrop-blur antialiased">
       {cursor ? (
-        <div className="mb-3 rounded-md border border-primary/25 bg-primary/10 p-2">
-          <div className="font-medium text-popover-foreground">鼠标位置</div>
-          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
-            <span>X 时间</span>
+        <div className="mb-3 rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2">
+          <div className="grid grid-cols-2 gap-x-3 text-muted-foreground">
+            <span>时间</span>
             <span className="text-right text-foreground">{cursor.timeLabel}</span>
-            <span>Y 价格</span>
+            <span>价格</span>
             <span className="text-right tabular-nums text-foreground">{formatPriceValue(cursor.price, { currency, symbol, unit })}</span>
             {cursor.volume !== null ? (
               <>
-                <span>Y 成交量</span>
+                <span>成交量</span>
                 <span className="text-right tabular-nums text-foreground">{formatNumber(cursor.volume)}</span>
               </>
             ) : null}
@@ -347,7 +347,7 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
         </div>
       ) : null}
 
-      <div className="mb-2 font-medium text-popover-foreground">最近 K 线：{point.date}</div>
+      <div className="mb-2 font-medium text-popover-foreground">{point.date}</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
         <span>开盘</span>
         <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.open, { currency, symbol, unit })}</span>
