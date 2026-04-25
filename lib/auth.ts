@@ -52,11 +52,12 @@ export async function createSessionCookie(email: string) {
     email,
     exp: Math.floor(Date.now() / 1000) + maxAge
   });
+  const secureCookie = process.env.AUTH_COOKIE_SECURE === "true";
 
   store.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     path: "/",
     maxAge
   });
@@ -67,7 +68,7 @@ export async function clearSessionCookie() {
   store.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.AUTH_COOKIE_SECURE === "true",
     path: "/",
     maxAge: 0
   });
