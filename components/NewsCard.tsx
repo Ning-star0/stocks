@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { ImpactLevelBadge } from "@/components/ImpactLevelBadge";
 import { NewsSentimentBadge } from "@/components/NewsSentimentBadge";
 import { Button } from "@/components/ui/button";
+import { toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 import { toNumber } from "@/lib/utils";
 
 export type NewsCardData = {
@@ -34,11 +35,11 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const analysis = item.analyses?.[0];
   const sentiment = analysis?.sentiment ?? item.sentiment;
   const impact = analysis?.impactLevel ?? item.importance;
-  const summary = analysis?.aiSummary ?? item.summary ?? "暂无摘要";
+  const summary = toSimplifiedChinese(analysis?.aiSummary ?? item.summary ?? "暂无摘要");
   const canAnalyze = Boolean(onAnalyze && impact === "high" && !analysis);
   const confidence = toNumber(analysis?.confidence);
-  const sectors = Array.isArray(item.sectors) ? item.sectors : [];
-  const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes : [];
+  const sectors = Array.isArray(item.sectors) ? item.sectors.map(toSimplifiedChinese) : [];
+  const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.map(toSimplifiedChinese) : [];
 
   return (
     <details className="group rounded-md border border-border bg-card px-3 py-2">
@@ -61,7 +62,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
 
       <div className="mt-3 border-t pt-3">
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span>{item.source ?? "未知来源"}</span>
+          <span>{item.source ? toSimplifiedChinese(item.source) : "未知来源"}</span>
           {sectors.length ? <span>{sectors.slice(0, 3).join(", ")}</span> : null}
           {item.url ? (
             <a className="inline-flex items-center gap-1 text-primary hover:underline" href={item.url} target="_blank" rel="noreferrer">
@@ -71,7 +72,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
           ) : null}
         </div>
         <p className="mt-3 max-h-32 overflow-auto rounded-md bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
-        {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{analysis.whyItMatters}</p> : null}
+        {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{toSimplifiedChinese(analysis.whyItMatters)}</p> : null}
         {riskNotes.length ? (
           <div className="mt-3 space-y-1">
             {riskNotes.slice(0, 3).map((note) => (
@@ -102,11 +103,11 @@ function formatTime(value?: string | null) {
 }
 
 function cleanTitle(value: string) {
-  return value.replace(/^Title[:：]\s*/i, "").replace(/\s+/g, " ").trim();
+  return toSimplifiedChinese(value).replace(/^Title[:：]\s*/i, "").replace(/\s+/g, " ").trim();
 }
 
 function compactSummary(value: string, maxLength = 110) {
-  const cleaned = value
+  const cleaned = toSimplifiedChinese(value)
     .replace(/^Title[:：]\s*/i, "")
     .replace(/#+\s*/g, "")
     .replace(/[\r\n\t]+/g, " ")

@@ -4,6 +4,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { newsAnalysisSchema } from "@/lib/schemas";
+import { containsCjk, toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 import type { NewsAnalysisResult } from "@/lib/types";
 
 export type AnalyzeNewsInput = {
@@ -129,7 +130,7 @@ function normalizeNewsAnalysis(value: unknown, input: AnalyzeNewsInput) {
     impactLevel,
     affectedSymbols: normalizeSymbolArray(record.affectedSymbols, input.candidateSymbols ?? []),
     affectedSectors: affectedSectors.length ? affectedSectors : input.candidateSectors ?? [],
-    riskNotes: riskNotes.length && riskNotes.every(hasCjk) ? riskNotes : ["新闻分析可能遗漏上下文，请结合原文、公告和市场数据复核。"],
+    riskNotes: riskNotes.length && riskNotes.every(containsCjk) ? riskNotes.map(toSimplifiedChinese) : ["新闻分析可能遗漏上下文，请结合原文、公告和市场数据复核。"],
     whyItMatters: ensureSimplifiedChineseText(
       toNonEmptyString(record.whyItMatters, "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"),
       "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"
@@ -204,19 +205,15 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason: string): NewsAnal
 function buildChineseFallbackSummary(input: AnalyzeNewsInput, sentiment: string, impactLevel: string) {
   const title = truncate(input.title.replace(/\s+/g, " ").trim(), 80);
   const source = input.source ? `来自 ${input.source}，` : "";
-  return `${source}该新闻围绕“${title}”。系统初步判断情绪为${sentimentLabel(sentiment)}、影响级别为${impactLabel(impactLevel)}，具体影响需结合原文和行情确认。`;
+  return toSimplifiedChinese(`${source}该新闻围绕“${title}”。系统初步判断情绪为${sentimentLabel(sentiment)}、影响级别为${impactLabel(impactLevel)}，具体影响需结合原文和行情确认。`);
 }
 
 function ensureSimplifiedChineseSummary(value: string, input: AnalyzeNewsInput, sentiment: string, impactLevel: string) {
-  return hasCjk(value) ? truncate(value, 180) : buildChineseFallbackSummary(input, sentiment, impactLevel);
+  return containsCjk(value) ? truncate(toSimplifiedChinese(value), 180) : buildChineseFallbackSummary(input, sentiment, impactLevel);
 }
 
 function ensureSimplifiedChineseText(value: string, fallback: string) {
-  return hasCjk(value) ? value : fallback;
-}
-
-function hasCjk(value: string) {
-  return /[\u3400-\u9fff]/.test(value);
+  return containsCjk(value) ? toSimplifiedChinese(value) : fallback;
 }
 
 function sentimentLabel(value: string) {

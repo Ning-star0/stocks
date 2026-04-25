@@ -6,6 +6,7 @@ import { Newspaper, RefreshCw } from "lucide-react";
 import { NewsCard, type NewsCardData } from "@/components/NewsCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 
 export function NewsPanel({ symbol, name }: { symbol: string; name?: string | null }) {
   const [news, setNews] = useState<NewsCardData[]>([]);
@@ -32,7 +33,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载新闻失败。");
-      const sorted = sortNews(Array.isArray(json.news) ? json.news : []);
+      const sorted = sortNews(Array.isArray(json.news) ? json.news.map(simplifyNewsItem) : []);
       setNews(sorted.filter((item: NewsCardData) => item.importance !== "low"));
       setLowNews(sorted.filter((item: NewsCardData) => item.importance === "low"));
       setUpdatedAt(new Date().toLocaleString("zh-CN"));
@@ -153,7 +154,7 @@ function buildNewsOverview(items: NewsCardData[]) {
   const medium = items.filter((item) => (item.analyses?.[0]?.impactLevel ?? item.importance) === "medium").length;
   const analyzed = items.filter((item) => item.analyses?.length).length;
   const sentiment = countSentiment(items);
-  const topTitles = items.slice(0, 3).map((item) => shortText(item.title, 42));
+  const topTitles = items.slice(0, 3).map((item) => shortText(toSimplifiedChinese(item.title), 42));
 
   return {
     points: [
@@ -193,4 +194,21 @@ function safeTime(value?: string | null) {
 
 function shortText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function simplifyNewsItem(item: NewsCardData): NewsCardData {
+  return {
+    ...item,
+    title: toSimplifiedChinese(item.title),
+    source: item.source ? toSimplifiedChinese(item.source) : item.source,
+    summary: item.summary ? toSimplifiedChinese(item.summary) : item.summary,
+    sectors: Array.isArray(item.sectors) ? item.sectors.map(toSimplifiedChinese) : item.sectors,
+    analyses: item.analyses?.map((analysis) => ({
+      ...analysis,
+      aiSummary: analysis.aiSummary ? toSimplifiedChinese(analysis.aiSummary) : analysis.aiSummary,
+      affectedSectors: Array.isArray(analysis.affectedSectors) ? analysis.affectedSectors.map(toSimplifiedChinese) : analysis.affectedSectors,
+      riskNotes: Array.isArray(analysis.riskNotes) ? analysis.riskNotes.map(toSimplifiedChinese) : analysis.riskNotes,
+      whyItMatters: analysis.whyItMatters ? toSimplifiedChinese(analysis.whyItMatters) : analysis.whyItMatters
+    }))
+  };
 }

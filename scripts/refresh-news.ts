@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 loadDotEnv();
 
 async function main() {
-  const [{ getNewsProvider }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }] = await Promise.all([
+  const [{ getNewsProvider }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
     import("@/lib/news"),
     import("@/lib/jobs/enqueueJob"),
     import("@/lib/jobs/jobTypes"),
@@ -12,7 +12,8 @@ async function main() {
     import("@/lib/news/store"),
     import("@/lib/prisma"),
     import("@/lib/services/quoteService"),
-    import("@/lib/cache")
+    import("@/lib/cache"),
+    import("@/lib/text/simplifiedChinese")
   ]);
   const user = await prisma.user.findFirst();
   if (!user) {
@@ -43,8 +44,16 @@ async function main() {
       const row = await upsertNewsItem(item);
       const importance = calculateNewsImportance({ ...item, symbols: row.symbols }, symbols);
       await prisma.newsItem.update({ where: { id: row.id }, data: { importance: importance.level } });
-      if (importance.level === "high") {
-        await enqueueJob({ userId: user.id, symbol, jobType: JOB_TYPES.NEWS_ANALYSIS, priority: JOB_PRIORITY.HIGH_IMPORTANCE_NEWS, inputHash: `news:${row.id}`, payload: { newsItemId: row.id } });
+      const needsTranslation = importance.level === "medium" && needsSimplifiedChineseSummary(`${row.title} ${row.summary ?? ""}`);
+      if (importance.level === "high" || needsTranslation) {
+        await enqueueJob({
+          userId: user.id,
+          symbol,
+          jobType: JOB_TYPES.NEWS_ANALYSIS,
+          priority: importance.level === "high" ? JOB_PRIORITY.HIGH_IMPORTANCE_NEWS : JOB_PRIORITY.SCHEDULED_REFRESH,
+          inputHash: `news:${row.id}`,
+          payload: { newsItemId: row.id, reason: importance.level === "high" ? "high_importance_news" : "translate_foreign_news_summary" }
+        });
         queued += 1;
       }
     }
@@ -58,9 +67,17 @@ async function main() {
       const row = await upsertNewsItem(item);
       const importance = calculateNewsImportance({ ...item, symbols: row.symbols }, symbols);
       await prisma.newsItem.update({ where: { id: row.id }, data: { importance: importance.level } });
-      if (importance.level === "high") {
+      const needsTranslation = importance.level === "medium" && needsSimplifiedChineseSummary(`${row.title} ${row.summary ?? ""}`);
+      if (importance.level === "high" || needsTranslation) {
         const symbol = row.symbols[0] ?? null;
-        await enqueueJob({ userId: user.id, symbol, jobType: JOB_TYPES.NEWS_ANALYSIS, priority: JOB_PRIORITY.HIGH_IMPORTANCE_NEWS, inputHash: `news:${row.id}`, payload: { newsItemId: row.id } });
+        await enqueueJob({
+          userId: user.id,
+          symbol,
+          jobType: JOB_TYPES.NEWS_ANALYSIS,
+          priority: importance.level === "high" ? JOB_PRIORITY.HIGH_IMPORTANCE_NEWS : JOB_PRIORITY.SCHEDULED_REFRESH,
+          inputHash: `news:${row.id}`,
+          payload: { newsItemId: row.id, reason: importance.level === "high" ? "high_importance_news" : "translate_foreign_news_summary" }
+        });
         queued += 1;
       }
       await Promise.all(row.symbols.map((symbol) => deleteCache(`news:${symbol}:24h`)));

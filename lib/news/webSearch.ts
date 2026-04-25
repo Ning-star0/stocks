@@ -202,10 +202,6 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
     } else {
       body.time_range = "month";
     }
-    if (topic === "general") {
-      body.country = "china";
-    }
-
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {

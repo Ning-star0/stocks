@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 import type { NewsAnalysisResult, NewsItem } from "@/lib/types";
 
 export function newsTitleHash(title: string, source?: string | null, publishedAt?: string | Date | null) {
@@ -13,13 +14,13 @@ export async function upsertNewsItem(item: NewsItem) {
   const publishedAt = item.publishedAt ? new Date(item.publishedAt) : new Date();
   const titleHash = newsTitleHash(item.title, item.source, publishedAt);
   const createData = {
-    title: limitText(item.title, 300),
+    title: limitText(toSimplifiedChinese(item.title), 300),
     titleHash,
     url: item.url ?? null,
-    source: item.source ?? null,
+    source: item.source ? toSimplifiedChinese(item.source) : null,
     publishedAt,
-    rawContent: item.rawContent ? limitText(item.rawContent, 2000) : null,
-    summary: item.summary ? limitText(item.summary, 600) : null,
+    rawContent: item.rawContent ? limitText(toSimplifiedChinese(item.rawContent), 2000) : null,
+    summary: item.summary ? limitText(toSimplifiedChinese(item.summary), 600) : null,
     symbols: uniqueUpper(item.symbols ?? []),
     sectors: uniqueText(item.sectors ?? []),
     sentiment: null,
@@ -40,12 +41,12 @@ export async function upsertNewsItem(item: NewsItem) {
     return tx.newsItem.update({
       where: { id: existing.id },
       data: {
-        title: limitText(item.title, 300),
+        title: limitText(toSimplifiedChinese(item.title), 300),
         url: existing.url ?? item.url ?? null,
-        source: item.source ?? existing.source,
+        source: item.source ? toSimplifiedChinese(item.source) : existing.source,
         publishedAt,
-        rawContent: item.rawContent ? limitText(item.rawContent, 2000) : existing.rawContent,
-        summary: item.summary ? limitText(item.summary, 600) : existing.summary,
+        rawContent: item.rawContent ? limitText(toSimplifiedChinese(item.rawContent), 2000) : existing.rawContent,
+        summary: item.summary ? limitText(toSimplifiedChinese(item.summary), 600) : existing.summary,
         symbols: uniqueUpper([...existing.symbols, ...(item.symbols ?? [])]),
         sectors: uniqueText([...existing.sectors, ...(item.sectors ?? [])])
       }
@@ -58,13 +59,13 @@ export async function saveNewsAnalysis(newsItemId: string, analysis: NewsAnalysi
     const saved = await tx.newsAnalysis.create({
       data: {
         newsItemId,
-        aiSummary: analysis.summary,
+        aiSummary: toSimplifiedChinese(analysis.summary),
         sentiment: analysis.sentiment,
         affectedSymbols: uniqueUpper(analysis.affectedSymbols),
-        affectedSectors: uniqueText(analysis.affectedSectors),
+        affectedSectors: uniqueText(analysis.affectedSectors.map(toSimplifiedChinese)),
         impactLevel: analysis.impactLevel,
-        riskNotes: analysis.riskNotes,
-        whyItMatters: analysis.whyItMatters,
+        riskNotes: analysis.riskNotes.map(toSimplifiedChinese),
+        whyItMatters: analysis.whyItMatters ? toSimplifiedChinese(analysis.whyItMatters) : null,
         confidence: analysis.confidence
       }
     });
@@ -72,11 +73,11 @@ export async function saveNewsAnalysis(newsItemId: string, analysis: NewsAnalysi
     await tx.newsItem.update({
       where: { id: newsItemId },
       data: {
-        summary: analysis.summary,
+        summary: toSimplifiedChinese(analysis.summary),
         sentiment: analysis.sentiment,
         importance: analysis.impactLevel,
         symbols: uniqueUpper(analysis.affectedSymbols),
-        sectors: uniqueText(analysis.affectedSectors)
+        sectors: uniqueText(analysis.affectedSectors.map(toSimplifiedChinese))
       }
     });
 
@@ -93,10 +94,21 @@ export function serializeNewsItem<
 >(item: T) {
   return {
     ...item,
+    title: typeof item.title === "string" ? toSimplifiedChinese(item.title) : item.title,
+    source: typeof item.source === "string" ? toSimplifiedChinese(item.source) : item.source,
+    summary: typeof item.summary === "string" ? toSimplifiedChinese(item.summary) : item.summary,
+    rawContent: typeof item.rawContent === "string" ? toSimplifiedChinese(item.rawContent) : item.rawContent,
+    sectors: Array.isArray(item.sectors) ? item.sectors.map((sector) => (typeof sector === "string" ? toSimplifiedChinese(sector) : sector)) : item.sectors,
     publishedAt: toIsoString(item.publishedAt),
     createdAt: toIsoString(item.createdAt),
     analyses: item.analyses?.map((analysis) => ({
       ...analysis,
+      aiSummary: typeof analysis.aiSummary === "string" ? toSimplifiedChinese(analysis.aiSummary) : analysis.aiSummary,
+      affectedSectors: Array.isArray(analysis.affectedSectors)
+        ? analysis.affectedSectors.map((sector) => (typeof sector === "string" ? toSimplifiedChinese(sector) : sector))
+        : analysis.affectedSectors,
+      riskNotes: Array.isArray(analysis.riskNotes) ? analysis.riskNotes.map((note) => (typeof note === "string" ? toSimplifiedChinese(note) : note)) : analysis.riskNotes,
+      whyItMatters: typeof analysis.whyItMatters === "string" ? toSimplifiedChinese(analysis.whyItMatters) : analysis.whyItMatters,
       confidence: analysis.confidence === null || analysis.confidence === undefined ? null : Number(analysis.confidence),
       createdAt: toIsoString(analysis.createdAt)
     }))

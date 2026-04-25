@@ -4,6 +4,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
+import { containsCjk, toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 import type { AiAnalysisResult } from "@/lib/types";
 
 export type AnalyzeStockInput = {
@@ -221,7 +222,7 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
       support: toNumberArray(keyLevels.support ?? record.support),
       resistance: toNumberArray(keyLevels.resistance ?? record.resistance)
     },
-    riskFactors: riskFactors.length && riskFactors.every(hasCjk) ? riskFactors : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
+    riskFactors: riskFactors.length && riskFactors.every(containsCjk) ? riskFactors.map(toSimplifiedChinese) : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
     possibleActions: actions.length
       ? actions.map(normalizeAction).filter(Boolean)
       : [
@@ -392,7 +393,10 @@ function buildFallbackNewsSummary(recentNews: unknown, webSearchResults: unknown
       return news.aiSummary ?? news.summary ?? news.title ?? "未命名新闻";
     })
     .join(" ");
-  if (hasCjk(text)) return text.length > 160 ? `${text.slice(0, 160)}...` : text;
+  if (containsCjk(text)) {
+    const simplified = toSimplifiedChinese(text);
+    return simplified.length > 160 ? `${simplified.slice(0, 160)}...` : simplified;
+  }
   return `已检索到 ${combined.length} 条相关新闻候选，但原文或摘要不是简体中文；系统已纳入标题、来源和时间作为参考，具体内容需点开原文复核。`;
 }
 
@@ -402,15 +406,11 @@ function buildWebSearchSummary(results: Array<{ title: string }>) {
 }
 
 function toChineseStringArray(value: unknown) {
-  return toStringArray(value).filter(hasCjk);
+  return toStringArray(value).filter(containsCjk).map(toSimplifiedChinese);
 }
 
 function ensureChineseAnalysisText(value: string, fallback: string) {
-  return hasCjk(value) ? value : fallback;
-}
-
-function hasCjk(value: string) {
-  return /[\u3400-\u9fff]/.test(value);
+  return containsCjk(value) ? toSimplifiedChinese(value) : fallback;
 }
 
 function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {

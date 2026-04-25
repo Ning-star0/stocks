@@ -19,6 +19,7 @@ import { searchRelatedNews } from "@/lib/news/webSearch";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
+import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
 
 export async function POST() {
@@ -113,7 +114,8 @@ export async function POST() {
     const queued = [];
     for (const item of saved) {
       const importance = calculateNewsImportance(item, symbols);
-      if (importance.level !== "high") continue;
+      const needsTranslation = importance.level === "medium" && needsSimplifiedChineseSummary(`${item.title} ${item.summary ?? ""}`);
+      if (importance.level !== "high" && !needsTranslation) continue;
       const existing = await prisma.newsAnalysis.findFirst({ where: { newsItemId: item.id } });
       if (existing) continue;
       queued.push(
@@ -121,9 +123,9 @@ export async function POST() {
           userId: user.id,
           symbol: item.symbols[0] ?? null,
           jobType: JOB_TYPES.NEWS_ANALYSIS,
-          priority: JOB_PRIORITY.HIGH_IMPORTANCE_NEWS,
+          priority: importance.level === "high" ? JOB_PRIORITY.HIGH_IMPORTANCE_NEWS : JOB_PRIORITY.SCHEDULED_REFRESH,
           inputHash: `news:${item.id}`,
-          payload: { newsItemId: item.id, reason: "high_importance_news" }
+          payload: { newsItemId: item.id, reason: importance.level === "high" ? "high_importance_news" : "translate_foreign_news_summary" }
         })
       );
     }
