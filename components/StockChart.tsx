@@ -1,6 +1,6 @@
 "use client";
 
-import { MouseEvent, useMemo, useState } from "react";
+import { MouseEvent, useMemo, useRef, useState } from "react";
 
 import type { Candle } from "@/lib/types";
 import { formatNumber, formatPriceValue } from "@/lib/utils";
@@ -33,6 +33,7 @@ const CHART_LEFT = 8;
 const CHART_RIGHT = 74;
 const CHART_BOTTOM = 34;
 const CHART_WIDTH = VIEWBOX_WIDTH - CHART_LEFT - CHART_RIGHT;
+const SVG_FONT_FAMILY = "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const maSeries = [
   { key: "ma5", label: "MA5", color: "#f59e0b" },
@@ -55,6 +56,8 @@ export function StockChart({
   interval?: string;
 }) {
   const [cursor, setCursor] = useState<CursorPoint | null>(null);
+  const pendingCursorRef = useRef<CursorPoint | null>(null);
+  const frameRef = useRef<number | null>(null);
   const isIntraday = ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
   const data = useMemo(() => buildChartData(candles, isIntraday), [candles, isIntraday]);
   const latest = data[data.length - 1];
@@ -69,7 +72,7 @@ export function StockChart({
     const insideX = x >= CHART_LEFT && x <= CHART_LEFT + CHART_WIDTH;
     const insideY = y >= PRICE_TOP && y <= VOLUME_TOP + VOLUME_HEIGHT;
     if (!insideX || !insideY || data.length === 0) {
-      setCursor(null);
+      clearCursor();
       return;
     }
 
@@ -78,7 +81,7 @@ export function StockChart({
     const volumeY = clamp(y, VOLUME_TOP, VOLUME_TOP + VOLUME_HEIGHT);
     const isVolumeArea = y >= VOLUME_TOP;
 
-    setCursor({
+    queueCursor({
       x,
       y,
       price: priceFromY(priceY, scale),
@@ -87,6 +90,24 @@ export function StockChart({
       nearestIndex,
       area: isVolumeArea ? "volume" : "price"
     });
+  }
+
+  function queueCursor(next: CursorPoint) {
+    pendingCursorRef.current = next;
+    if (frameRef.current !== null) return;
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = null;
+      setCursor(pendingCursorRef.current);
+    });
+  }
+
+  function clearCursor() {
+    pendingCursorRef.current = null;
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    setCursor((current) => (current === null ? current : null));
   }
 
   if (!data.length) {
@@ -109,7 +130,14 @@ export function StockChart({
       <div className="grid gap-3 xl:grid-cols-[200px_minmax(780px,1fr)]">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
         <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
-          <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setCursor(null)}>
+          <svg
+            className="h-full w-full"
+            viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+            preserveAspectRatio="none"
+            onMouseMove={handleMove}
+            onMouseLeave={clearCursor}
+            style={{ fontFamily: SVG_FONT_FAMILY }}
+          >
             <defs>
               <clipPath id="price-clip">
                 <rect x={CHART_LEFT} y={PRICE_TOP} width={CHART_WIDTH} height={PRICE_HEIGHT} />
@@ -328,43 +356,39 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
+  const cursorTime = cursor?.timeLabel ?? point.date;
+  const cursorPrice = cursor?.price ?? point.close;
   return (
     <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-[13px] leading-6 shadow-lg backdrop-blur antialiased">
-      {cursor ? (
-        <div className="mb-3 rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2">
-          <div className="grid grid-cols-2 gap-x-3 text-muted-foreground">
-            <span>时间</span>
-            <span className="text-right text-foreground">{cursor.timeLabel}</span>
-            <span>价格</span>
-            <span className="text-right tabular-nums text-foreground">{formatPriceValue(cursor.price, { currency, symbol, unit })}</span>
-            {cursor.volume !== null ? (
-              <>
-                <span>成交量</span>
-                <span className="text-right tabular-nums text-foreground">{formatNumber(cursor.volume)}</span>
-              </>
-            ) : null}
-          </div>
+      <div className="mb-3 min-h-[86px] rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-muted-foreground">
+          <span>时间</span>
+          <span className="truncate text-right text-foreground">{cursorTime}</span>
+          <span>价格</span>
+          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(cursorPrice, { currency, symbol, unit })}</span>
+          <span>成交量</span>
+          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{cursor?.volume !== null && cursor?.volume !== undefined ? formatNumber(cursor.volume) : "--"}</span>
         </div>
-      ) : null}
+      </div>
 
       <div className="mb-2 font-medium text-popover-foreground">{point.date}</div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-muted-foreground">
         <span>开盘</span>
-        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.open, { currency, symbol, unit })}</span>
+        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.open, { currency, symbol, unit })}</span>
         <span>最高</span>
-        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.high, { currency, symbol, unit })}</span>
+        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.high, { currency, symbol, unit })}</span>
         <span>最低</span>
-        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.low, { currency, symbol, unit })}</span>
+        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.low, { currency, symbol, unit })}</span>
         <span>收盘</span>
-        <span className="text-right tabular-nums text-foreground">{formatPriceValue(point.close, { currency, symbol, unit })}</span>
+        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.close, { currency, symbol, unit })}</span>
         <span>涨跌</span>
-        <span className={`text-right tabular-nums ${up ? "text-red-400" : "text-emerald-400"}`}>
+        <span className={`whitespace-nowrap text-right tabular-nums ${up ? "text-red-400" : "text-emerald-400"}`}>
           {change >= 0 ? "+" : ""}
-          {formatNumber(change)} / {changePct >= 0 ? "+" : ""}
+          {formatNumber(change)}/{changePct >= 0 ? "+" : ""}
           {changePct.toFixed(2)}%
         </span>
         <span>成交量</span>
-        <span className="text-right tabular-nums text-foreground">{formatNumber(point.volume)}</span>
+        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatNumber(point.volume)}</span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2">
         {maSeries.map((item) => (
