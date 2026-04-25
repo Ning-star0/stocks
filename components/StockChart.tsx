@@ -13,6 +13,16 @@ type ChartPoint = Candle & {
   ma60: number | null;
 };
 
+type CursorPoint = {
+  x: number;
+  y: number;
+  price: number;
+  volume: number | null;
+  timeLabel: string;
+  nearestIndex: number;
+  yLabel: "价格" | "成交量";
+};
+
 const VIEWBOX_WIDTH = 1200;
 const VIEWBOX_HEIGHT = 520;
 const PRICE_TOP = 42;
@@ -40,22 +50,39 @@ export function StockChart({
   currency?: string;
   interval?: string;
 }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<CursorPoint | null>(null);
   const isIntraday = ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
   const data = useMemo(() => buildChartData(candles, isIntraday), [candles, isIntraday]);
   const latest = data[data.length - 1];
-  const hovered = hoverIndex === null ? latest : data[hoverIndex] ?? latest;
+  const hovered = cursor ? data[cursor.nearestIndex] ?? latest : latest;
   const scale = useMemo(() => buildScale(data), [data]);
   const candleWidth = Math.max(2, Math.min(9, scale.step * 0.58));
 
   function handleMove(event: MouseEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    const ratioX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
-    if (ratioX < CHART_LEFT || ratioX > CHART_LEFT + CHART_WIDTH || data.length === 0) {
-      setHoverIndex(null);
+    const x = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+    const y = ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
+    const insideX = x >= CHART_LEFT && x <= CHART_LEFT + CHART_WIDTH;
+    const insideY = y >= PRICE_TOP && y <= VOLUME_TOP + VOLUME_HEIGHT;
+    if (!insideX || !insideY || data.length === 0) {
+      setCursor(null);
       return;
     }
-    setHoverIndex(Math.max(0, Math.min(data.length - 1, Math.round((ratioX - CHART_LEFT - scale.step / 2) / scale.step))));
+
+    const nearestIndex = nearestIndexForX(x, scale, data.length);
+    const priceY = clamp(y, PRICE_TOP, PRICE_TOP + PRICE_HEIGHT);
+    const volumeY = clamp(y, VOLUME_TOP, VOLUME_TOP + VOLUME_HEIGHT);
+    const isVolumeArea = y >= VOLUME_TOP;
+
+    setCursor({
+      x,
+      y,
+      price: priceFromY(priceY, scale),
+      volume: isVolumeArea ? volumeFromY(volumeY, scale) : null,
+      timeLabel: timeLabelForX(data, x, scale, isIntraday),
+      nearestIndex,
+      yLabel: isVolumeArea ? "成交量" : "价格"
+    });
   }
 
   if (!data.length) {
@@ -72,13 +99,13 @@ export function StockChart({
             </span>
           ))}
         </div>
-        <div className="text-xs text-muted-foreground">红涨绿跌，均线按当前周期 K 线计算</div>
+        <div className="text-xs text-muted-foreground">红涨绿跌，十字线显示鼠标当前位置的时间和数值</div>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[220px_minmax(760px,1fr)]">
-        {hovered ? <InfoPanel point={hovered} currency={currency} /> : null}
+        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} /> : null}
         <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
-          <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setHoverIndex(null)}>
+          <svg className="h-full w-full" viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} preserveAspectRatio="none" onMouseMove={handleMove} onMouseLeave={() => setCursor(null)}>
             <defs>
               <clipPath id="price-clip">
                 <rect x={CHART_LEFT} y={PRICE_TOP} width={CHART_WIDTH} height={PRICE_HEIGHT} />
@@ -107,7 +134,7 @@ export function StockChart({
             </g>
 
             <Axes data={data} scale={scale} currency={currency} />
-            {hovered ? <Crosshair point={hovered} index={data.indexOf(hovered)} scale={scale} /> : null}
+            {cursor ? <CursorCrosshair cursor={cursor} currency={currency} /> : null}
           </svg>
         </div>
       </div>
@@ -249,25 +276,65 @@ function Axes({ data, scale, currency }: { data: ChartPoint[]; scale: ReturnType
   );
 }
 
-function Crosshair({ point, index, scale }: { point: ChartPoint; index: number; scale: ReturnType<typeof buildScale> }) {
-  const x = scale.x(index);
-  const y = scale.y(point.close);
+function CursorCrosshair({ cursor, currency }: { cursor: CursorPoint; currency?: string }) {
+  const tooltipWidth = 210;
+  const tooltipHeight = cursor.volume === null ? 54 : 72;
+  const tooltipX = cursor.x + tooltipWidth + 18 > CHART_LEFT + CHART_WIDTH ? cursor.x - tooltipWidth - 14 : cursor.x + 14;
+  const tooltipY = cursor.y + tooltipHeight + 14 > VOLUME_TOP + VOLUME_HEIGHT ? cursor.y - tooltipHeight - 14 : cursor.y + 14;
+  const priceLabelY = clamp(cursor.y, PRICE_TOP + 10, PRICE_TOP + PRICE_HEIGHT - 6);
+
   return (
     <g pointerEvents="none">
-      <line x1={x} x2={x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} stroke="rgba(226,232,240,0.32)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={y} y2={y} stroke="rgba(226,232,240,0.24)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      <circle cx={x} cy={y} r={3.5} fill="#e2e8f0" />
+      <line x1={cursor.x} x2={cursor.x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} stroke="rgba(226,232,240,0.38)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={cursor.y} y2={cursor.y} stroke="rgba(226,232,240,0.3)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      <circle cx={cursor.x} cy={cursor.y} r={3.5} fill="#e2e8f0" />
+
+      <rect x={CHART_LEFT + CHART_WIDTH + 5} y={priceLabelY - 12} width={64} height={20} rx={4} fill="#111827" stroke="rgba(148,163,184,0.35)" />
+      <text x={CHART_LEFT + CHART_WIDTH + 37} y={priceLabelY + 3} fill="#e2e8f0" fontSize={11} textAnchor="middle">
+        {formatAxisPrice(cursor.price, currency)}
+      </text>
+
+      <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx={6} fill="rgba(15,23,42,0.96)" stroke="rgba(148,163,184,0.35)" />
+      <text x={tooltipX + 10} y={tooltipY + 18} fill="#e2e8f0" fontSize={12}>
+        X: {cursor.timeLabel}
+      </text>
+      <text x={tooltipX + 10} y={tooltipY + 38} fill="#e2e8f0" fontSize={12}>
+        Y({cursor.yLabel}): {cursor.volume === null ? formatCurrency(cursor.price, currency) : formatNumber(cursor.volume)}
+      </text>
+      {cursor.volume !== null ? (
+        <text x={tooltipX + 10} y={tooltipY + 58} fill="#94a3b8" fontSize={11}>
+          对应价格: {formatCurrency(cursor.price, currency)}
+        </text>
+      ) : null}
     </g>
   );
 }
 
-function InfoPanel({ point, currency }: { point: ChartPoint; currency?: string }) {
+function InfoPanel({ point, cursor, currency }: { point: ChartPoint; cursor: CursorPoint | null; currency?: string }) {
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
   return (
     <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-xs shadow-lg backdrop-blur">
-      <div className="mb-2 font-medium text-popover-foreground">{point.date}</div>
+      {cursor ? (
+        <div className="mb-3 rounded-md border border-primary/25 bg-primary/10 p-2">
+          <div className="font-medium text-popover-foreground">鼠标位置</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
+            <span>X 时间</span>
+            <span className="text-right text-foreground">{cursor.timeLabel}</span>
+            <span>Y 价格</span>
+            <span className="text-right tabular-nums text-foreground">{formatCurrency(cursor.price, currency)}</span>
+            {cursor.volume !== null ? (
+              <>
+                <span>Y 成交量</span>
+                <span className="text-right tabular-nums text-foreground">{formatNumber(cursor.volume)}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mb-2 font-medium text-popover-foreground">最近 K 线：{point.date}</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
         <span>开盘</span>
         <span className="text-right tabular-nums text-foreground">{formatCurrency(point.open, currency)}</span>
@@ -295,6 +362,39 @@ function InfoPanel({ point, currency }: { point: ChartPoint; currency?: string }
       </div>
     </div>
   );
+}
+
+function nearestIndexForX(x: number, scale: ReturnType<typeof buildScale>, length: number) {
+  return clamp(Math.round(fractionalIndexForX(x, scale)), 0, Math.max(0, length - 1));
+}
+
+function fractionalIndexForX(x: number, scale: ReturnType<typeof buildScale>) {
+  return (x - CHART_LEFT - scale.step / 2) / scale.step;
+}
+
+function priceFromY(y: number, scale: ReturnType<typeof buildScale>) {
+  const ratio = (y - PRICE_TOP) / PRICE_HEIGHT;
+  return scale.priceMax - ratio * (scale.priceMax - scale.priceMin);
+}
+
+function volumeFromY(y: number, scale: ReturnType<typeof buildScale>) {
+  const ratio = (VOLUME_TOP + VOLUME_HEIGHT - y) / VOLUME_HEIGHT;
+  return Math.max(0, ratio * scale.maxVolume);
+}
+
+function timeLabelForX(data: ChartPoint[], x: number, scale: ReturnType<typeof buildScale>, isIntraday: boolean) {
+  if (!data.length) return "--";
+  const fractional = clamp(fractionalIndexForX(x, scale), 0, data.length - 1);
+  const leftIndex = Math.floor(fractional);
+  const rightIndex = Math.min(data.length - 1, Math.ceil(fractional));
+  const leftTime = new Date(data[leftIndex]?.timestamp ?? data[0].timestamp).getTime();
+  const rightTime = new Date(data[rightIndex]?.timestamp ?? data[data.length - 1].timestamp).getTime();
+  const ratio = rightIndex === leftIndex ? 0 : fractional - leftIndex;
+  const time = leftTime + (rightTime - leftTime) * ratio;
+  const date = new Date(time);
+  return isIntraday
+    ? date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" });
 }
 
 function buildLinePath(data: ChartPoint[], key: (typeof maSeries)[number]["key"], scale: ReturnType<typeof buildScale>) {
@@ -325,4 +425,8 @@ function getIndexTicks(length: number, count: number) {
 function formatAxisPrice(value: number, currency?: string) {
   if (currency === "CNY") return value > 100 ? value.toFixed(2) : value.toFixed(3);
   return value > 100 ? value.toFixed(2) : value.toFixed(4);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
