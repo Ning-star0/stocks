@@ -11,8 +11,8 @@ import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AppError } from "@/lib/errors";
-import { calculateIndicators } from "@/lib/indicators";
 import { getCurrentUser } from "@/lib/currentUser";
+import { calculateIndicators } from "@/lib/indicators";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
@@ -91,7 +91,7 @@ export default async function StockDetailPage({
             <div>
               <h1 className="text-3xl font-semibold tracking-normal">{displayName}</h1>
               <div className="mt-1 text-sm text-muted-foreground">
-                {quoteSymbol} · {formatQuoteStatus(quote.status)}
+                {quoteSymbol} / {formatQuoteStatus(quote.status)}
               </div>
             </div>
             <TrendBadge trend={analysis?.trend} />
@@ -99,7 +99,9 @@ export default async function StockDetailPage({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span className="text-2xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatCurrency(quote.price, quote.currency)}</span>
-            <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>{quote.changePct === null ? "--" : formatPercent(quote.changePct)}</span>
+            <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
+              {quote.changePct === null ? "--" : formatPercent(quote.changePct)}
+            </span>
             <span>成交量 {quote.volume === null ? "--" : formatNumber(quote.volume)}</span>
             <span>{quote.updatedAt ? new Date(quote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
           </div>
@@ -120,10 +122,12 @@ export default async function StockDetailPage({
               {candles.length ? <StockChart candles={candles} currency={quote.currency} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
             </CardContent>
           </Card>
+
           <NewsPanel symbol={quoteSymbol} />
-          {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} interval={interval} /> : null}
           <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} />
+          {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} interval={interval} /> : null}
         </div>
+
         <div className="space-y-5">
           {indicators ? <IndicatorPanel indicators={indicators} price={quote.price} /> : <EmptyCard title="技术指标" text={indicatorError ?? "行情不可用，无法计算技术指标。"} />}
           <Card>

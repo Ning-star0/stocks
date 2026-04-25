@@ -86,21 +86,30 @@ export async function saveNewsAnalysis(newsItemId: string, analysis: NewsAnalysi
 
 export function serializeNewsItem<
   T extends {
-    publishedAt: Date;
-    createdAt: Date;
-    analyses?: Array<{ createdAt: Date; confidence?: Prisma.Decimal | null } & Record<string, unknown>>;
+    publishedAt: Date | string | number | null;
+    createdAt: Date | string | number | null;
+    analyses?: Array<{ createdAt?: Date | string | number | null; confidence?: Prisma.Decimal | number | string | null } & Record<string, unknown>>;
   } & Record<string, unknown>
 >(item: T) {
   return {
     ...item,
-    publishedAt: item.publishedAt.toISOString(),
-    createdAt: item.createdAt.toISOString(),
+    publishedAt: toIsoString(item.publishedAt),
+    createdAt: toIsoString(item.createdAt),
     analyses: item.analyses?.map((analysis) => ({
       ...analysis,
       confidence: analysis.confidence === null || analysis.confidence === undefined ? null : Number(analysis.confidence),
-      createdAt: analysis.createdAt.toISOString()
+      createdAt: toIsoString(analysis.createdAt)
     }))
   };
+}
+
+function toIsoString(value: Date | string | number | null | undefined) {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function uniqueUpper(values: string[]) {

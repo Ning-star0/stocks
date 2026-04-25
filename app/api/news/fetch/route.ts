@@ -80,7 +80,14 @@ export async function POST() {
     for (const item of saved) {
       for (const symbol of item.symbols) affectedSymbols.add(symbol);
     }
-    await Promise.all([...affectedSymbols].map((symbol) => deleteCache(`news:${symbol}:24h`)));
+    await Promise.all(
+      [...affectedSymbols].flatMap((symbol) => [
+        deleteCache(`news:${symbol}:24h`),
+        deleteCache(`news:${symbol}:all`),
+        deleteCache(`news:v2:${symbol}:24h`),
+        deleteCache(`news:v2:${symbol}:all`)
+      ])
+    );
 
     return NextResponse.json({
       fetched: fetched.length,

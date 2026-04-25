@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function NewsPanel({ symbol }: { symbol: string }) {
   const [news, setNews] = useState<NewsCardData[]>([]);
+  const [lowNews, setLowNews] = useState<NewsCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -19,11 +20,12 @@ export function NewsPanel({ symbol }: { symbol: string }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+      const response = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}&includeLow=1&pageSize=20`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载新闻失败。");
-      const visibleNews = (json.news ?? []).filter((item: NewsCardData) => item.importance !== "low");
-      setNews(sortNews(visibleNews));
+      const allNews = sortNews(json.news ?? []);
+      setNews(allNews.filter((item: NewsCardData) => item.importance !== "low"));
+      setLowNews(allNews.filter((item: NewsCardData) => item.importance === "low"));
       setUpdatedAt(new Date().toLocaleString("zh-CN"));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载新闻失败。");
@@ -89,12 +91,27 @@ export function NewsPanel({ symbol }: { symbol: string }) {
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载新闻...</div>
-        ) : news.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            暂无 high/medium 相关新闻。点击“抓取新闻”后会更新此面板。
-          </div>
+        ) : news.length === 0 && lowNews.length === 0 ? (
+          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无相关新闻。点击“抓取新闻”后会更新此面板。</div>
         ) : (
-          news.slice(0, 10).map((item) => <NewsCard key={item.id} item={item} onAnalyze={analyze} />)
+          <>
+            {news.length === 0 ? (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                暂无 high/medium 相关新闻。已抓取到 {lowNews.length} 条低重要性新闻，默认折叠显示。
+              </div>
+            ) : null}
+            {news.slice(0, 10).map((item) => <NewsCard key={item.id} item={item} onAnalyze={analyze} />)}
+            {lowNews.length ? (
+              <details className="rounded-md border border-border bg-muted/15 p-3">
+                <summary className="cursor-pointer text-sm text-muted-foreground">低重要性新闻 {lowNews.length} 条</summary>
+                <div className="mt-3 space-y-3">
+                  {lowNews.slice(0, 10).map((item) => (
+                    <NewsCard key={item.id} item={item} onAnalyze={analyze} />
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </>
         )}
       </CardContent>
     </Card>

@@ -45,7 +45,6 @@ export function StockChart({
   const data = useMemo(() => buildChartData(candles, isIntraday), [candles, isIntraday]);
   const latest = data[data.length - 1];
   const hovered = hoverIndex === null ? latest : data[hoverIndex] ?? latest;
-
   const scale = useMemo(() => buildScale(data), [data]);
   const candleWidth = Math.max(2, Math.min(9, scale.step * 0.58));
 
@@ -139,8 +138,8 @@ function movingAverage(values: number[], index: number, period: number) {
 
 function buildScale(data: ChartPoint[]) {
   const priceValues = data.flatMap((item) => [item.high, item.low, item.ma5, item.ma10, item.ma20, item.ma60]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  const minPrice = Math.min(...priceValues);
-  const maxPrice = Math.max(...priceValues);
+  const minPrice = priceValues.length ? Math.min(...priceValues) : 0;
+  const maxPrice = priceValues.length ? Math.max(...priceValues) : 1;
   const padding = Math.max((maxPrice - minPrice) * 0.08, maxPrice * 0.005, 0.01);
   const priceMin = Math.max(0, minPrice - padding);
   const priceMax = maxPrice + padding;
@@ -208,7 +207,8 @@ function VolumeBar({ point, index, scale }: { point: ChartPoint; index: number; 
   const y = scale.volumeY(point.volume);
   const up = point.close >= point.open;
   const color = up ? "rgba(239,68,68,0.42)" : "rgba(16,185,129,0.42)";
-  return <rect x={x - Math.max(1, scale.step * 0.56) / 2} y={y} width={Math.max(1, scale.step * 0.56)} height={VOLUME_TOP + VOLUME_HEIGHT - y} fill={color} />;
+  const width = Math.max(1, scale.step * 0.56);
+  return <rect x={x - width / 2} y={y} width={width} height={VOLUME_TOP + VOLUME_HEIGHT - y} fill={color} />;
 }
 
 function Grid({ scale }: { scale: ReturnType<typeof buildScale> }) {

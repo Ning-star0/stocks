@@ -125,6 +125,10 @@ function estimateSize(value: unknown) {
 }
 
 function stripLargeFields(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === "object" && typeof (value as { toJSON?: unknown }).toJSON === "function") {
+    return (value as { toJSON: () => unknown }).toJSON();
+  }
   if (Array.isArray(value)) return value.map(stripLargeFields);
   if (!value || typeof value !== "object") return value;
   const output: Record<string, unknown> = {};

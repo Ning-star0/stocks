@@ -11,8 +11,9 @@ export async function GET(request: NextRequest) {
     const query = newsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams.entries()));
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") ?? 1));
     const pageSize = Math.min(20, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") ?? 20)));
+    const includeLow = request.nextUrl.searchParams.get("includeLow") === "1";
     const where = {
-      importance: { in: ["high", "medium"] },
+      ...(includeLow ? {} : { importance: { in: ["high", "medium"] } }),
       ...(query.symbol ? { symbols: { has: query.symbol } } : {}),
       ...(query.sector ? { sectors: { has: query.sector } } : {}),
       ...(query.from || query.to
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const cacheKey =
       page === 1 && query.symbol && !query.sector && !query.keyword && !query.from && !query.to
-        ? `news:${query.symbol}:24h`
+        ? `news:v2:${query.symbol}:${includeLow ? "all" : "24h"}`
         : null;
     const loadNews = () =>
       prisma.newsItem.findMany({
