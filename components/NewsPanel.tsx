@@ -55,7 +55,14 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       const response = await fetch("/api/news/fetch", { method: "POST" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "抓取新闻失败。");
-      setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，过滤不相关新闻 ${json.filteredOut ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。`);
+      const searchReports = Array.isArray(json.webSearchReports) ? json.webSearchReports : [];
+      const searchText = searchReports.length
+        ? `联网搜索：${searchReports
+            .slice(0, 3)
+            .map((report: { symbol?: string; status?: string; resultCount?: number }) => `${report.symbol ?? "未知"} ${report.status ?? "未返回状态"}，命中 ${report.resultCount ?? 0} 条`)
+            .join("；")}`
+        : "联网搜索未触发。";
+      setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，过滤不相关新闻 ${json.filteredOut ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。${searchText}`);
       await load();
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "抓取新闻失败。");

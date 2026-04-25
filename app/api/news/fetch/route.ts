@@ -35,6 +35,14 @@ export async function POST() {
     const fetched: NewsItem[] = [];
     let filteredOut = 0;
     let webSearchFallback = 0;
+    const webSearchReports: Array<{
+      symbol: string;
+      name: string | null;
+      provider: string;
+      status: string;
+      queries: string[];
+      resultCount: number;
+    }> = [];
 
     for (const symbol of symbols) {
       const name = await resolveSymbolName(symbol);
@@ -59,6 +67,14 @@ export async function POST() {
           sectorKeywords: keywords,
           days: 7,
           maxResults: 8
+        });
+        webSearchReports.push({
+          symbol,
+          name,
+          provider: webSearch.provider,
+          status: webSearch.status,
+          queries: webSearch.queries,
+          resultCount: webSearch.results.length
         });
         if (webSearch.results.length) webSearchFallback += 1;
         fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
@@ -122,6 +138,7 @@ export async function POST() {
       saved: saved.length,
       filteredOut,
       webSearchFallback,
+      webSearchReports,
       queued: queued.length,
       news: saved.map(serializeNewsItem)
     });
