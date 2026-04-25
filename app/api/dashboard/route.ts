@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
+import { MARKET_INDICES } from "@/lib/marketIndices";
 import { prisma } from "@/lib/prisma";
 import { serializeAlert, serializeWatchlistItem } from "@/lib/serializers";
 import { getQuoteProviderInfo, getQuotesBatch } from "@/lib/services/quoteService";
@@ -27,7 +28,11 @@ export async function GET() {
       })
     ]);
 
-    const quotes = await getQuotesBatch(symbols, { cacheOnly: true, allowStale: true });
+    const marketIndexSymbols = MARKET_INDICES.map((item) => item.symbol);
+    const [quotes, marketQuotes] = await Promise.all([
+      getQuotesBatch(symbols, { cacheOnly: true, allowStale: true }),
+      getQuotesBatch(marketIndexSymbols, { allowStale: true })
+    ]);
     const latestAnalyses: Record<string, unknown> = {};
     for (const symbol of symbols) {
       const cachedAnalysis = await getCache<unknown>(`latest_analysis:${symbol}`);
@@ -46,6 +51,10 @@ export async function GET() {
       user: { id: user.id, email: user.email },
       watchlist: watchlists.flatMap((watchlist) => watchlist.items.map(serializeWatchlistItem)),
       quotes,
+      marketIndices: MARKET_INDICES.map((item) => ({
+        ...item,
+        quote: marketQuotes[item.symbol] ?? null
+      })),
       latestAnalyses,
       dataSource: getQuoteProviderInfo(),
       watchlists: watchlists.map((watchlist) => ({

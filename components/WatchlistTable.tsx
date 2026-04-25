@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Brain, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, BarChart3, Brain, RefreshCw, Trash2 } from "lucide-react";
 
 import { AddStockDialog } from "@/components/AddStockDialog";
 import { RiskBadge } from "@/components/RiskBadge";
-import { StockCard } from "@/components/StockCard";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,9 +42,16 @@ type WatchlistItem = {
   riskLevel: string;
 };
 
+type MarketIndexItem = {
+  symbol: string;
+  name: string;
+  quote: QuoteWithStatus | null;
+};
+
 type DashboardResponse = {
   dataSource?: { quoteProvider: string; isMock: boolean };
   quotes: Record<string, QuoteWithStatus>;
+  marketIndices?: MarketIndexItem[];
   latestAnalyses: Record<string, LatestAnalysisSummary>;
   watchlists: Array<{
     id: string;
@@ -67,10 +73,10 @@ export function WatchlistTable() {
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "加载自选股失败。");
+      if (!response.ok) throw new Error(json.error?.message ?? "加载看板失败。");
       setData(json);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "加载自选股失败。");
+      setError(loadError instanceof Error ? loadError.message : "加载看板失败。");
     } finally {
       setLoading(false);
     }
@@ -94,7 +100,7 @@ export function WatchlistTable() {
       });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "创建分析任务失败。");
-      if (json.fromCache) setNotice(`${symbol} 的缓存分析仍有效。`);
+      if (json.fromCache) setNotice(`${symbol} 的缓存分析仍然有效。`);
       else if (json.jobId) setNotice(`${symbol} 的分析任务已加入后台队列。`);
       await load();
     } catch (analysisError) {
@@ -109,10 +115,10 @@ export function WatchlistTable() {
     try {
       const response = await fetch(`/api/watchlist/items/${id}`, { method: "DELETE" });
       const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "删除股票失败。");
+      if (!response.ok) throw new Error(json.error?.message ?? "删除自选股失败。");
       await load();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "删除股票失败。");
+      setError(deleteError instanceof Error ? deleteError.message : "删除自选股失败。");
     }
   }
 
@@ -137,23 +143,9 @@ export function WatchlistTable() {
       {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{notice}</div> : null}
 
       <div className="grid gap-3 md:grid-cols-3">
-        {items.slice(0, 3).map((item) => {
-          const quote = data?.quotes[item.symbol];
-          const latest = data?.latestAnalyses[item.symbol];
-          return (
-            <StockCard
-              key={item.id}
-              symbol={item.symbol}
-              name={quote?.name}
-              price={quote?.price ?? null}
-              currency={quote?.currency}
-              changePercent={quote?.changePct ?? null}
-              volume={quote?.volume ?? null}
-              trend={latest?.outputJson.trend}
-              summary={latest?.outputJson.summary}
-            />
-          );
-        })}
+        {(data?.marketIndices ?? defaultMarketIndices()).map((item) => (
+          <MarketIndexCard key={item.symbol} item={item} loading={loading && !data} />
+        ))}
       </div>
 
       <Card>
@@ -199,7 +191,7 @@ export function WatchlistTable() {
                       <TableCell className="font-medium tabular-nums">
                         {quote?.price === null || !quote ? <span className="text-xs text-red-400">{formatQuoteStatus(quote?.status)}</span> : formatCurrency(quote.price, quote.currency)}
                       </TableCell>
-                      <TableCell className={quote?.changePct === null || !quote ? "tabular-nums text-muted-foreground" : quote.changePct >= 0 ? "tabular-nums text-emerald-500" : "tabular-nums text-red-500"}>
+                      <TableCell className={quote?.changePct === null || !quote ? "tabular-nums text-muted-foreground" : quote.changePct >= 0 ? "tabular-nums text-red-500" : "tabular-nums text-emerald-500"}>
                         {quote?.changePct === null || !quote ? "--" : formatPercent(quote.changePct)}
                       </TableCell>
                       <TableCell className="tabular-nums">{quote?.volume === null || !quote ? "--" : formatNumber(quote.volume)}</TableCell>
@@ -234,9 +226,51 @@ export function WatchlistTable() {
   );
 }
 
+function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: boolean }) {
+  const quote = item.quote;
+  const changeClass = quote?.changePct === null || !quote ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500";
+  const href = `/stocks/${quote?.symbol ?? item.symbol}`;
+
+  return (
+    <Link href={href}>
+      <Card className="h-full transition-colors hover:border-primary/60">
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+          <div className="flex items-start gap-2">
+            <BarChart3 className="mt-0.5 h-4 w-4 text-primary" />
+            <div>
+              <CardTitle>{item.name}</CardTitle>
+              <div className="mt-1 text-xs text-muted-foreground">{item.symbol}</div>
+            </div>
+          </div>
+          <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">{formatQuoteStatus(quote?.status)}</span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <div className="text-2xl font-semibold tabular-nums">{loading ? "--" : formatNumber(quote?.price)}</div>
+            <div className={`text-sm tabular-nums ${changeClass}`}>{loading ? "--" : formatPercent(quote?.changePct)}</div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" />
+            成交量 {loading ? "--" : formatNumber(quote?.volume)}
+          </div>
+          <p className="text-xs text-muted-foreground">{quote?.updatedAt ? `更新时间 ${new Date(quote.updatedAt).toLocaleString("zh-CN")}` : "大盘指数"}</p>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+function defaultMarketIndices(): MarketIndexItem[] {
+  return [
+    { symbol: "000001.SH", name: "上证指数", quote: null },
+    { symbol: "399001.SZ", name: "深证成指", quote: null },
+    { symbol: "000688.SH", name: "科创50", quote: null }
+  ];
+}
+
 function formatQuoteStatus(status?: string) {
   const map: Record<string, string> = {
-    normal: "正常",
+    normal: "实时",
     cached: "缓存",
     stale: "旧行情",
     unavailable: "不可用",
