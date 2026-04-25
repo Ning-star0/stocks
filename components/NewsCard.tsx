@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { ImpactLevelBadge } from "@/components/ImpactLevelBadge";
 import { NewsSentimentBadge } from "@/components/NewsSentimentBadge";
 import { Button } from "@/components/ui/button";
+import { toNumber } from "@/lib/utils";
 
 export type NewsCardData = {
   id: string;
@@ -25,7 +26,7 @@ export type NewsCardData = {
     affectedSectors?: string[];
     riskNotes?: string[];
     whyItMatters?: string | null;
-    confidence?: number | null;
+    confidence?: number | string | null;
   }>;
 };
 
@@ -35,6 +36,9 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const impact = analysis?.impactLevel ?? item.importance;
   const summary = analysis?.aiSummary ?? item.summary ?? "暂无摘要";
   const canAnalyze = Boolean(onAnalyze && impact === "high" && !analysis);
+  const confidence = toNumber(analysis?.confidence);
+  const sectors = Array.isArray(item.sectors) ? item.sectors : [];
+  const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes : [];
 
   return (
     <article className="rounded-lg border bg-card p-4">
@@ -43,15 +47,13 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
           <div className="flex flex-wrap items-center gap-2">
             <ImpactLevelBadge level={impact} />
             <NewsSentimentBadge sentiment={sentiment} />
-            {analysis?.confidence !== null && analysis?.confidence !== undefined ? (
-              <span className="text-xs text-muted-foreground">置信度 {(analysis.confidence * 100).toFixed(0)}%</span>
-            ) : null}
+            {confidence !== null ? <span className="text-xs text-muted-foreground">置信度 {(confidence * 100).toFixed(0)}%</span> : null}
           </div>
           <h3 className="text-base font-semibold leading-6">{item.title}</h3>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span>{item.source ?? "未知来源"}</span>
-            <span>{new Date(item.publishedAt).toLocaleString("zh-CN")}</span>
-            {item.sectors.length ? <span>{item.sectors.slice(0, 3).join(", ")}</span> : null}
+            <span>{formatTime(item.publishedAt)}</span>
+            {sectors.length ? <span>{sectors.slice(0, 3).join(", ")}</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -71,9 +73,9 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
       </div>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">{summary}</p>
       {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{analysis.whyItMatters}</p> : null}
-      {analysis?.riskNotes?.length ? (
+      {riskNotes.length ? (
         <div className="mt-3 space-y-1">
-          {analysis.riskNotes.slice(0, 3).map((note) => (
+          {riskNotes.slice(0, 3).map((note) => (
             <div key={note} className="rounded-md border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
               {note}
             </div>
@@ -83,4 +85,11 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
       <p className="mt-3 text-xs text-muted-foreground">AI 新闻分析可能遗漏上下文，仅供研究参考。</p>
     </article>
   );
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN");
 }

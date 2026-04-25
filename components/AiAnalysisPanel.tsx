@@ -5,7 +5,7 @@ import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AiAnalysisResult } from "@/lib/types";
-import { formatPriceValue } from "@/lib/utils";
+import { formatPriceValue, toNumber } from "@/lib/utils";
 
 export function AiAnalysisPanel({
   analysis,
@@ -33,15 +33,24 @@ export function AiAnalysisPanel({
     );
   }
 
+  const dataScope = analysis.dataScope;
+  const confidence = toNumber(analysis.confidence) ?? 0;
+  const support = Array.isArray(analysis.keyLevels?.support) ? analysis.keyLevels.support : [];
+  const resistance = Array.isArray(analysis.keyLevels?.resistance) ? analysis.keyLevels.resistance : [];
+  const riskFactors = Array.isArray(analysis.riskFactors) ? analysis.riskFactors : [];
+  const possibleActions = Array.isArray(analysis.possibleActions) ? analysis.possibleActions : [];
+  const newsReferences = Array.isArray(analysis.newsReferences) ? analysis.newsReferences : [];
+  const webSearchResults = Array.isArray(analysis.webSearchResults) ? analysis.webSearchResults : [];
+
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>AI 综合分析</CardTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>生成：{createdAt ? new Date(createdAt).toLocaleString("zh-CN") : "最新报告"}</span>
-            {analysis.analysisAsOf ? <span>截至：{new Date(analysis.analysisAsOf).toLocaleString("zh-CN")}</span> : null}
-            <Badge variant="secondary">置信度 {formatConfidence(analysis.confidence)}</Badge>
+            <span>生成：{formatTime(createdAt)}</span>
+            {analysis.analysisAsOf ? <span>截至：{formatTime(analysis.analysisAsOf)}</span> : null}
+            <Badge variant="secondary">置信度 {formatConfidence(confidence)}</Badge>
             {fromCache ? <Badge variant="secondary">缓存结果</Badge> : null}
             {analysis.isFallback ? <Badge variant="danger">本地兜底</Badge> : null}
           </div>
@@ -55,59 +64,63 @@ export function AiAnalysisPanel({
           </div>
         ) : null}
 
-        {analysis.dataScope ? (
+        {dataScope ? (
           <Block title="分析口径">
             <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground md:grid-cols-2">
-              <ScopeLine label="报价时间" value={formatTime(analysis.dataScope.quoteTime)} />
-              <ScopeLine label="历史数据" value={`${analysis.dataScope.historyRange ?? "--"} / ${analysis.dataScope.historyInterval ?? "--"}，${analysis.dataScope.historyCandles ?? 0} 根 K 线`} />
-              <ScopeLine label="历史范围" value={`${formatDate(analysis.dataScope.historyFrom)} 至 ${formatDate(analysis.dataScope.historyTo)}`} />
-              <ScopeLine label="新闻范围" value={analysis.dataScope.newsWindow ?? "--"} />
-              <ScopeLine label="新闻数量" value={`${analysis.dataScope.newsCount ?? 0} 条传入 AI`} />
-              <ScopeLine label="联网检索" value={analysis.dataScope.webSearchStatus ?? "--"} />
+              <ScopeLine label="报价时间" value={formatTime(dataScope.quoteTime)} />
+              <ScopeLine label="历史数据" value={`${dataScope.historyRange ?? "--"} / ${dataScope.historyInterval ?? "--"}，${dataScope.historyCandles ?? 0} 根 K 线`} />
+              <ScopeLine label="历史范围" value={`${formatDate(dataScope.historyFrom)} 至 ${formatDate(dataScope.historyTo)}`} />
+              <ScopeLine label="新闻范围" value={dataScope.newsWindow ?? "--"} />
+              <ScopeLine label="新闻数量" value={`${dataScope.newsCount ?? 0} 条传入 AI`} />
+              <ScopeLine label="联网检索" value={dataScope.webSearchStatus ?? "--"} />
             </div>
           </Block>
         ) : null}
 
         <Block title="摘要">
-          <p className="text-sm leading-6">{analysis.summary}</p>
+          <p className="text-sm leading-6">{analysis.summary || "暂无摘要。"}</p>
         </Block>
 
         {analysis.newsSummary ? (
           <Block title="新闻摘要">
             <p className="text-sm leading-6">{analysis.newsSummary}</p>
-            <ReferenceList items={analysis.newsReferences ?? []} />
+            <ReferenceList items={newsReferences} />
           </Block>
         ) : null}
 
-        {(analysis.webSearchSummary || analysis.webSearchResults?.length) ? (
+        {analysis.webSearchSummary || webSearchResults.length ? (
           <Block title="联网新闻检索">
             {analysis.webSearchSummary ? <p className="text-sm leading-6">{analysis.webSearchSummary}</p> : null}
-            <SearchResultList items={analysis.webSearchResults ?? []} />
+            <SearchResultList items={webSearchResults} />
           </Block>
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2">
-          <LevelList title="支撑位" values={analysis.keyLevels.support} currency={currency} symbol={symbol} unit={unit} />
-          <LevelList title="压力位" values={analysis.keyLevels.resistance} currency={currency} symbol={symbol} unit={unit} />
+          <LevelList title="支撑位" values={support} currency={currency} symbol={symbol} unit={unit} />
+          <LevelList title="压力位" values={resistance} currency={currency} symbol={symbol} unit={unit} />
         </div>
 
         <Block title="风险因素">
-          <List values={analysis.riskFactors} />
+          <List values={riskFactors} />
         </Block>
 
         <Block title="可能操作计划">
           <div className="space-y-2">
-            {analysis.possibleActions.map((item, index) => (
-              <div key={`${item.action}-${index}`} className="rounded-md border border-border px-3 py-2">
-                <div className="text-sm font-medium">{formatAction(item.action)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{item.reason}</div>
-                <div className="mt-2 text-xs text-amber-500">失效条件：{item.invalidIf}</div>
-              </div>
-            ))}
+            {possibleActions.length ? (
+              possibleActions.map((item, index) => (
+                <div key={`${item.action}-${index}`} className="rounded-md border border-border px-3 py-2">
+                  <div className="text-sm font-medium">{formatAction(item.action)}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{item.reason}</div>
+                  <div className="mt-2 text-xs text-amber-500">失效条件：{item.invalidIf}</div>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-muted-foreground">暂无操作计划。</div>
+            )}
           </div>
         </Block>
 
-        <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer}</p>
+        <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
     </Card>
   );
@@ -189,29 +202,25 @@ function NewsLink({
   item: { title: string; source?: string | null; publishedAt?: string | null; url?: string | null; sentiment?: string | null; impactLevel?: string | null };
   summary?: string | null;
 }) {
-  const content = (
-    <>
-      <span className="font-medium text-foreground">{item.title}</span>
-      <span className="text-xs text-muted-foreground">
-        {item.source ?? "未知来源"}
-        {item.publishedAt ? ` · ${formatTime(item.publishedAt)}` : ""}
-        {item.impactLevel ? ` · ${item.impactLevel}` : ""}
-      </span>
-      {summary ? <span className="line-clamp-2 text-xs text-muted-foreground">{summary}</span> : null}
-    </>
-  );
+  const meta = `${item.source ?? "未知来源"}${item.publishedAt ? ` · ${formatTime(item.publishedAt)}` : ""}${item.impactLevel ? ` · ${item.impactLevel}` : ""}`;
 
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
       {item.url ? (
         <a className="flex flex-col gap-1 hover:text-primary" href={item.url} target="_blank" rel="noreferrer">
-          <span className="flex items-center gap-1">
-            {content}
+          <span className="flex items-center gap-1 font-medium text-foreground">
+            {item.title}
             <ExternalLink className="h-3.5 w-3.5 shrink-0" />
           </span>
+          <span className="text-xs text-muted-foreground">{meta}</span>
+          {summary ? <span className="line-clamp-2 text-xs text-muted-foreground">{summary}</span> : null}
         </a>
       ) : (
-        <div className="flex flex-col gap-1">{content}</div>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-foreground">{item.title}</span>
+          <span className="text-xs text-muted-foreground">{meta}</span>
+          {summary ? <span className="line-clamp-2 text-xs text-muted-foreground">{summary}</span> : null}
+        </div>
       )}
     </div>
   );
@@ -248,10 +257,10 @@ function formatAction(action: string) {
   return map[action] ?? action;
 }
 
-function formatTime(value?: string | null) {
+function formatTime(value?: string | Date | null) {
   if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("zh-CN");
 }
 

@@ -86,7 +86,10 @@ export function WatchlistTable() {
     load();
   }, [load]);
 
-  const items = useMemo(() => data?.watchlists.flatMap((watchlist) => watchlist.items) ?? [], [data]);
+  const items = useMemo(() => {
+    const watchlists = Array.isArray(data?.watchlists) ? data.watchlists : [];
+    return watchlists.flatMap((watchlist) => (Array.isArray(watchlist.items) ? watchlist.items : []));
+  }, [data]);
 
   async function analyze(symbol: string) {
     setAnalyzing(symbol);
