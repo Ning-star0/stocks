@@ -48,7 +48,7 @@ OPENAI_MODEL="deepseek-v4-flash"
 
 ADMIN_EMAIL="admin@stocks.local"
 ADMIN_PASSWORD_HASH=""
-ADMIN_PASSWORD_HASH_B64=""
+ADMIN_PASSWORD_HASH_B64="CHANGE_ME_GENERATED_BY_AUTH_HASH"
 AUTH_SECRET=""
 AUTH_SESSION_DAYS=7
 
@@ -96,19 +96,22 @@ npm run auth:hash -- "换成你的强密码，至少16位"
 命令会输出：
 
 ```env
-ADMIN_PASSWORD_HASH="scrypt$..."
+ADMIN_PASSWORD_HASH=""
+ADMIN_PASSWORD_HASH_B64="base64url后的哈希"
 AUTH_SECRET="..."
 ```
 
-由于 Next.js 读取 `.env` 时会处理 `$` 符号，推荐把 `ADMIN_PASSWORD_HASH` 转成 base64url 后写入 `ADMIN_PASSWORD_HASH_B64`，避免哈希被展开。也可以手动把哈希里的 `$` 写成 `\$`。
+请优先使用 `ADMIN_PASSWORD_HASH_B64`。scrypt 哈希里包含 `$`，Next.js 读取 `.env` 时会处理 `$` 符号，直接写 `ADMIN_PASSWORD_HASH="scrypt$..."` 容易被展开后导致登录一直失败。
 
 `.env` 推荐配置：
 
 ```env
 ADMIN_EMAIL="admin@stocks.local"
+ADMIN_PASSWORD_HASH=""
 ADMIN_PASSWORD_HASH_B64="base64url后的哈希"
 AUTH_SECRET="..."
 AUTH_SESSION_DAYS=7
+AUTH_COOKIE_SECURE=false
 ```
 
 然后打开 `/login` 登录。业务 API 和页面默认都需要登录；session 使用 HttpOnly Cookie，不会暴露给前端 JavaScript。
