@@ -2,7 +2,9 @@ import OpenAI from "openai";
 import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 type DeepSeekChatRequest = ChatCompletionCreateParamsNonStreaming & {
-  thinking?: { type: "enabled" | "disabled" };
+  extra_body?: {
+    thinking?: { type: "enabled" | "disabled" };
+  };
 };
 
 export async function createChatCompletion(
@@ -14,9 +16,12 @@ export async function createChatCompletion(
     return client.chat.completions.create(request);
   }
 
-  const deepSeekRequest: DeepSeekChatRequest = {
+  const deepSeekRequest = {
     ...request,
-    thinking: { type: "disabled" }
-  };
+    extra_body: {
+      ...(request as DeepSeekChatRequest).extra_body,
+      thinking: { type: "disabled" }
+    }
+  } as DeepSeekChatRequest;
   return client.chat.completions.create(deepSeekRequest);
 }

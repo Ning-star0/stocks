@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 import { createChatCompletion } from "@/lib/ai/deepseek";
-import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
 import type { AiAnalysisResult } from "@/lib/types";
 
@@ -59,9 +58,10 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
     }
   }
 
-  throw new AppError("AI_INVALID_JSON", "AI 多次返回非法 JSON，或未通过 schema 校验。", {
-    reason: lastError instanceof Error ? lastError.message : "未知错误"
-  });
+  return buildFallbackAnalysis(
+    input,
+    `AI 返回内容多次未通过 JSON/schema 校验，系统已改用本地规则生成临时分析。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
+  );
 }
 
 function buildUserPrompt(input: AnalyzeStockInput) {
@@ -207,7 +207,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function buildFallbackAnalysis(input: AnalyzeStockInput): AiAnalysisResult {
+function buildFallbackAnalysis(input: AnalyzeStockInput, reason = "当前未配置 OPENAI_API_KEY，系统返回基于报价和技术指标的本地兜底分析，用于开发和演示。"): AiAnalysisResult {
   const quote = input.quote as { price?: number; changePercent?: number };
   const indicators = input.indicators as {
     sma20?: number | null;
@@ -226,7 +226,7 @@ function buildFallbackAnalysis(input: AnalyzeStockInput): AiAnalysisResult {
   return {
     trend,
     confidence: 0.42,
-    summary: "当前未配置 OPENAI_API_KEY，系统返回基于报价和技术指标的本地兜底分析，用于开发和演示。",
+    summary: reason,
     newsSummary: buildFallbackNewsSummary(input.recentNews),
     newsSentiment: "neutral",
     catalystEvents: [],

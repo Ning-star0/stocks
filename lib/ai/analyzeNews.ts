@@ -2,7 +2,6 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 import { createChatCompletion } from "@/lib/ai/deepseek";
-import { AppError } from "@/lib/errors";
 import { newsAnalysisSchema } from "@/lib/schemas";
 import type { NewsAnalysisResult } from "@/lib/types";
 
@@ -53,9 +52,10 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
     }
   }
 
-  throw new AppError("AI_INVALID_JSON", "AI 多次返回非法新闻分析 JSON。", {
-    reason: lastError instanceof Error ? lastError.message : "未知错误"
-  });
+  return fallbackNewsAnalysis(
+    input,
+    `AI 新闻分析返回内容未通过 JSON/schema 校验，系统已改用关键词规则兜底。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
+  );
 }
 
 function buildPrompt(input: AnalyzeNewsInput) {
@@ -158,7 +158,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function fallbackNewsAnalysis(input: AnalyzeNewsInput): NewsAnalysisResult {
+function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason = "当前未配置 OPENAI_API_KEY，新闻分析使用关键词规则兜底，可能遗漏上下文。"): NewsAnalysisResult {
   const text = `${input.title} ${input.content ?? ""}`.toLowerCase();
   const negativeTerms = ["risk", "miss", "cut", "probe", "lawsuit", "delay", "weak", "loss", "下滑", "调查", "诉讼"];
   const positiveTerms = ["beat", "growth", "upgrade", "launch", "partnership", "demand", "approval", "增长", "上调", "合作"];
@@ -175,7 +175,7 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput): NewsAnalysisResult {
     impactLevel,
     affectedSymbols: input.candidateSymbols ?? [],
     affectedSectors: input.candidateSectors ?? [],
-    riskNotes: ["当前未配置 OPENAI_API_KEY，新闻分析使用关键词规则兜底，可能遗漏上下文。"],
+    riskNotes: [reason],
     whyItMatters: "该消息可能影响市场情绪或短期交易定位，但当前上下文有限。",
     confidence: 0.35
   };

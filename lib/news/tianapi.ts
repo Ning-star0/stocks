@@ -23,8 +23,10 @@ type TianApiNewsRow = {
 };
 
 function requireTianApiKey() {
-  const key = process.env.TIANAPI_KEY;
-  if (!key) throw new AppError("DATA_PROVIDER_ERROR", "使用天行财经新闻源需要配置 TIANAPI_KEY。");
+  const key = normalizeEnvValue(process.env.TIANAPI_KEY || process.env.TIANAPI_API_KEY || process.env.TIAN_API_KEY);
+  if (!key || isPlaceholderKey(key)) {
+    throw new AppError("DATA_PROVIDER_ERROR", "使用天行财经新闻源需要在 .env 配置真实的 TIANAPI_KEY，并重启网站和 worker。");
+  }
   return key;
 }
 
@@ -75,11 +77,20 @@ export class TianApiNewsProvider implements NewsProvider {
     if (payload.code === 130) throw new AppError("RATE_LIMIT", "天行财经新闻接口调用频率超限。", payload);
     if (payload.code === 150) throw new AppError("RATE_LIMIT", "天行财经新闻接口可用次数不足。", payload);
     if (payload.code === 190 || payload.code === 230 || payload.code === 240) {
-      throw new AppError("DATA_PROVIDER_ERROR", "天行财经新闻 API key 无效或未配置。", payload);
+      throw new AppError("DATA_PROVIDER_ERROR", "天行财经新闻 API key 无效。请确认 .env 里的 TIANAPI_KEY 是天行数据控制台的真实 key，保存后重启 stocks-web。", payload);
     }
     if (payload.code === 250) return [];
     throw new AppError("DATA_PROVIDER_ERROR", payload.msg ?? "天行财经新闻接口返回错误。", payload);
   }
+}
+
+function normalizeEnvValue(value?: string) {
+  return value?.trim().replace(/^["']|["']$/g, "");
+}
+
+function isPlaceholderKey(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "change_me_tianapi_key" || normalized === "your_tianapi_key" || normalized.includes("change_me");
 }
 
 function normalizeTianApiNews(row: TianApiNewsRow, symbols: string[], sectors: string[]): NewsItem {
