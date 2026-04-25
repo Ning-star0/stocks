@@ -188,7 +188,7 @@ async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[]
   }
 
   const filtered = filterAndDedupe(rawRows, input);
-  const results = filtered.length ? filtered : fallbackDedupe(rawRows, input);
+  const results = filtered.length || !allowUnfilteredWebNews() ? filtered : fallbackDedupe(rawRows, input);
   return {
     rawResultCount: dedupeRaw(rawRows).length,
     filteredResultCount: filtered.length,
@@ -337,6 +337,7 @@ function dedupeRaw(items: NewsItem[]) {
 
 function buildTavilyStatus(raw: number, filtered: number, returned: number) {
   if (filtered > 0) return `Tavily 原始命中 ${raw} 条，严格相关 ${filtered} 条，保存 ${returned} 条`;
+  if (returned === 0) return `Tavily 原始命中 ${raw} 条，严格过滤 0 条，未保存未确认相关的候选新闻`;
   return `Tavily 原始命中 ${raw} 条，严格过滤 0 条，已保留 ${returned} 条候选新闻供复核`;
 }
 
@@ -380,6 +381,10 @@ function hash(value: string) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function allowUnfilteredWebNews() {
+  return process.env.ALLOW_UNFILTERED_WEB_NEWS === "true";
 }
 
 function buildCatalystQueries(keywords: string[], coreName: string) {

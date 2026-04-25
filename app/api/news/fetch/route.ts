@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { deleteCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
@@ -22,24 +22,28 @@ import { getQuote } from "@/lib/services/quoteService";
 import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
+    const body = await request.json().catch(() => ({}));
+    const requestedSymbol = typeof body.symbol === "string" ? body.symbol.trim().toUpperCase() : null;
     const provider = getNewsProvider();
     const to = new Date();
     const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const [watchlistItems, sectorWatches] = await Promise.all([
       prisma.watchlistItem.findMany({
-        where: { watchlist: { userId: user.id } },
+        where: {
+          watchlist: { userId: user.id },
+          ...(requestedSymbol ? { symbol: requestedSymbol } : {})
+        },
         select: { symbol: true }
       }),
-      prisma.sectorWatch.findMany({
-        where: { userId: user.id }
-      })
+      requestedSymbol ? Promise.resolve([]) : prisma.sectorWatch.findMany({ where: { userId: user.id } })
     ]);
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
+    if (requestedSymbol && !symbols.length) symbols.push(requestedSymbol);
     const fetched: NewsItem[] = [];
     let filteredOut = 0;
     let webSearchFallback = 0;

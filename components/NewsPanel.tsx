@@ -53,17 +53,19 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
     setMessage(null);
     setFetching(true);
     try {
-      const response = await fetch("/api/news/fetch", { method: "POST" });
+      const response = await fetch("/api/news/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, name })
+      });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "抓取新闻失败。");
       const searchReports = Array.isArray(json.webSearchReports) ? json.webSearchReports : [];
-      const searchText = searchReports.length
-        ? searchReports
-            .slice(0, 3)
-            .map((report: { symbol?: string; status?: string; resultCount?: number }) => `${report.symbol ?? "未知"}：${report.status ?? "未返回状态"}，入库 ${report.resultCount ?? 0} 条`)
-            .join("；")
+      const currentReport = searchReports.find((report: { symbol?: string }) => report.symbol?.toUpperCase() === symbol.toUpperCase()) ?? searchReports[0];
+      const searchText = currentReport
+        ? `${currentReport.symbol ?? symbol}：${shortText(String(currentReport.status ?? "未返回状态"), 160)}，入库 ${currentReport.resultCount ?? 0} 条`
         : "联网搜索未触发。";
-      setMessage(`保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。${searchText}`);
+      setMessage(`本标的保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。${searchText}`);
       await load();
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "抓取新闻失败。");
@@ -138,7 +140,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
 function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverview> }) {
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
-      <div className="text-sm font-medium">AI 新闻摘要</div>
+      <div className="text-sm font-medium">新闻概览</div>
       <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
         {overview.points.map((point) => (
           <li key={point}>- {point}</li>
