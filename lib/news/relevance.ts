@@ -26,10 +26,61 @@ const fundSuffixTerms = [
 const sectorAliases: Array<{ match: string[]; aliases: string[] }> = [
   { match: ["电网", "电力设备", "电气设备"], aliases: ["电网设备", "智能电网", "特高压", "输变电", "配电网", "电力设备", "国家电网", "南方电网"] },
   { match: ["芯片", "半导体"], aliases: ["芯片", "半导体", "集成电路", "晶圆", "算力", "AI芯片"] },
+  { match: ["通信", "通信设备", "5G"], aliases: ["通信设备", "5G", "光模块", "光通信", "算力网络", "运营商", "数据中心"] },
   { match: ["新能源车", "电动车", "汽车"], aliases: ["新能源汽车", "电动车", "动力电池", "智能汽车", "车企"] },
   { match: ["银行"], aliases: ["银行", "信贷", "息差", "存款", "贷款", "金融监管"] },
   { match: ["能源", "煤炭", "石油"], aliases: ["能源", "煤炭", "油气", "原油", "电力"] },
   { match: ["医药", "医疗"], aliases: ["医药", "创新药", "医疗器械", "医保", "药企"] }
+];
+
+const catalystTerms = [
+  "招标",
+  "采购",
+  "中标",
+  "订单",
+  "合同",
+  "项目",
+  "投资",
+  "扩产",
+  "并网",
+  "改造",
+  "政策",
+  "补贴",
+  "规划",
+  "十四五",
+  "十五五",
+  "业绩",
+  "营收",
+  "利润",
+  "预告",
+  "指引",
+  "并购",
+  "重组",
+  "特高压",
+  "配电网",
+  "输变电",
+  "国家电网",
+  "南方电网"
+];
+
+const lowValueMarketTerms = [
+  "涨幅",
+  "跌幅",
+  "上涨",
+  "下跌",
+  "收涨",
+  "收跌",
+  "涨超",
+  "跌超",
+  "盘中",
+  "异动",
+  "净值",
+  "估值",
+  "成交额",
+  "成交量",
+  "资金流入",
+  "资金流出",
+  "换手率"
 ];
 
 export function buildStockNewsKeywords(input: { symbol: string; name?: string | null; extraKeywords?: string[] }) {
@@ -58,6 +109,56 @@ export function buildStockNewsKeywords(input: { symbol: string; name?: string | 
   }
 
   return [...output].map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 12);
+}
+
+export function buildSectorNewsKeywords(input: { symbol: string; name?: string | null; extraKeywords?: string[] }) {
+  const output = new Set<string>();
+  const rawName = input.name?.trim();
+  const coreName = rawName ? cleanStockName(rawName) : "";
+  const baseKeywords = buildStockNewsKeywords(input);
+  const joined = [...baseKeywords, coreName, ...(input.extraKeywords ?? [])].join(" ");
+
+  for (const keyword of [...baseKeywords, ...(input.extraKeywords ?? [])]) {
+    const clean = keyword.trim();
+    if (!clean || /^\d+$/.test(clean)) continue;
+    if (isFundSuffixTerm(clean)) continue;
+    output.add(clean);
+  }
+  if (coreName && !/^\d+$/.test(coreName)) output.add(coreName);
+
+  for (const group of sectorAliases) {
+    if (group.match.some((keyword) => joined.includes(keyword)) || group.aliases.some((keyword) => joined.includes(keyword))) {
+      for (const alias of group.aliases) output.add(alias);
+    }
+  }
+
+  return [...output].map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 16);
+}
+
+export function isLowValueMarketMoveNews(
+  item: NewsItem | ({ title: string; summary?: string | null; rawContent?: string | null } & Record<string, unknown>)
+) {
+  const text = normalizeText(`${item.title ?? ""} ${item.summary ?? ""} ${item.rawContent ?? ""}`);
+  const hasMarketMove = lowValueMarketTerms.some((term) => text.includes(normalizeText(term))) || /[涨跌][0-9.]+%/.test(text);
+  if (!hasMarketMove) return false;
+  return !catalystTerms.some((term) => text.includes(normalizeText(term)));
+}
+
+export function scoreNewsCatalyst(
+  item: NewsItem | ({ title: string; summary?: string | null; rawContent?: string | null; sectors?: string[] | null } & Record<string, unknown>),
+  keywords: string[] = []
+) {
+  const text = normalizeText(`${item.title ?? ""} ${item.summary ?? ""} ${item.rawContent ?? ""}`);
+  let score = 0;
+  for (const term of catalystTerms) {
+    if (text.includes(normalizeText(term))) score += 3;
+  }
+  for (const keyword of keywords) {
+    const normalized = normalizeText(keyword);
+    if (normalized.length >= 2 && text.includes(normalized)) score += 1;
+  }
+  if (isLowValueMarketMoveNews(item)) score -= 8;
+  return score;
 }
 
 export function isNewsRelevantToStock(
@@ -93,6 +194,10 @@ function splitNameTokens(name: string) {
   const output = new Set(tokens);
   if (normalized.length >= 4) output.add(normalized.slice(0, 4));
   return [...output];
+}
+
+function isFundSuffixTerm(value: string) {
+  return fundSuffixTerms.some((term) => term.toLowerCase() === value.toLowerCase());
 }
 
 function compactCode(symbol: string) {

@@ -4,7 +4,14 @@ import { generateNewsSearchQueries } from "@/lib/ai/generateNewsSearchQueries";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { getNewsProvider } from "@/lib/news";
-import { buildStockNewsKeywords, filterRelevantNewsForStock } from "@/lib/news/relevance";
+import {
+  buildSectorNewsKeywords,
+  buildStockNewsKeywords,
+  cleanStockName,
+  filterRelevantNewsForStock,
+  isLowValueMarketMoveNews,
+  scoreNewsCatalyst
+} from "@/lib/news/relevance";
 import type { NewsItem } from "@/lib/types";
 
 export type RelatedNewsSearchInput = {
@@ -112,24 +119,32 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
 }
 
 function buildSearchQueries(input: RelatedNewsSearchInput) {
-  const keywords = buildStockNewsKeywords({
+  const stockKeywords = buildStockNewsKeywords({
     symbol: input.symbol,
     name: input.name,
     extraKeywords: input.sectorKeywords ?? []
   });
+  const sectorKeywords = buildSectorNewsKeywords({
+    symbol: input.symbol,
+    name: input.name,
+    extraKeywords: [...(input.sectorKeywords ?? []), ...stockKeywords]
+  });
   const compactSymbol = input.symbol.replace(/\.(SH|SZ|BJ|HK)$/i, "");
   const primaryName = input.name?.trim();
-  const sector = input.sectorKeywords?.find((item) => item.trim().length >= 2);
+  const coreName = primaryName ? cleanStockName(primaryName) : "";
+  const isFundLike = Boolean(primaryName && /(ETF|LOF|QDII|基金|指数|联接)/i.test(primaryName));
+  const sector = sectorKeywords.find((item) => item.trim().length >= 2 && item !== coreName);
   const output = new Set<string>();
 
-  if (primaryName && primaryName.toUpperCase() !== input.symbol.toUpperCase()) {
-    output.add(`${primaryName} 股票 最新消息`);
-    output.add(`${primaryName} 公告 业绩 合同 政策`);
-    output.add(`${primaryName} 研报 行业 新闻`);
+  for (const query of buildCatalystQueries(sectorKeywords, coreName || primaryName || "")) output.add(query);
+
+  if (!isFundLike && primaryName && primaryName.toUpperCase() !== input.symbol.toUpperCase()) {
+    output.add(`${primaryName} 公告 业绩 订单 合同`);
+    output.add(`${primaryName} 行业 政策 产业链`);
+    output.add(`${compactSymbol} ${primaryName} 公告 业绩`.trim());
   }
-  if (sector) output.add(`${primaryName || compactSymbol} ${sector} 行业新闻`);
-  output.add(`${compactSymbol} ${primaryName || ""} 股票 新闻`.trim());
-  output.add(`${keywords.slice(0, 4).join(" ")} 最新 财经`.trim());
+  if (sector) output.add(`${sector} 行业 政策 订单 招标 采购`);
+  if (!output.size) output.add(`${stockKeywords.slice(0, 4).join(" ")} 行业 新闻`.trim());
 
   return [...output].filter((item) => item.length >= 4).slice(0, numberEnv("WEB_SEARCH_MAX_QUERIES", 4));
 }
@@ -141,6 +156,13 @@ async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[]
   for (const query of queries) {
     rawRows.push(...(await searchTavilyQuery(query, input, "finance")));
     if (rawRows.length >= maxResults) break;
+  }
+
+  if (rawRows.length === 0) {
+    for (const query of queries.slice(0, 2)) {
+      rawRows.push(...(await searchTavilyQuery(query, input, "news")));
+      if (rawRows.length >= maxResults) break;
+    }
   }
 
   if (rawRows.length === 0) {
@@ -243,20 +265,32 @@ function attachInputContext(item: NewsItem, input: RelatedNewsSearchInput): News
 }
 
 function filterAndDedupe(items: NewsItem[], input: RelatedNewsSearchInput) {
+  const keywords = buildSectorNewsKeywords({
+    symbol: input.symbol,
+    name: input.name,
+    extraKeywords: input.sectorKeywords ?? []
+  });
   const relevant = filterRelevantNewsForStock(items, {
     symbol: input.symbol,
     name: input.name,
-    keywords: buildStockNewsKeywords({
-      symbol: input.symbol,
-      name: input.name,
-      extraKeywords: input.sectorKeywords ?? []
-    })
+    keywords: [...keywords, ...buildStockNewsKeywords({ symbol: input.symbol, name: input.name, extraKeywords: input.sectorKeywords ?? [] })]
   });
-  return normalizeOutput(relevant, input);
+  const useful = relevant
+    .filter((item) => !isLowValueMarketMoveNews(item))
+    .sort((a, b) => scoreNewsCatalyst(b, keywords) - scoreNewsCatalyst(a, keywords));
+  return normalizeOutput(useful, input);
 }
 
 function fallbackDedupe(items: NewsItem[], input: RelatedNewsSearchInput) {
-  return normalizeOutput(items, input).map((item) => ({
+  const keywords = buildSectorNewsKeywords({
+    symbol: input.symbol,
+    name: input.name,
+    extraKeywords: input.sectorKeywords ?? []
+  });
+  const useful = items
+    .filter((item) => !isLowValueMarketMoveNews(item))
+    .sort((a, b) => scoreNewsCatalyst(b, keywords) - scoreNewsCatalyst(a, keywords));
+  return normalizeOutput(useful, input).map((item) => ({
     ...item,
     summary: item.summary ? `${item.summary}（Tavily 原始候选，严格关键词未命中，请人工复核相关性。）` : "Tavily 原始候选，严格关键词未命中，请人工复核相关性。"
   }));
@@ -335,4 +369,34 @@ function hash(value: string) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function buildCatalystQueries(keywords: string[], coreName: string) {
+  const joined = keywords.join(" ");
+  const output = new Set<string>();
+  const lead = keywords.find((item) => item.length >= 2 && !/^\d+$/.test(item)) ?? coreName;
+
+  if (joined.includes("电网") || joined.includes("特高压") || joined.includes("输变电") || joined.includes("电力设备")) {
+    output.add("国家电网 招标 采购 电力设备");
+    output.add("南方电网 招标 采购 配电设备");
+    output.add("特高压 输变电 项目 中标 订单");
+    output.add("配电网 改造 投资 电力设备");
+    output.add("智能电网 设备采购 政策 投资");
+  } else if (joined.includes("通信") || joined.includes("光模块") || joined.includes("5G")) {
+    output.add("通信设备 招标 采购 运营商");
+    output.add("光模块 算力网络 数据中心 订单");
+    output.add("5G 通信设备 政策 投资");
+  } else if (joined.includes("芯片") || joined.includes("半导体")) {
+    output.add("半导体 政策 订单 设备 材料");
+    output.add("AI芯片 算力 产业链 投资");
+  } else if (joined.includes("新能源") || joined.includes("电动车") || joined.includes("动力电池")) {
+    output.add("新能源汽车 销量 政策 补贴");
+    output.add("动力电池 订单 扩产 产业链");
+  } else if (lead) {
+    output.add(`${lead} 行业 政策 投资`);
+    output.add(`${lead} 订单 合同 招标 采购`);
+    output.add(`${lead} 产业链 景气度 业绩`);
+  }
+
+  return [...output];
 }

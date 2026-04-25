@@ -7,7 +7,14 @@ import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
 import { calculateNewsImportance } from "@/lib/news/importance";
-import { buildStockNewsKeywords, filterRelevantNewsForStock, isNewsRelevantToStock } from "@/lib/news/relevance";
+import {
+  buildSectorNewsKeywords,
+  buildStockNewsKeywords,
+  filterRelevantNewsForStock,
+  isLowValueMarketMoveNews,
+  isNewsRelevantToStock,
+  scoreNewsCatalyst
+} from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
@@ -47,24 +54,25 @@ export async function POST() {
     for (const symbol of symbols) {
       const name = await resolveSymbolName(symbol);
       const keywords = buildStockNewsKeywords({ symbol, name });
+      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
       const beforeSymbolFetch = fetched.length;
 
       const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
-      const relevantCodeNews = filterRelevantNewsForStock(codeNews, { symbol, name, keywords });
+      const relevantCodeNews = rankUsefulNews(filterRelevantNewsForStock(codeNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += codeNews.length - relevantCodeNews.length;
-      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
-      const topicKeywords = keywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 4);
+      const topicKeywords = sectorKeywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 5);
       const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString());
-      const relevantTopicNews = filterRelevantNewsForStock(topicNews, { symbol, name, keywords });
+      const relevantTopicNews = rankUsefulNews(filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += topicNews.length - relevantTopicNews.length;
-      fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+      fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
-      if (fetched.length === beforeSymbolFetch) {
+      if (fetched.length === beforeSymbolFetch || sectorKeywords.length > 0) {
         const webSearch = await searchRelatedNews({
           symbol,
           name,
-          sectorKeywords: keywords,
+          sectorKeywords,
           days: 7,
           maxResults: 8
         });
@@ -77,7 +85,7 @@ export async function POST() {
           resultCount: webSearch.results.length
         });
         if (webSearch.results.length) webSearchFallback += 1;
-        fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, keywords[1] ?? name ?? symbol)));
+        fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
       }
     }
 
@@ -181,4 +189,8 @@ function uniqueUpper(values: string[]) {
 
 function uniqueText(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function rankUsefulNews(items: NewsItem[], keywords: string[]) {
+  return items.filter((item) => !isLowValueMarketMoveNews(item)).sort((a, b) => scoreNewsCatalyst(b, keywords) - scoreNewsCatalyst(a, keywords));
 }

@@ -92,6 +92,9 @@ function buildUserPrompt(input: AnalyzeStockInput) {
 3. 新闻链接只能来自 recentNews 或 webSearchResults，不允许编造 URL。
 4. webSearchResults 是后端联网新闻检索得到的结果，不代表 AI 自己浏览网页；请把它作为外部新闻参考。
 5. 如果新闻不足或没有当日新闻，请明确说明“新闻样本有限”或“未检索到当日强相关新闻”。
+6. newsSummary 必须综合 recentNews 和 webSearchResults 的共同主线，控制在 120 字以内，不要逐条复述。
+7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把“ETF 涨跌、净值变化、成交额”当成核心催化。
+8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
 
 股票代码：
 ${input.symbol}

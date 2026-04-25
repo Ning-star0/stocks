@@ -5,6 +5,7 @@ import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
+import { buildSectorNewsKeywords, buildStockNewsKeywords } from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
@@ -94,8 +95,10 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const indicators = calculateIndicators(canonicalSymbol, history);
   const historySummary = summarizeHistory(history);
   const userContext = watchlistItem ? serializeWatchlistItem(watchlistItem) : { symbol: canonicalSymbol };
-  const sectorKeywords = [...sectorWatches.map((watch) => watch.sectorName), ...sectorWatches.flatMap((watch) => watch.keywords)];
-  const highImpactNews = await getHighImpactNewsForStock(canonicalSymbol, sectorKeywords);
+  const watchedSectorKeywords = [...sectorWatches.map((watch) => watch.sectorName), ...sectorWatches.flatMap((watch) => watch.keywords)];
+  const stockNewsKeywords = buildStockNewsKeywords({ symbol: canonicalSymbol, name: quote.name, extraKeywords: watchedSectorKeywords });
+  const sectorKeywords = buildSectorNewsKeywords({ symbol: canonicalSymbol, name: quote.name, extraKeywords: [...watchedSectorKeywords, ...stockNewsKeywords] });
+  const relevantNews = await getRelevantNewsForStock(canonicalSymbol, sectorKeywords);
   const supplementalNews = options.includeWebSearch
     ? await searchRelatedNews({
         symbol: canonicalSymbol,
@@ -110,7 +113,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
         queries: [],
         results: []
       };
-  const highImpactNewsIds = highImpactNews.map((item) => item.id);
+  const highImpactNewsIds = relevantNews.filter((item) => item.importance === "high" || item.analyses[0]?.impactLevel === "high").map((item) => item.id);
   const contextHash = createAnalysisContextHash({
     symbol: canonicalSymbol,
     quote,
@@ -125,7 +128,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     }
   });
 
-  const highImpactReferences = highImpactNews.map((item) => ({
+  const newsReferences = relevantNews.map((item) => ({
     id: item.id,
     title: item.title,
     url: item.url,
@@ -143,7 +146,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     summary: item.summary ?? item.rawContent ?? item.title
   }));
   const recentNews = dedupeAnalysisNews([
-    ...highImpactReferences,
+    ...newsReferences,
     ...webSearchResults.map((item) => ({
       ...item,
       id: item.url ?? item.title,
@@ -161,7 +164,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     historyFrom: firstHistory,
     historyTo: lastHistory,
     historyCandles: history.length,
-    newsWindow: "最近 7 天，高重要性新闻优先；联网检索结果作为补充参考",
+    newsWindow: "最近 7 天，已入库 high/medium 行业新闻 + 联网检索行业催化新闻",
     newsCount: recentNews.length,
     webSearchStatus: supplementalNews.status
   };
@@ -182,7 +185,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     indicators,
     historySummary,
     userContext,
-    highImpactNews,
+    highImpactNews: relevantNews,
     highImpactNewsIds,
     contextHash,
     aiInput,
@@ -190,12 +193,12 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   };
 }
 
-async function getHighImpactNewsForStock(symbol: string, sectors: string[]) {
+async function getRelevantNewsForStock(symbol: string, sectors: string[]) {
   const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   return prisma.newsItem.findMany({
     where: {
       publishedAt: { gte: last7d },
-      importance: "high",
+      importance: { in: ["high", "medium"] },
       OR: [{ symbols: { has: symbol } }, ...(sectors.length ? [{ sectors: { hasSome: sectors } }] : [])]
     },
     include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
