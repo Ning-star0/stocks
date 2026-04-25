@@ -32,7 +32,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载新闻失败。");
-      const sorted = sortNews(json.news ?? []);
+      const sorted = sortNews(Array.isArray(json.news) ? json.news : []);
       setNews(sorted.filter((item: NewsCardData) => item.importance !== "low"));
       setLowNews(sorted.filter((item: NewsCardData) => item.importance === "low"));
       setUpdatedAt(new Date().toLocaleString("zh-CN"));
@@ -57,12 +57,12 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       if (!response.ok) throw new Error(json.error?.message ?? "抓取新闻失败。");
       const searchReports = Array.isArray(json.webSearchReports) ? json.webSearchReports : [];
       const searchText = searchReports.length
-        ? `联网搜索：${searchReports
+        ? searchReports
             .slice(0, 3)
-            .map((report: { symbol?: string; status?: string; resultCount?: number }) => `${report.symbol ?? "未知"} ${report.status ?? "未返回状态"}，命中 ${report.resultCount ?? 0} 条`)
-            .join("；")}`
+            .map((report: { symbol?: string; status?: string; resultCount?: number }) => `${report.symbol ?? "未知"}：${report.status ?? "未返回状态"}，入库 ${report.resultCount ?? 0} 条`)
+            .join("；")
         : "联网搜索未触发。";
-      setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，过滤不相关新闻 ${json.filteredOut ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。${searchText}`);
+      setMessage(`保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。${searchText}`);
       await load();
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "抓取新闻失败。");
@@ -93,7 +93,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
           <Newspaper className="h-4 w-4 text-primary" />
           <div>
             <CardTitle>相关新闻</CardTitle>
-            <div className="mt-1 text-xs text-muted-foreground">按股票名称和行业关键词过滤；只有高重要性新闻才进入 AI 精读任务。</div>
+            <div className="mt-1 text-xs text-muted-foreground">先显示新闻结论，展开后查看详情、AI 精读和原文链接。</div>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
@@ -112,18 +112,15 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
           <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无匹配该股票或行业关键词的新闻。点击“抓取新闻”后会更新。</div>
         ) : (
           <>
-            {news.length === 0 ? (
-              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                暂无 high/medium 相关新闻。已抓取到 {lowNews.length} 条低重要性新闻，默认折叠显示。
-              </div>
-            ) : null}
-            {news.slice(0, 10).map((item) => (
-              <NewsCard key={item.id} item={item} onAnalyze={item.importance === "high" ? analyze : undefined} />
-            ))}
+            <div className="space-y-2">
+              {news.slice(0, 8).map((item) => (
+                <NewsCard key={item.id} item={item} onAnalyze={item.importance === "high" ? analyze : undefined} />
+              ))}
+            </div>
             {lowNews.length ? (
               <details className="rounded-md border border-border bg-muted/15 p-3">
                 <summary className="cursor-pointer text-sm text-muted-foreground">低重要性新闻 {lowNews.length} 条</summary>
-                <div className="mt-3 space-y-3">
+                <div className="mt-3 space-y-2">
                   {lowNews.slice(0, 10).map((item) => (
                     <NewsCard key={item.id} item={item} />
                   ))}
@@ -140,8 +137,12 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
 function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverview> }) {
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
-      <div className="text-sm font-medium">{overview.hasAi ? "AI 新闻总览" : "新闻概览"}</div>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{overview.text}</p>
+      <div className="text-sm font-medium">AI 新闻摘要</div>
+      <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
+        {overview.points.map((point) => (
+          <li key={point}>- {point}</li>
+        ))}
+      </ul>
       <p className="mt-2 text-xs text-muted-foreground">新闻分析可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
     </div>
   );
@@ -150,19 +151,16 @@ function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverv
 function buildNewsOverview(items: NewsCardData[]) {
   const high = items.filter((item) => (item.analyses?.[0]?.impactLevel ?? item.importance) === "high").length;
   const medium = items.filter((item) => (item.analyses?.[0]?.impactLevel ?? item.importance) === "medium").length;
-  const analyzed = items.filter((item) => item.analyses?.length);
+  const analyzed = items.filter((item) => item.analyses?.length).length;
   const sentiment = countSentiment(items);
-  const top = items
-    .slice(0, 3)
-    .map((item) => item.analyses?.[0]?.aiSummary ?? item.summary ?? item.title)
-    .filter(Boolean)
-    .join("；");
+  const topTitles = items.slice(0, 3).map((item) => shortText(item.title, 42));
 
   return {
-    hasAi: analyzed.length > 0,
-    text: analyzed.length
-      ? `已纳入 ${items.length} 条相关新闻，其中高影响 ${high} 条、中等影响 ${medium} 条。AI 已精读 ${analyzed.length} 条，当前情绪分布：正面 ${sentiment.positive}、中性 ${sentiment.neutral}、负面 ${sentiment.negative}。重点摘要：${top || "暂无摘要"}`
-      : `已纳入 ${items.length} 条相关新闻，其中高重要性 ${high} 条、中等重要性 ${medium} 条。暂未完成 AI 精读，当前先按关键词和来源展示。重点标题：${top || "暂无摘要"}`
+    points: [
+      `共纳入 ${items.length} 条相关新闻，其中高重要性 ${high} 条、中等重要性 ${medium} 条，AI 已精读 ${analyzed} 条。`,
+      `情绪分布：正面 ${sentiment.positive} 条，中性 ${sentiment.neutral} 条，负面 ${sentiment.negative} 条。`,
+      topTitles.length ? `重点新闻：${topTitles.join("；")}` : "暂未形成明确新闻主线。"
+    ]
   };
 }
 
@@ -184,6 +182,15 @@ function sortNews(items: NewsCardData[]) {
     const impactB = String(b.analyses?.[0]?.impactLevel ?? b.importance ?? "low");
     const levelDiff = (weight[impactB] ?? 0) - (weight[impactA] ?? 0);
     if (levelDiff) return levelDiff;
-    return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+    return safeTime(b.publishedAt) - safeTime(a.publishedAt);
   });
+}
+
+function safeTime(value?: string | null) {
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function shortText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }

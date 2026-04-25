@@ -41,49 +41,56 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes : [];
 
   return (
-    <article className="rounded-lg border bg-card p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <ImpactLevelBadge level={impact} />
-            <NewsSentimentBadge sentiment={sentiment} />
-            {confidence !== null ? <span className="text-xs text-muted-foreground">置信度 {(confidence * 100).toFixed(0)}%</span> : null}
-          </div>
-          <h3 className="text-base font-semibold leading-6">{item.title}</h3>
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span>{item.source ?? "未知来源"}</span>
-            <span>{formatTime(item.publishedAt)}</span>
-            {sectors.length ? <span>{sectors.slice(0, 3).join(", ")}</span> : null}
-          </div>
+    <details className="group rounded-md border border-border bg-card px-3 py-2">
+      <summary className="grid cursor-pointer list-none gap-2 md:grid-cols-[auto_auto_minmax(0,1fr)_auto] md:items-center">
+        <div className="flex items-center gap-2">
+          <ImpactLevelBadge level={impact} />
+          <NewsSentimentBadge sentiment={sentiment} />
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="text-xs text-muted-foreground">{formatTime(item.publishedAt)}</div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">{cleanTitle(item.title)}</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">{compactSummary(summary)}</div>
+        </div>
+        <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          {confidence !== null ? <span>{(confidence * 100).toFixed(0)}%</span> : null}
+          <span className="group-open:hidden">展开</span>
+          <span className="hidden group-open:inline">收起</span>
+        </div>
+      </summary>
+
+      <div className="mt-3 border-t pt-3">
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span>{item.source ?? "未知来源"}</span>
+          {sectors.length ? <span>{sectors.slice(0, 3).join(", ")}</span> : null}
+          {item.url ? (
+            <a className="inline-flex items-center gap-1 text-primary hover:underline" href={item.url} target="_blank" rel="noreferrer">
+              原文链接
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+        </div>
+        <p className="mt-3 max-h-32 overflow-auto rounded-md bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
+        {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{analysis.whyItMatters}</p> : null}
+        {riskNotes.length ? (
+          <div className="mt-3 space-y-1">
+            {riskNotes.slice(0, 3).map((note) => (
+              <div key={note} className="rounded-md border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+                {note}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">AI 新闻分析可能遗漏上下文，仅供研究参考。</p>
           {canAnalyze ? (
             <Button size="sm" variant="outline" onClick={() => onAnalyze?.(item.id)}>
               AI 精读
             </Button>
           ) : null}
-          {item.url ? (
-            <Button size="icon" variant="ghost" asChild aria-label="打开原文">
-              <a href={item.url} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </Button>
-          ) : null}
         </div>
       </div>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{summary}</p>
-      {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{analysis.whyItMatters}</p> : null}
-      {riskNotes.length ? (
-        <div className="mt-3 space-y-1">
-          {riskNotes.slice(0, 3).map((note) => (
-            <div key={note} className="rounded-md border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-              {note}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <p className="mt-3 text-xs text-muted-foreground">AI 新闻分析可能遗漏上下文，仅供研究参考。</p>
-    </article>
+    </details>
   );
 }
 
@@ -92,4 +99,18 @@ function formatTime(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN");
+}
+
+function cleanTitle(value: string) {
+  return value.replace(/^Title[:：]\s*/i, "").replace(/\s+/g, " ").trim();
+}
+
+function compactSummary(value: string, maxLength = 110) {
+  const cleaned = value
+    .replace(/^Title[:：]\s*/i, "")
+    .replace(/#+\s*/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
 }
