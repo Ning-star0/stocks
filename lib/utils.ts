@@ -7,11 +7,17 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatCurrency(value?: number | null, currency = process.env.NEXT_PUBLIC_PRICE_CURRENCY || "CNY") {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: value > 100 ? 2 : 4
-  }).format(value);
+  const safeCurrency = normalizeCurrency(currency);
+  try {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: safeCurrency,
+      maximumFractionDigits: value > 100 ? 2 : 4
+    }).format(value);
+  } catch {
+    const prefix = safeCurrency === "USD" ? "$" : safeCurrency === "HKD" ? "HK$" : "¥";
+    return `${prefix}${formatNumber(value)}`;
+  }
 }
 
 export function isIndexSymbol(symbol?: string | null) {
@@ -26,6 +32,12 @@ export function formatPriceValue(value?: number | null, input?: { currency?: str
     return `${formatNumber(value)}点`;
   }
   return formatCurrency(value, input?.currency ?? undefined);
+}
+
+function normalizeCurrency(currency?: string | null) {
+  const next = (currency || process.env.NEXT_PUBLIC_PRICE_CURRENCY || "CNY").trim().toUpperCase();
+  if (next === "USD" || next === "CNY" || next === "HKD") return next;
+  return "CNY";
 }
 
 export function formatNumber(value?: number | null) {
