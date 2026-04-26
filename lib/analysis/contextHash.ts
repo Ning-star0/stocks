@@ -11,6 +11,7 @@ export type AnalysisContextHashInput = {
     holdingPrice?: number | null;
     targetPrice?: number | null;
     stopLoss?: number | null;
+    positionOpenedAt?: string | null;
     timeHorizon?: string | null;
     riskLevel?: string | null;
   };
@@ -18,7 +19,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 2,
+    analysisPromptVersion: 3,
     symbol: input.symbol.toUpperCase(),
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),
@@ -30,6 +31,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
       holdingPrice: input.userContext.holdingPrice ?? null,
       targetPrice: input.userContext.targetPrice ?? null,
       stopLoss: input.userContext.stopLoss ?? null,
+      positionOpenedAt: input.userContext.positionOpenedAt ?? null,
       timeHorizon: input.userContext.timeHorizon ?? null,
       riskLevel: input.userContext.riskLevel ?? null
     }

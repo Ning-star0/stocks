@@ -96,7 +96,8 @@ function buildUserPrompt(input: AnalyzeStockInput) {
 6. newsSummary 必须综合 recentNews 和 webSearchResults 的共同主线，控制在 120 字以内，不要逐条复述。
 7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把“ETF 涨跌、净值变化、成交额”当成核心催化。
 8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
-9. summary、newsSummary、webSearchSummary、catalystEvents、macroRisks、sectorRisks、riskFactors、possibleActions.reason、possibleActions.invalidIf 必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
+9. summary、newsSummary、webSearchSummary、catalystEvents、macroRisks、sectorRisks、riskFactors、possibleActions 的所有自然语言字段必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
+10. possibleActions 必须写得像可执行交易计划：至少给出 2 个场景，覆盖已有持仓和空仓观察；要说明适合什么时间窗口、触发条件、参考价格区间、止损计划、止盈/减仓计划、仓位控制、后续复盘重点。不能写成确定性买卖指令，只能写“若...则考虑.../观察...”。
 
 股票代码：
 ${input.symbol}
@@ -176,6 +177,13 @@ ${JSON.stringify(input.webSearchResults ?? [], null, 2)}
     {
       "action": "hold | watch | reduce | consider_entry | avoid",
       "reason": "",
+      "timing": "",
+      "triggerCondition": "",
+      "entryZone": "",
+      "stopLossPlan": "",
+      "takeProfitPlan": "",
+      "positionSizing": "",
+      "followUpCheck": "",
       "invalidIf": ""
     }
   ],
@@ -229,6 +237,13 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
           {
             action: "watch",
             reason: "AI 未提供完整操作计划，建议继续观察关键价位、成交量和新闻变化。",
+            timing: "观察",
+            triggerCondition: "等待价格接近支撑/压力位、成交量明显变化或出现高重要性新闻后再复核。",
+            entryZone: "",
+            stopLossPlan: "以用户持仓设置中的止损价或关键支撑跌破作为风险边界。",
+            takeProfitPlan: "以目标价、压力位或趋势转弱信号作为分批止盈参考。",
+            positionSizing: "未形成明确信号前控制仓位，不因单一指标扩大风险。",
+            followUpCheck: "复核 RSI、MACD、均线状态、成交量和相关新闻是否同步改善。",
             invalidIf: "价格、成交量、技术指标或相关新闻发生明显变化。"
           }
         ],
@@ -283,6 +298,13 @@ function normalizeAction(value: unknown) {
   return {
     action,
     reason: ensureChineseAnalysisText(toNonEmptyString(record.reason, "AI 未提供原因。"), "AI 未提供原因。"),
+    timing: ensureChineseOptionalText(record.timing),
+    triggerCondition: ensureChineseOptionalText(record.triggerCondition),
+    entryZone: ensureChineseOptionalText(record.entryZone),
+    stopLossPlan: ensureChineseOptionalText(record.stopLossPlan),
+    takeProfitPlan: ensureChineseOptionalText(record.takeProfitPlan),
+    positionSizing: ensureChineseOptionalText(record.positionSizing),
+    followUpCheck: ensureChineseOptionalText(record.followUpCheck),
     invalidIf: ensureChineseAnalysisText(toNonEmptyString(record.invalidIf, "关键数据发生明显变化。"), "关键数据发生明显变化。")
   };
 }
@@ -413,6 +435,12 @@ function ensureChineseAnalysisText(value: string, fallback: string) {
   return containsCjk(value) ? toSimplifiedChinese(value) : fallback;
 }
 
+function ensureChineseOptionalText(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  return containsCjk(text) ? toSimplifiedChinese(text) : "";
+}
+
 function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {
   const quote = input.quote as { price?: number; changePercent?: number };
   const indicators = input.indicators as {
@@ -465,6 +493,13 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
       {
         action: trend === "bearish" ? "watch" : "hold",
         reason: "在真实 AI 服务恢复前，可将其作为临时监控备注使用。",
+        timing: "临时观察",
+        triggerCondition: "等待真实 AI 分析恢复，或价格、成交量、新闻出现明显变化后再复核。",
+        entryZone: "不提供新的参考介入区间。",
+        stopLossPlan: "优先使用你在持仓设置中填写的止损价；未填写时不要依赖兜底分析。",
+        takeProfitPlan: "优先使用你在持仓设置中填写的目标价；未填写时以人工复核为准。",
+        positionSizing: "兜底分析不建议扩大仓位。",
+        followUpCheck: "检查行情源、AI 服务状态、最新新闻和技术指标是否恢复正常。",
         invalidIf: "价格、成交量、RSI 状态或相关新闻发生明显变化。"
       }
     ],

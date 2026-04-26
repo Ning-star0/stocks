@@ -52,6 +52,7 @@ model WatchlistItem {
   holdingPrice Decimal?    @db.Decimal(18, 4)
   targetPrice  Decimal?    @db.Decimal(18, 4)
   stopLoss     Decimal?    @db.Decimal(18, 4)
+  positionOpenedAt DateTime?
   timeHorizon  TimeHorizon @default(swing_trade)
   riskLevel    RiskLevel   @default(medium)
   createdAt    DateTime    @default(now())

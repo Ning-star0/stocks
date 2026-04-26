@@ -7,7 +7,9 @@ export function serializeWatchlistItem(item: WatchlistItem) {
     ...item,
     holdingPrice: toNumber(item.holdingPrice),
     targetPrice: toNumber(item.targetPrice),
-    stopLoss: toNumber(item.stopLoss)
+    stopLoss: toNumber(item.stopLoss),
+    positionOpenedAt: item.positionOpenedAt ? item.positionOpenedAt.toISOString() : null,
+    createdAt: item.createdAt.toISOString()
   };
 }
 
@@ -17,4 +19,3 @@ export function serializeAlert(alert: Alert) {
     threshold: toNumber(alert.threshold)
   };
 }
-

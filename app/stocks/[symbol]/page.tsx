@@ -9,7 +9,6 @@ import { RiskBadge } from "@/components/RiskBadge";
 import { StockChart } from "@/components/StockChart";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/lib/currentUser";
 import { calculateIndicators } from "@/lib/indicators";
@@ -128,14 +127,13 @@ export default async function StockDetailPage({
 
           <NewsPanel symbol={quoteSymbol} name={displayName} />
           <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} />
-          {candles.length ? <OhlcvTable candles={candles.slice(-20).reverse()} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : null}
         </div>
 
         <div className="space-y-5">
           {indicators ? <IndicatorPanel indicators={indicators} price={quote.price} /> : <EmptyCard title="技术指标" text={indicatorError ?? "行情不可用，无法计算技术指标。"} />}
           <Card>
             <CardHeader>
-              <CardTitle>持仓设置</CardTitle>
+              <CardTitle>持仓计划</CardTitle>
             </CardHeader>
             <CardContent>
               {watchlistItem ? (
@@ -144,6 +142,7 @@ export default async function StockDetailPage({
                   holdingPrice={toNumber(watchlistItem.holdingPrice)}
                   targetPrice={toNumber(watchlistItem.targetPrice)}
                   stopLoss={toNumber(watchlistItem.stopLoss)}
+                  positionOpenedAt={watchlistItem.positionOpenedAt}
                   timeHorizon={watchlistItem.timeHorizon}
                   riskLevel={watchlistItem.riskLevel}
                   note={watchlistItem.note}
@@ -221,55 +220,6 @@ function ChartControls({ symbol, range, interval }: { symbol: string; range: str
         </div>
       </div>
     </div>
-  );
-}
-
-function OhlcvTable({
-  candles,
-  currency,
-  symbol,
-  unit,
-  interval
-}: {
-  candles: Array<{ timestamp: string; open: number; high: number; low: number; close: number; volume: number }>;
-  currency?: string;
-  symbol?: string;
-  unit?: string;
-  interval: string;
-}) {
-  const intraday = isIntraday(interval);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>OHLCV K 线数据</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{intraday ? "时间" : "日期"}</TableHead>
-              <TableHead>开盘</TableHead>
-              <TableHead>最高</TableHead>
-              <TableHead>最低</TableHead>
-              <TableHead>收盘</TableHead>
-              <TableHead>成交量</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {candles.map((candle) => (
-              <TableRow key={candle.timestamp}>
-                <TableCell>{intraday ? new Date(candle.timestamp).toLocaleString("zh-CN") : new Date(candle.timestamp).toLocaleDateString("zh-CN")}</TableCell>
-                <TableCell className="tabular-nums">{formatPriceValue(candle.open, { currency, symbol, unit })}</TableCell>
-                <TableCell className="tabular-nums">{formatPriceValue(candle.high, { currency, symbol, unit })}</TableCell>
-                <TableCell className="tabular-nums">{formatPriceValue(candle.low, { currency, symbol, unit })}</TableCell>
-                <TableCell className="tabular-nums">{formatPriceValue(candle.close, { currency, symbol, unit })}</TableCell>
-                <TableCell className="tabular-nums">{formatNumber(candle.volume)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
   );
 }
 

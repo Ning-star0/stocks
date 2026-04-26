@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
         holdingPrice: body.holdingPrice ?? null,
         targetPrice: body.targetPrice ?? null,
         stopLoss: body.stopLoss ?? null,
+        positionOpenedAt: body.positionOpenedAt ?? null,
         timeHorizon: body.timeHorizon,
         riskLevel: body.riskLevel
       },
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
         holdingPrice: body.holdingPrice ?? null,
         targetPrice: body.targetPrice ?? null,
         stopLoss: body.stopLoss ?? null,
+        positionOpenedAt: body.positionOpenedAt ?? null,
         timeHorizon: body.timeHorizon,
         riskLevel: body.riskLevel
       }

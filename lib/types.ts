@@ -121,6 +121,13 @@ export interface AiAnalysisResult {
   possibleActions: Array<{
     action: "hold" | "watch" | "reduce" | "consider_entry" | "avoid";
     reason: string;
+    timing?: string;
+    triggerCondition?: string;
+    entryZone?: string;
+    stopLossPlan?: string;
+    takeProfitPlan?: string;
+    positionSizing?: string;
+    followUpCheck?: string;
     invalidIf: string;
   }>;
   disclaimer: string;

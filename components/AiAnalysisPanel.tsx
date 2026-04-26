@@ -108,10 +108,16 @@ export function AiAnalysisPanel({
           <div className="space-y-2">
             {possibleActions.length ? (
               possibleActions.map((item, index) => (
-                <div key={`${item.action}-${index}`} className="rounded-md border border-border px-3 py-2">
-                  <div className="text-sm font-medium">{formatAction(item.action)}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">{item.reason}</div>
-                  <div className="mt-2 text-xs text-amber-500">失效条件：{item.invalidIf}</div>
+                <div key={`${item.action}-${index}`} className="rounded-md border border-border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-foreground">{formatAction(item.action)}</div>
+                    {item.timing ? <Badge variant="secondary">{item.timing}</Badge> : null}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.reason}</div>
+                  <ActionGrid item={item} currency={currency} symbol={symbol} unit={unit} />
+                  <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                    失效条件：{item.invalidIf}
+                  </div>
                 </div>
               ))
             ) : (
@@ -163,6 +169,40 @@ function LevelList({ title, values, currency, symbol, unit }: { title: string; v
   );
 }
 
+function ActionGrid({
+  item,
+  currency,
+  symbol,
+  unit
+}: {
+  item: AiAnalysisResult["possibleActions"][number];
+  currency?: string;
+  symbol?: string;
+  unit?: string;
+}) {
+  const rows = [
+    ["触发条件", item.triggerCondition],
+    ["参考区间", formatActionValue(item.entryZone, currency, symbol, unit)],
+    ["止损计划", formatActionValue(item.stopLossPlan, currency, symbol, unit)],
+    ["止盈计划", formatActionValue(item.takeProfitPlan, currency, symbol, unit)],
+    ["仓位建议", item.positionSizing],
+    ["复盘重点", item.followUpCheck]
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="rounded-md border border-border bg-background/40 px-3 py-2">
+          <div className="text-[11px] text-muted-foreground">{label}</div>
+          <div className="mt-1 text-sm leading-5 text-foreground">{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ReferenceList({
   items
 }: {
@@ -177,6 +217,14 @@ function ReferenceList({
       ))}
     </div>
   );
+}
+
+function formatActionValue(value?: string, currency?: string, symbol?: string, unit?: string) {
+  if (!value) return "";
+  void currency;
+  void symbol;
+  void unit;
+  return value;
 }
 
 function SearchResultList({

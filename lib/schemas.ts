@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const optionalDateSchema = z.preprocess(
+  (value) => (value === "" || value === null ? null : value),
+  z.coerce.date().nullable().optional()
+);
+
 export const symbolSchema = z
   .string()
   .trim()
@@ -15,6 +20,7 @@ export const createWatchlistItemSchema = z.object({
   holdingPrice: z.coerce.number().positive().optional().nullable(),
   targetPrice: z.coerce.number().positive().optional().nullable(),
   stopLoss: z.coerce.number().positive().optional().nullable(),
+  positionOpenedAt: optionalDateSchema,
   timeHorizon: z.enum(["day_trade", "swing_trade", "long_term"]).default("swing_trade"),
   riskLevel: z.enum(["low", "medium", "high"]).default("medium")
 });
@@ -24,6 +30,7 @@ export const updateWatchlistItemSchema = z.object({
   holdingPrice: z.coerce.number().positive().optional().nullable(),
   targetPrice: z.coerce.number().positive().optional().nullable(),
   stopLoss: z.coerce.number().positive().optional().nullable(),
+  positionOpenedAt: optionalDateSchema,
   timeHorizon: z.enum(["day_trade", "swing_trade", "long_term"]).optional(),
   riskLevel: z.enum(["low", "medium", "high"]).optional()
 });
@@ -69,6 +76,13 @@ export const newsAnalysisSchema = z.object({
 const aiActionSchema = z.object({
   action: z.enum(["hold", "watch", "reduce", "consider_entry", "avoid"]),
   reason: z.string().min(1),
+  timing: z.string().optional().default(""),
+  triggerCondition: z.string().optional().default(""),
+  entryZone: z.string().optional().default(""),
+  stopLossPlan: z.string().optional().default(""),
+  takeProfitPlan: z.string().optional().default(""),
+  positionSizing: z.string().optional().default(""),
+  followUpCheck: z.string().optional().default(""),
   invalidIf: z.string().min(1)
 });
 
