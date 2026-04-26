@@ -30,17 +30,18 @@ const rangeOptions = [
 ];
 
 const intradayRangeOptions = [
-  { value: "1d", label: "1日" },
+  { value: "1d", label: "当日" },
   { value: "5d", label: "5日" },
   { value: "1mo", label: "1月" },
   { value: "3mo", label: "3月" }
 ];
 
 const intervalOptions = [
-  { value: "1m", label: "1分" },
-  { value: "60m", label: "60分" },
-  { value: "30m", label: "30分" },
+  { value: "1m", label: "分时" },
+  { value: "5m", label: "5分" },
   { value: "15m", label: "15分" },
+  { value: "30m", label: "30分" },
+  { value: "60m", label: "60分" },
   { value: "1d", label: "日K" },
   { value: "1wk", label: "周K" },
   { value: "1mo", label: "月K" }
@@ -192,28 +193,32 @@ function safeCalculateIndicators(symbol: string, candles: Candle[]): { indicator
 function ChartControls({ symbol, range, interval }: { symbol: string; range: string; interval: string }) {
   const ranges = isIntraday(interval) ? intradayRangeOptions : rangeOptions;
   return (
-    <div className="flex flex-col gap-2 md:items-end">
-      <div className="flex flex-wrap gap-1">
+    <div className="rounded-lg border border-border bg-muted/10 p-2">
+      <div className="grid gap-2 lg:grid-cols-[auto_auto] lg:items-center">
+        <div className="text-[11px] font-medium text-muted-foreground">周期</div>
+        <div className="flex flex-wrap gap-1">
         {intervalOptions.map((option) => (
           <Link
             key={option.value}
             href={`/stocks/${symbol}?interval=${option.value}&range=${normalizeRange(range, option.value)}`}
-            className={`rounded-md border px-2.5 py-1 text-xs ${interval === option.value ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${interval === option.value ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
           >
             {option.label}
           </Link>
         ))}
-      </div>
-      <div className="flex flex-wrap gap-1">
+        </div>
+        <div className="text-[11px] font-medium text-muted-foreground">范围</div>
+        <div className="flex flex-wrap gap-1">
         {ranges.map((option) => (
           <Link
             key={option.value}
             href={`/stocks/${symbol}?interval=${interval}&range=${option.value}`}
-            className={`rounded-md border px-2.5 py-1 text-xs ${range === option.value ? "border-emerald-500 bg-emerald-500/15 text-emerald-200" : "border-border text-muted-foreground hover:text-foreground"}`}
+            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${range === option.value ? "border-emerald-500 bg-emerald-500/15 text-emerald-200" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
           >
             {option.label}
           </Link>
         ))}
+        </div>
       </div>
     </div>
   );
@@ -280,9 +285,9 @@ function EmptyCard({ title, text }: { title: string; text: string }) {
 }
 
 function normalizeInterval(value?: string) {
-  if (!value) return "1d";
-  if (["1m", "60m", "30m", "15m", "1d", "1wk", "1mo"].includes(value)) return value;
-  return "1d";
+  if (!value) return "1m";
+  if (["1m", "5m", "60m", "30m", "15m", "1d", "1wk", "1mo"].includes(value)) return value;
+  return "1m";
 }
 
 function normalizeRange(value: string | undefined, interval: string) {

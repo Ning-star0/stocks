@@ -47,7 +47,7 @@ export function StockChart({
   currency,
   symbol,
   unit,
-  interval = "1d"
+  interval = "1m"
 }: {
   candles: Candle[];
   currency?: string;
@@ -59,10 +59,12 @@ export function StockChart({
   const pendingCursorRef = useRef<CursorPoint | null>(null);
   const frameRef = useRef<number | null>(null);
   const isIntraday = ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
+  const isTimeSharing = interval === "1m";
+  const showMovingAverages = !isTimeSharing;
   const data = useMemo(() => buildChartData(candles, isIntraday), [candles, isIntraday]);
   const latest = data[data.length - 1];
   const hovered = cursor ? data[cursor.nearestIndex] ?? latest : latest;
-  const scale = useMemo(() => buildScale(data), [data]);
+  const scale = useMemo(() => buildScale(data, showMovingAverages), [data, showMovingAverages]);
   const candleWidth = Math.max(2, Math.min(9, scale.step * 0.58));
 
   function handleMove(event: MouseEvent<SVGSVGElement>) {
@@ -117,14 +119,21 @@ export function StockChart({
   return (
     <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          {maSeries.map((item) => (
-            <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
-              {item.label}: {formatNumber(latest?.[item.key])}
-            </span>
-          ))}
-        </div>
-        <div className="text-xs text-muted-foreground">红涨绿跌，均线按当前周期 K 线计算</div>
+        {isTimeSharing ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className="tabular-nums text-primary">分时线: {formatPriceValue(latest?.close, { currency, symbol, unit })}</span>
+            <span className="tabular-nums text-muted-foreground">成交量: {formatNumber(latest?.volume)}</span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            {maSeries.map((item) => (
+              <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
+                {item.label}: {formatNumber(latest?.[item.key])}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="text-xs text-muted-foreground">{isTimeSharing ? "1 分钟分时线，柱状图为成交量" : "红涨绿跌，均线按当前周期 K 线计算"}</div>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[200px_minmax(780px,1fr)]">
@@ -151,12 +160,21 @@ export function StockChart({
             <Grid scale={scale} />
 
             <g clipPath="url(#price-clip)">
-              {data.map((point, index) => (
-                <CandleShape key={`${point.timestamp}-${index}`} point={point} index={index} scale={scale} candleWidth={candleWidth} />
-              ))}
-              {maSeries.map((item) => (
-                <path key={item.key} d={buildLinePath(data, item.key, scale)} fill="none" stroke={item.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-              ))}
+              {isTimeSharing ? (
+                <>
+                  <path d={buildAreaPath(data, scale)} fill="rgba(20,184,166,0.12)" />
+                  <path d={buildCloseLinePath(data, scale)} fill="none" stroke="#14b8a6" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                </>
+              ) : (
+                <>
+                  {data.map((point, index) => (
+                    <CandleShape key={`${point.timestamp}-${index}`} point={point} index={index} scale={scale} candleWidth={candleWidth} />
+                  ))}
+                  {maSeries.map((item) => (
+                    <path key={item.key} d={buildLinePath(data, item.key, scale)} fill="none" stroke={item.color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+                  ))}
+                </>
+              )}
             </g>
 
             <g clipPath="url(#volume-clip)">
@@ -204,8 +222,10 @@ function buildMovingAverageSeries(values: number[], period: number) {
   return output;
 }
 
-function buildScale(data: ChartPoint[]) {
-  const priceValues = data.flatMap((item) => [item.high, item.low, item.ma5, item.ma10, item.ma20, item.ma60]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+function buildScale(data: ChartPoint[], includeMovingAverages = true) {
+  const priceValues = data
+    .flatMap((item) => (includeMovingAverages ? [item.high, item.low, item.ma5, item.ma10, item.ma20, item.ma60] : [item.high, item.low, item.close]))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const minPrice = priceValues.length ? Math.min(...priceValues) : 0;
   const maxPrice = priceValues.length ? Math.max(...priceValues) : 1;
   const padding = Math.max((maxPrice - minPrice) * 0.08, maxPrice * 0.005, 0.01);
@@ -443,6 +463,24 @@ function buildLinePath(data: ChartPoint[], key: (typeof maSeries)[number]["key"]
     path += `${command}${scale.x(index).toFixed(2)},${scale.y(value).toFixed(2)} `;
   });
   return path.trim();
+}
+
+function buildCloseLinePath(data: ChartPoint[], scale: ReturnType<typeof buildScale>) {
+  let path = "";
+  data.forEach((point, index) => {
+    const command = path ? "L" : "M";
+    path += `${command}${scale.x(index).toFixed(2)},${scale.y(point.close).toFixed(2)} `;
+  });
+  return path.trim();
+}
+
+function buildAreaPath(data: ChartPoint[], scale: ReturnType<typeof buildScale>) {
+  const line = buildCloseLinePath(data, scale);
+  if (!line || data.length === 0) return "";
+  const firstX = scale.x(0).toFixed(2);
+  const lastX = scale.x(data.length - 1).toFixed(2);
+  const baseline = (PRICE_TOP + PRICE_HEIGHT).toFixed(2);
+  return `${line} L${lastX},${baseline} L${firstX},${baseline} Z`;
 }
 
 function getPriceTicks(min: number, max: number, count: number) {
