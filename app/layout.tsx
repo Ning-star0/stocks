@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { BarChart3, Bell, Code2, LayoutDashboard, ListChecks, Newspaper } from "lucide-react";
+import { BarChart3, Bell, Code2, ListChecks, Newspaper } from "lucide-react";
 
 import { LogoutButton } from "@/components/LogoutButton";
 import { getSession } from "@/lib/auth";
@@ -21,13 +21,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <div className="min-h-screen bg-background terminal-grid">
           <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
             <div className="mx-auto flex w-full max-w-[1760px] items-center justify-between px-4 py-3 lg:px-6 2xl:px-8">
-              <Link href="/" className="flex items-center gap-2 font-semibold">
+              <Link href="/watchlist" className="flex items-center gap-2 font-semibold">
                 <BarChart3 className="h-5 w-5 text-primary" />
                 股票 AI 监控
               </Link>
               {session ? (
                 <nav className="flex items-center gap-1">
-                  <NavLink href="/" icon={<LayoutDashboard className="h-4 w-4" />} label="看板" />
                   <NavLink href="/watchlist" icon={<ListChecks className="h-4 w-4" />} label="自选股" />
                   <NavLink href="/news" icon={<Newspaper className="h-4 w-4" />} label="新闻" />
                   <NavLink href="/alerts" icon={<Bell className="h-4 w-4" />} label="提醒" />

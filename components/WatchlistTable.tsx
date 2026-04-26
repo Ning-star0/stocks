@@ -73,10 +73,10 @@ export function WatchlistTable() {
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "加载看板失败。");
+      if (!response.ok) throw new Error(json.error?.message ?? "加载自选股失败。");
       setData(json);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "加载看板失败。");
+      setError(loadError instanceof Error ? loadError.message : "加载自选股失败。");
     } finally {
       setLoading(false);
     }
@@ -129,7 +129,7 @@ export function WatchlistTable() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">看板</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">自选股</h1>
           <p className="mt-1 text-sm text-muted-foreground">本系统仅用于研究和辅助分析，不构成投资建议。</p>
         </div>
         <div className="flex gap-2">
@@ -157,7 +157,7 @@ export function WatchlistTable() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-8 text-sm text-muted-foreground">正在加载市场数据...</div>
+            <div className="py-8 text-sm text-muted-foreground">正在加载自选股数据...</div>
           ) : items.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-dashed text-center">
               <div className="text-sm font-medium">自选股列表为空。</div>

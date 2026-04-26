@@ -1,6 +1,5 @@
-import { WatchlistTable } from "@/components/WatchlistTable";
+import { redirect } from "next/navigation";
 
 export default function DashboardPage() {
-  return <WatchlistTable />;
+  redirect("/watchlist");
 }
-
