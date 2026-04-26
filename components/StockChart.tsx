@@ -80,14 +80,14 @@ export function StockChart({
 
     const nearestIndex = nearestIndexForX(x, scale, data.length);
     const priceY = clamp(y, PRICE_TOP, PRICE_TOP + PRICE_HEIGHT);
-    const volumeY = clamp(y, VOLUME_TOP, VOLUME_TOP + VOLUME_HEIGHT);
     const isVolumeArea = y >= VOLUME_TOP;
+    const nearestPoint = data[nearestIndex];
 
     queueCursor({
       x,
       y,
       price: priceFromY(priceY, scale),
-      volume: isVolumeArea ? volumeFromY(volumeY, scale) : null,
+      volume: nearestPoint?.volume ?? null,
       timeLabel: timeLabelForX(data, x, scale, isIntraday),
       nearestIndex,
       area: isVolumeArea ? "volume" : "price"
@@ -339,7 +339,7 @@ function Axes({ data, scale, currency, symbol, unit }: { data: ChartPoint[]; sca
 
 function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoint; currency?: string; symbol?: string; unit?: string }) {
   const tooltipWidth = 196;
-  const tooltipHeight = cursor.volume === null ? 54 : 72;
+  const tooltipHeight = cursor.area === "volume" && cursor.volume !== null ? 72 : 54;
   const tooltipX = cursor.x + tooltipWidth + 18 > CHART_LEFT + CHART_WIDTH ? cursor.x - tooltipWidth - 14 : cursor.x + 14;
   const tooltipY = cursor.y + tooltipHeight + 14 > VOLUME_TOP + VOLUME_HEIGHT ? cursor.y - tooltipHeight - 14 : cursor.y + 14;
   const priceLabelY = clamp(cursor.y, PRICE_TOP + 10, PRICE_TOP + PRICE_HEIGHT - 6);
@@ -361,9 +361,9 @@ function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoi
       </text>
       <text x={tooltipX + 10} y={tooltipY + 38} fill="#e2e8f0" fontSize={12}>
         {cursor.area === "volume" ? "成交量 " : "价格 "}
-        {cursor.volume === null ? formatPriceValue(cursor.price, { currency, symbol, unit }) : formatNumber(cursor.volume)}
+        {cursor.area === "volume" && cursor.volume !== null ? formatNumber(cursor.volume) : formatPriceValue(cursor.price, { currency, symbol, unit })}
       </text>
-      {cursor.volume !== null ? (
+      {cursor.area === "volume" && cursor.volume !== null ? (
         <text x={tooltipX + 10} y={tooltipY + 58} fill="#94a3b8" fontSize={11}>
           价格 {formatPriceValue(cursor.price, { currency, symbol, unit })}
         </text>
@@ -387,7 +387,7 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
           <span>价格</span>
           <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(cursorPrice, { currency, symbol, unit })}</span>
           <span>成交量</span>
-          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{cursor?.volume !== null && cursor?.volume !== undefined ? formatNumber(cursor.volume) : "--"}</span>
+          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatNumber(cursor?.volume ?? point.volume)}</span>
         </div>
       </div>
 
@@ -432,11 +432,6 @@ function fractionalIndexForX(x: number, scale: ReturnType<typeof buildScale>) {
 function priceFromY(y: number, scale: ReturnType<typeof buildScale>) {
   const ratio = (y - PRICE_TOP) / PRICE_HEIGHT;
   return scale.priceMax - ratio * (scale.priceMax - scale.priceMin);
-}
-
-function volumeFromY(y: number, scale: ReturnType<typeof buildScale>) {
-  const ratio = (VOLUME_TOP + VOLUME_HEIGHT - y) / VOLUME_HEIGHT;
-  return Math.max(0, ratio * scale.maxVolume);
 }
 
 function timeLabelForX(data: ChartPoint[], x: number, scale: ReturnType<typeof buildScale>, isIntraday: boolean) {
