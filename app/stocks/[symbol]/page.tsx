@@ -60,7 +60,7 @@ export default async function StockDetailPage({
   const range = normalizeRange(query.range, interval);
   const user = await getCurrentUser();
   const provider = getStockDataProvider();
-  const quote = await getQuote(normalized, { allowStale: true });
+  const quote = await getQuote(normalized);
   const quoteSymbol = quote.raw?.symbol ?? quote.symbol;
   const candles = quote.raw ? await provider.getHistory(quoteSymbol, range, interval) : [];
 
