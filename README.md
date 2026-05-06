@@ -165,6 +165,34 @@ npm run worker
 
 如果使用 systemd，建议把 Web 服务和 worker 分成两个服务管理。worker 每次只处理 1 个任务，默认每 5 秒轮询一次数据库。
 
+## 服务器一键更新
+
+将以下脚本保存为 `/opt/stocks/update.sh`：
+
+```bash
+cat > /opt/stocks/update.sh << 'EOF'
+#!/bin/bash
+set -e
+cd /opt/stocks
+echo "=== 拉取代码 ===" && git pull origin main
+echo "=== 生成 Prisma ===" && npx prisma generate
+echo "=== 数据库迁移 ===" && npx prisma migrate deploy
+echo "=== 构建 ===" && npm run build
+echo "=== 重启服务 ===" && fuser -k 3000/tcp 2>/dev/null; sleep 1
+pm2 delete stocks 2>/dev/null; pm2 start npm --name "stocks" -- run start
+pm2 restart worker 2>/dev/null || pm2 start npm --name "worker" -- run worker
+pm2 save
+echo "=== 完成 ===" && pm2 list
+EOF
+chmod +x /opt/stocks/update.sh
+```
+
+以后更新只需执行：
+
+```bash
+bash /opt/stocks/update.sh
+```
+
 ## 常用脚本
 
 ```bash
