@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       database: "ok",
-      aiModel: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+      aiModel: process.env.OPENAI_MODEL || "deepseek-v4-pro",
       stockDataProvider: process.env.STOCK_DATA_PROVIDER || "mock",
       newsProvider: process.env.NEWS_PROVIDER || "mock",
       backgroundWorkerEnabled: process.env.ENABLE_BACKGROUND_WORKER !== "false",

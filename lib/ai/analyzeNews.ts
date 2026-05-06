@@ -33,7 +33,7 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
         temperature: 0.15,
         response_format: { type: "json_object" },
         messages: [

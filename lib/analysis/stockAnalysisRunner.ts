@@ -27,7 +27,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: true });
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
-  const cacheKey = `ai_analysis:v2:${canonicalSymbol}:${inputHash}`;
+  const cacheKey = `ai_analysis:v3:${canonicalSymbol}:${inputHash}`;
   const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
 
   if (cached) {
@@ -236,7 +236,7 @@ async function logAiUsage(input: {
       symbol: input.symbol ?? null,
       jobType: input.jobType,
       provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-      model: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+      model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
       inputHash: input.inputHash ?? null,
       promptTokens: input.promptTokens ?? null,
       completionTokens: input.completionTokens ?? null,

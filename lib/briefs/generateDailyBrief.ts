@@ -20,7 +20,7 @@ export async function generateDailyBrief(input: DailyBriefInput) {
   });
 
   const request: ChatCompletionCreateParamsNonStreaming = {
-    model: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+    model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
     temperature: 0.2,
     response_format: { type: "json_object" },
     messages: [

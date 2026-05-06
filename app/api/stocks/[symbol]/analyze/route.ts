@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
         riskLevel: watchlistItem?.riskLevel ?? null
       }
     });
-    const cacheKey = `ai_analysis:${canonicalSymbol}:${contextHash}`;
+    const cacheKey = `ai_analysis:v3:${canonicalSymbol}:${contextHash}`;
     const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
     if (cached && !forceRefresh) {
       await logCacheHit(user.id, canonicalSymbol, contextHash, "stock_analysis_cache_hit");
@@ -170,7 +170,7 @@ async function logCacheHit(userId: string, symbol: string, inputHash: string, re
       symbol,
       jobType: JOB_TYPES.STOCK_ANALYSIS,
       provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-      model: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+      model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
       inputHash,
       promptTokens: null,
       completionTokens: null,

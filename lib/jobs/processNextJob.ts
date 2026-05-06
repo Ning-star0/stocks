@@ -139,7 +139,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         symbol: newsItem.symbols[0] ?? null,
         jobType: JOB_TYPES.NEWS_ANALYSIS,
         provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-        model: process.env.OPENAI_MODEL || "deepseek-v4-flash",
+        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
         inputHash: job.inputHash,
         promptTokens: Math.ceil(JSON.stringify({ title: newsItem.title, summary: newsItem.summary }).length / 4),
         completionTokens: null,

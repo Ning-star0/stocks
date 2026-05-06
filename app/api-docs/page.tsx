@@ -87,7 +87,7 @@ export default function ApiDocsPage() {
 
       <div className="grid gap-4 md:grid-cols-3">
         <StatusCard icon={<ShieldCheck className="h-4 w-4" />} title="认证模式" value="Env 管理员账号 + HttpOnly Cookie" />
-        <StatusCard icon={<KeyRound className="h-4 w-4" />} title="AI 模型" value={process.env.OPENAI_MODEL || "deepseek-v4-flash"} />
+        <StatusCard icon={<KeyRound className="h-4 w-4" />} title="AI 模型" value={process.env.OPENAI_MODEL || "deepseek-v4-pro"} />
         <StatusCard icon={<Activity className="h-4 w-4" />} title="任务队列" value="PostgreSQL 轻量队列，并发 1" />
       </div>
 
