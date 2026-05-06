@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { BarChart3, Bell, Code2, ListChecks, Newspaper } from "lucide-react";
+import { BarChart3, Bell, Code2, ListChecks, Newspaper, Settings } from "lucide-react";
 
+import { ChatPanel } from "@/components/ChatPanel";
 import { LogoutButton } from "@/components/LogoutButton";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
@@ -31,6 +32,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   <NavLink href="/news" icon={<Newspaper className="h-4 w-4" />} label="新闻" />
                   <NavLink href="/alerts" icon={<Bell className="h-4 w-4" />} label="提醒" />
                   <NavLink href="/api-docs" icon={<Code2 className="h-4 w-4" />} label="接口" />
+                  <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="设置" />
                   <LogoutButton />
                 </nav>
               ) : null}
@@ -40,6 +42,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           <footer className="mx-auto w-full max-w-[1760px] px-4 pb-6 text-xs text-muted-foreground lg:px-6 2xl:px-8">
             本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
           </footer>
+          {session ? <ChatPanel /> : null}
         </div>
       </body>
     </html>
