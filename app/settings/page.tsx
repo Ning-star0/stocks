@@ -23,7 +23,7 @@ export default function SettingsPage() {
       .then((data) => {
         if (data.baseUrl) setBaseUrl(data.baseUrl);
         if (data.model) setModel(data.model);
-        // apiKey is masked, only show if user types new one
+        if (data.apiKeyMasked) setApiKey(data.apiKeyMasked);
       })
       .catch(() => {});
   }, []);
