@@ -30,7 +30,7 @@ export type AnalyzeStockInput = {
 };
 
 const systemPrompt =
-  "你是一个谨慎的股票市场分析助手。你只能基于用户提供的数据进行分析，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行结构化分析。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
+  "你是一个谨慎的股票投资顾问。你只能基于用户提供的数据给出投资建议，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令，必须使用「若...则考虑...」的表述方式。你的核心任务是为用户回答两个问题：1）如果已持仓，现在该怎么办？2）如果尚未持仓，应该在什么点位、什么时机考虑入场？你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行综合分析，并最终给出可执行的操作建议。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
   if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
@@ -85,19 +85,20 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
 }
 
 function buildUserPrompt(input: AnalyzeStockInput) {
-  return `请分析以下股票数据，并返回严格 JSON。
+  return `请分析以下股票数据，并给出投资建议。返回严格 JSON。
 
 重要要求：
-1. summary 需要明确说明“本分析截至什么时间”，并说明历史数据和新闻数据的覆盖范围。
-2. 不能给出确定性买卖指令，不能承诺收益。
+1. summary 是简短摘要（80字内），概括当前局面的核心矛盾：机会是什么，风险是什么。
+2. 不能给出确定性买卖指令，不能承诺收益，必须使用「若...则考虑.../观察.../等待...」的表述方式。
 3. 新闻链接只能来自 recentNews 或 webSearchResults，不允许编造 URL。
 4. webSearchResults 是后端联网新闻检索得到的结果，不代表 AI 自己浏览网页；请把它作为外部新闻参考。
-5. 如果新闻不足或没有当日新闻，请明确说明“新闻样本有限”或“未检索到当日强相关新闻”。
+5. 如果新闻不足或没有当日新闻，请明确说明”新闻样本有限”或”未检索到当日强相关新闻”。
 6. newsSummary 必须综合 recentNews 和 webSearchResults 的共同主线，控制在 120 字以内，不要逐条复述。
-7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把“ETF 涨跌、净值变化、成交额”当成核心催化。
+7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把”ETF 涨跌、净值变化、成交额”当成核心催化。
 8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
-9. summary、newsSummary、webSearchSummary、catalystEvents、macroRisks、sectorRisks、riskFactors、possibleActions 的所有自然语言字段必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
-10. possibleActions 必须写得像可执行交易计划：至少给出 2 个场景，覆盖已有持仓和空仓观察；要说明适合什么时间窗口、触发条件、参考价格区间、止损计划、止盈/减仓计划、仓位控制、后续复盘重点。不能写成确定性买卖指令，只能写“若...则考虑.../观察...”。
+9. 所有自然语言分析字段必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
+10. holdAdvice 和 entryAdvice 是本报告的核心。holdAdvice 回答”如果已持仓，现在该怎么办”；entryAdvice 回答”如果尚未持仓，应该在什么点位、什么时机考虑入场”。每个字段都必须具体、可执行，不能写空话。必须使用”若...则考虑...”的谨慎语气。
+11. possibleActions 保留作为补充计划，沿用原有格式，至少 2 个场景。
 
 股票代码：
 ${input.symbol}
@@ -128,66 +129,86 @@ ${JSON.stringify(input.webSearchResults ?? [], null, 2)}
 
 请只返回以下 JSON schema，不要 Markdown，不要解释：
 {
-  "trend": "bullish | neutral | bearish",
-  "confidence": 0.0,
-  "analysisAsOf": "",
-  "dataScope": {
-    "quoteTime": "",
-    "historyRange": "",
-    "historyInterval": "",
-    "historyFrom": "",
-    "historyTo": "",
-    "historyCandles": 0,
-    "newsWindow": "",
-    "newsCount": 0,
-    "webSearchStatus": ""
+  “trend”: “bullish | neutral | bearish”,
+  “confidence”: 0.0,
+  “analysisAsOf”: “”,
+  “dataScope”: {
+    “quoteTime”: “”,
+    “historyRange”: “”,
+    “historyInterval”: “”,
+    “historyFrom”: “”,
+    “historyTo”: “”,
+    “historyCandles”: 0,
+    “newsWindow”: “”,
+    “newsCount”: 0,
+    “webSearchStatus”: “”
   },
-  "summary": "",
-  "newsSummary": "",
-  "newsSentiment": "positive | neutral | negative | mixed",
-  "webSearchSummary": "",
-  "newsReferences": [
+  “summary”: “”,
+  “newsSummary”: “”,
+  “newsSentiment”: “positive | neutral | negative | mixed”,
+  “webSearchSummary”: “”,
+  “newsReferences”: [
     {
-      "title": "",
-      "source": "",
-      "publishedAt": "",
-      "url": "",
-      "sentiment": "positive | neutral | negative",
-      "impactLevel": "low | medium | high"
+      “title”: “”,
+      “source”: “”,
+      “publishedAt”: “”,
+      “url”: “”,
+      “sentiment”: “positive | neutral | negative”,
+      “impactLevel”: “low | medium | high”
     }
   ],
-  "webSearchResults": [
+  “webSearchResults”: [
     {
-      "title": "",
-      "source": "",
-      "publishedAt": "",
-      "url": "",
-      "summary": ""
+      “title”: “”,
+      “source”: “”,
+      “publishedAt”: “”,
+      “url”: “”,
+      “summary”: “”
     }
   ],
-  "catalystEvents": [],
-  "macroRisks": [],
-  "sectorRisks": [],
-  "keyLevels": {
-    "support": [],
-    "resistance": []
+  “catalystEvents”: [],
+  “macroRisks”: [],
+  “sectorRisks”: [],
+  “keyLevels”: {
+    “support”: [],
+    “resistance”: []
   },
-  "riskFactors": [],
-  "possibleActions": [
+  “riskFactors”: [],
+  “holdAdvice”: {
+    “action”: “继续持有观察 | 逢高减仓 | 逢低加仓 | 止损离场”,
+    “reason”: “为什么给出这个建议”,
+    “stopLoss”: “止损位和止损方式”,
+    “takeProfit”: “止盈位和止盈方式”,
+    “positionManagement”: “仓位管理建议”,
+    “keyMonitorPoints”: “需要持续关注的关键点”,
+    “invalidIf”: “什么情况下这个建议失效”
+  },
+  “entryAdvice”: {
+    “action”: “等待回调 | 可轻仓试探 | 不建议入场”,
+    “reason”: “为什么给出这个入场建议”,
+    “entryZone”: “入场价格区间”,
+    “timing”: “入场时间窗口”,
+    “triggerCondition”: “触发入场的具体条件”,
+    “firstPositionSize”: “首次建仓仓位建议”,
+    “stopLoss”: “入场后止损位”,
+    “takeProfit”: “入场后止盈目标”,
+    “invalidIf”: “什么情况下放弃入场计划”
+  },
+  “possibleActions”: [
     {
-      "action": "hold | watch | reduce | consider_entry | avoid",
-      "reason": "",
-      "timing": "",
-      "triggerCondition": "",
-      "entryZone": "",
-      "stopLossPlan": "",
-      "takeProfitPlan": "",
-      "positionSizing": "",
-      "followUpCheck": "",
-      "invalidIf": ""
+      “action”: “hold | watch | reduce | consider_entry | avoid”,
+      “reason”: “”,
+      “timing”: “”,
+      “triggerCondition”: “”,
+      “entryZone”: “”,
+      “stopLossPlan”: “”,
+      “takeProfitPlan”: “”,
+      “positionSizing”: “”,
+      “followUpCheck”: “”,
+      “invalidIf”: “”
     }
   ],
-  "disclaimer": "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
+  “disclaimer”: “本内容由 AI 生成，仅供研究参考，不构成投资建议。”
 }`;
 }
 
@@ -247,7 +268,41 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
             invalidIf: "价格、成交量、技术指标或相关新闻发生明显变化。"
           }
         ],
+    holdAdvice: normalizeHoldAdvice(record.holdAdvice, actions),
+    entryAdvice: normalizeEntryAdvice(record.entryAdvice, actions),
     disclaimer: toNonEmptyString(record.disclaimer, "本内容由 AI 生成，仅供研究参考，不构成投资建议。")
+  };
+}
+
+function normalizeHoldAdvice(value: unknown, actions: unknown[]) {
+  const record = isRecord(value) ? value : {};
+  const holdAction = actions.find((a) => isRecord(a) && String(a.action ?? "").toLowerCase().includes("hold"));
+
+  return {
+    action: ensureChineseAnalysisText(toNonEmptyString(record.action, "继续持有观察"), "继续持有观察"),
+    reason: ensureChineseAnalysisText(toNonEmptyString(record.reason, holdAction ? String((holdAction as Record<string,unknown>).reason ?? "") : ""), "趋势尚可但需警惕风险，建议持有观察。"),
+    stopLoss: ensureChineseOptionalText(record.stopLoss || (holdAction ? (holdAction as Record<string,unknown>).stopLossPlan : "")),
+    takeProfit: ensureChineseOptionalText(record.takeProfit || (holdAction ? (holdAction as Record<string,unknown>).takeProfitPlan : "")),
+    positionManagement: ensureChineseOptionalText(record.positionManagement || (holdAction ? (holdAction as Record<string,unknown>).positionSizing : "")),
+    keyMonitorPoints: ensureChineseOptionalText(record.keyMonitorPoints || (holdAction ? (holdAction as Record<string,unknown>).followUpCheck : "")),
+    invalidIf: ensureChineseAnalysisText(toNonEmptyString(record.invalidIf, holdAction ? String((holdAction as Record<string,unknown>).invalidIf ?? "") : ""), "关键价位被突破或行业出现重大变化。")
+  };
+}
+
+function normalizeEntryAdvice(value: unknown, actions: unknown[]) {
+  const record = isRecord(value) ? value : {};
+  const entryAction = actions.find((a) => isRecord(a) && (String(a.action ?? "").toLowerCase().includes("watch") || String(a.action ?? "").toLowerCase().includes("entry") || String(a.action ?? "").toLowerCase().includes("consider")));
+
+  return {
+    action: ensureChineseAnalysisText(toNonEmptyString(record.action, "等待回调"), "等待回调"),
+    reason: ensureChineseAnalysisText(toNonEmptyString(record.reason, entryAction ? String((entryAction as Record<string,unknown>).reason ?? "") : ""), "当前价位追高风险较大，建议等待更好的入场时机。"),
+    entryZone: ensureChineseOptionalText(record.entryZone || (entryAction ? (entryAction as Record<string,unknown>).entryZone : "")),
+    timing: ensureChineseOptionalText(record.timing || (entryAction ? (entryAction as Record<string,unknown>).timing : "")),
+    triggerCondition: ensureChineseOptionalText(record.triggerCondition || (entryAction ? (entryAction as Record<string,unknown>).triggerCondition : "")),
+    firstPositionSize: ensureChineseOptionalText(record.firstPositionSize || (entryAction ? (entryAction as Record<string,unknown>).positionSizing : "")),
+    stopLoss: ensureChineseOptionalText(record.stopLoss || (entryAction ? (entryAction as Record<string,unknown>).stopLossPlan : "")),
+    takeProfit: ensureChineseOptionalText(record.takeProfit || (entryAction ? (entryAction as Record<string,unknown>).takeProfitPlan : "")),
+    invalidIf: ensureChineseAnalysisText(toNonEmptyString(record.invalidIf, entryAction ? String((entryAction as Record<string,unknown>).invalidIf ?? "") : ""), "价格快速脱离入场区间或出现重大利空。")
   };
 }
 
@@ -489,6 +544,26 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
       "技术指标存在滞后，在市场状态快速切换时可能失效。",
       "新闻检索结果可能遗漏上下文，需点开原文复核。"
     ],
+    holdAdvice: {
+      action: trend === "bearish" ? "逢高减仓" : "继续持有观察",
+      reason: "在真实 AI 服务恢复前，将此作为临时参考。",
+      stopLoss: "优先使用你在持仓设置中填写的止损价。",
+      takeProfit: "优先使用你在持仓设置中填写的目标价。",
+      positionManagement: "兜底分析不建议扩大仓位。",
+      keyMonitorPoints: "检查行情源、AI 服务状态、最新新闻和技术指标是否恢复正常。",
+      invalidIf: "价格、成交量或相关新闻发生明显变化。"
+    },
+    entryAdvice: {
+      action: trend === "bearish" ? "不建议入场" : "等待回调",
+      reason: "在真实 AI 服务恢复前，将此作为临时参考。",
+      entryZone: "不提供新的参考介入区间。",
+      timing: "临时观察",
+      triggerCondition: "等待真实 AI 分析恢复后再复核。",
+      firstPositionSize: "兜底分析不建议开新仓。",
+      stopLoss: "以关键支撑位跌破作为风险边界。",
+      takeProfit: "以关键压力位或趋势转弱信号作为参考。",
+      invalidIf: "价格、成交量或相关新闻发生明显变化。"
+    },
     possibleActions: [
       {
         action: trend === "bearish" ? "watch" : "hold",

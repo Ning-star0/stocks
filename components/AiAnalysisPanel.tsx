@@ -26,7 +26,7 @@ export function AiAnalysisPanel({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>AI 综合分析</CardTitle>
+          <CardTitle>AI 投资建议</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">暂无 AI 分析，可点击重新分析。</CardContent>
       </Card>
@@ -46,7 +46,7 @@ export function AiAnalysisPanel({
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div>
-          <CardTitle>AI 综合分析</CardTitle>
+          <CardTitle>AI 投资建议</CardTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>生成：{formatTime(createdAt)}</span>
             {analysis.analysisAsOf ? <span>截至：{formatTime(analysis.analysisAsOf)}</span> : null}
@@ -81,6 +81,81 @@ export function AiAnalysisPanel({
           <p className="text-sm leading-6">{analysis.summary || "暂无摘要。"}</p>
         </Block>
 
+        {analysis.holdAdvice || analysis.entryAdvice ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {analysis.holdAdvice ? (
+              <div className="rounded-lg border-2 border-blue-500/30 bg-blue-500/5 p-4">
+                <div className="mb-3 text-sm font-bold text-blue-400">如果你已持仓</div>
+                <div className="mb-3">
+                  <Badge variant="default" className="text-sm font-bold">{analysis.holdAdvice.action}</Badge>
+                </div>
+                <div className="mb-3 text-sm leading-6 text-muted-foreground">{analysis.holdAdvice.reason}</div>
+                <div className="space-y-2 text-sm">
+                  {analysis.holdAdvice.stopLoss ? <AdviceRow label="止损计划" value={analysis.holdAdvice.stopLoss} /> : null}
+                  {analysis.holdAdvice.takeProfit ? <AdviceRow label="止盈计划" value={analysis.holdAdvice.takeProfit} /> : null}
+                  {analysis.holdAdvice.positionManagement ? <AdviceRow label="仓位管理" value={analysis.holdAdvice.positionManagement} /> : null}
+                  {analysis.holdAdvice.keyMonitorPoints ? <AdviceRow label="关注重点" value={analysis.holdAdvice.keyMonitorPoints} /> : null}
+                </div>
+                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  失效条件：{analysis.holdAdvice.invalidIf}
+                </div>
+              </div>
+            ) : null}
+
+            {analysis.entryAdvice ? (
+              <div className="rounded-lg border-2 border-green-500/30 bg-green-500/5 p-4">
+                <div className="mb-3 text-sm font-bold text-green-400">如果你尚未持仓</div>
+                <div className="mb-3">
+                  <Badge variant="default" className="text-sm font-bold">{analysis.entryAdvice.action}</Badge>
+                </div>
+                <div className="mb-3 text-sm leading-6 text-muted-foreground">{analysis.entryAdvice.reason}</div>
+                <div className="space-y-2 text-sm">
+                  {analysis.entryAdvice.entryZone ? <AdviceRow label="入场区间" value={analysis.entryAdvice.entryZone} /> : null}
+                  {analysis.entryAdvice.timing ? <AdviceRow label="时间窗口" value={analysis.entryAdvice.timing} /> : null}
+                  {analysis.entryAdvice.triggerCondition ? <AdviceRow label="触发条件" value={analysis.entryAdvice.triggerCondition} /> : null}
+                  {analysis.entryAdvice.firstPositionSize ? <AdviceRow label="首次仓位" value={analysis.entryAdvice.firstPositionSize} /> : null}
+                  {analysis.entryAdvice.stopLoss ? <AdviceRow label="止损计划" value={analysis.entryAdvice.stopLoss} /> : null}
+                  {analysis.entryAdvice.takeProfit ? <AdviceRow label="止盈目标" value={analysis.entryAdvice.takeProfit} /> : null}
+                </div>
+                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  失效条件：{analysis.entryAdvice.invalidIf}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <Block title="可能操作计划">
+            <div className="space-y-2">
+              {possibleActions.length ? (
+                possibleActions.map((item, index) => (
+                  <div key={`${item.action}-${index}`} className="rounded-md border border-border bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-foreground">{formatAction(item.action)}</div>
+                      {item.timing ? <Badge variant="secondary">{item.timing}</Badge> : null}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.reason}</div>
+                    <ActionGrid item={item} currency={currency} symbol={symbol} unit={unit} />
+                    <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                      失效条件：{item.invalidIf}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-muted-foreground">暂无操作计划。</div>
+              )}
+            </div>
+          </Block>
+        )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <LevelList title="支撑位" values={support} currency={currency} symbol={symbol} unit={unit} />
+          <LevelList title="压力位" values={resistance} currency={currency} symbol={symbol} unit={unit} />
+        </div>
+
+        <Block title="风险因素">
+          <List values={riskFactors} />
+        </Block>
+
         {analysis.newsSummary ? (
           <Block title="新闻摘要">
             <p className="text-sm leading-6">{analysis.newsSummary}</p>
@@ -94,37 +169,6 @@ export function AiAnalysisPanel({
             <SearchResultList items={webSearchResults} />
           </Block>
         ) : null}
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <LevelList title="支撑位" values={support} currency={currency} symbol={symbol} unit={unit} />
-          <LevelList title="压力位" values={resistance} currency={currency} symbol={symbol} unit={unit} />
-        </div>
-
-        <Block title="风险因素">
-          <List values={riskFactors} />
-        </Block>
-
-        <Block title="可能操作计划">
-          <div className="space-y-2">
-            {possibleActions.length ? (
-              possibleActions.map((item, index) => (
-                <div key={`${item.action}-${index}`} className="rounded-md border border-border bg-muted/20 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-foreground">{formatAction(item.action)}</div>
-                    {item.timing ? <Badge variant="secondary">{item.timing}</Badge> : null}
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.reason}</div>
-                  <ActionGrid item={item} currency={currency} symbol={symbol} unit={unit} />
-                  <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-                    失效条件：{item.invalidIf}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-sm text-muted-foreground">暂无操作计划。</div>
-            )}
-          </div>
-        </Block>
 
         <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
@@ -165,6 +209,15 @@ function LevelList({ title, values, currency, symbol, unit }: { title: string; v
           <span className="text-sm text-muted-foreground">--</span>
         )}
       </div>
+    </div>
+  );
+}
+
+function AdviceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-2 rounded-md bg-background/40 px-3 py-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value}</span>
     </div>
   );
 }

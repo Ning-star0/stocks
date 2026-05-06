@@ -74,6 +74,28 @@ export interface IndicatorSnapshot {
   timestamp: string;
 }
 
+export interface HoldAdvice {
+  action: string;
+  reason: string;
+  stopLoss: string;
+  takeProfit: string;
+  positionManagement: string;
+  keyMonitorPoints: string;
+  invalidIf: string;
+}
+
+export interface EntryAdvice {
+  action: string;
+  reason: string;
+  entryZone: string;
+  timing: string;
+  triggerCondition: string;
+  firstPositionSize: string;
+  stopLoss: string;
+  takeProfit: string;
+  invalidIf: string;
+}
+
 export interface AiAnalysisResult {
   trend: Trend;
   confidence: number;
@@ -118,6 +140,8 @@ export interface AiAnalysisResult {
   catalystEvents: string[];
   macroRisks: string[];
   sectorRisks: string[];
+  holdAdvice?: HoldAdvice | null;
+  entryAdvice?: EntryAdvice | null;
   possibleActions: Array<{
     action: "hold" | "watch" | "reduce" | "consider_entry" | "avoid";
     reason: string;

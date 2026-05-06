@@ -103,6 +103,28 @@ const webSearchResultSchema = z.object({
   summary: z.string().nullable().optional()
 });
 
+const holdAdviceSchema = z.object({
+  action: z.string().min(1),
+  reason: z.string().min(1),
+  stopLoss: z.string().optional().default(""),
+  takeProfit: z.string().optional().default(""),
+  positionManagement: z.string().optional().default(""),
+  keyMonitorPoints: z.string().optional().default(""),
+  invalidIf: z.string().min(1)
+});
+
+const entryAdviceSchema = z.object({
+  action: z.string().min(1),
+  reason: z.string().min(1),
+  entryZone: z.string().optional().default(""),
+  timing: z.string().optional().default(""),
+  triggerCondition: z.string().optional().default(""),
+  firstPositionSize: z.string().optional().default(""),
+  stopLoss: z.string().optional().default(""),
+  takeProfit: z.string().optional().default(""),
+  invalidIf: z.string().min(1)
+});
+
 export const aiAnalysisSchema = z.object({
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
@@ -137,6 +159,8 @@ export const aiAnalysisSchema = z.object({
   macroRisks: z.array(z.string()).default([]),
   sectorRisks: z.array(z.string()).default([]),
   possibleActions: z.array(aiActionSchema).min(1),
+  holdAdvice: holdAdviceSchema.optional().nullable(),
+  entryAdvice: entryAdviceSchema.optional().nullable(),
   disclaimer: z.string().min(1)
 });
 
