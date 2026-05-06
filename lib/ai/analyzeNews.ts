@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { newsAnalysisSchema } from "@/lib/schemas";
@@ -20,11 +21,12 @@ const systemPrompt =
   "你是一个谨慎的金融新闻分析助手。你只能基于提供的新闻内容进行分析。你不能夸大新闻影响，不能给出确定性投资建议。你需要判断新闻的情绪、影响方向、影响级别、相关股票、相关行业和风险点。无论新闻原文是英文、繁体中文或其他语言，summary、riskNotes、whyItMatters 必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown。";
 
 export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysisResult> {
-  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) return fallbackNewsAnalysis(input, "DeepSeek API key 未配置，使用关键词规则兜底。");
+  const config = await getAiConfig();
+  if (!config.apiKey) return fallbackNewsAnalysis(input, "API key 未配置，使用关键词规则兜底。");
 
   const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl || undefined
   });
 
   const prompt = buildPrompt(input);
@@ -33,7 +35,7 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+        model: config.model,
         temperature: 0.15,
         response_format: { type: "json_object" },
         messages: [

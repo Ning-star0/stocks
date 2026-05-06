@@ -239,3 +239,11 @@ model AiUsageLog {
   @@index([userId, symbol, createdAt])
   @@index([inputHash])
 }
+
+model AiConfig {
+  id        String   @id @default(cuid())
+  apiKey    String   @default("")
+  baseUrl   String   @default("https://api.deepseek.com")
+  model     String   @default("deepseek-v4-pro")
+  updatedAt DateTime @updatedAt
+}

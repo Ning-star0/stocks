@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { AppError } from "@/lib/errors";
 
 type DeepSeekErrorPayload = {
@@ -15,25 +16,24 @@ export async function createChatCompletion(
   client: OpenAI,
   request: ChatCompletionCreateParamsNonStreaming
 ): Promise<ChatCompletion> {
-  const baseUrl = normalizeBaseUrl(process.env.OPENAI_BASE_URL);
-  if (!baseUrl.includes("deepseek.com")) {
+  const config = await getAiConfig();
+  if (!config.baseUrl.includes("deepseek.com")) {
     return client.chat.completions.create(request);
   }
-
-  return createDeepSeekCompletion(baseUrl, request);
+  return createDeepSeekCompletion(config, request);
 }
 
-async function createDeepSeekCompletion(baseUrl: string, request: ChatCompletionCreateParamsNonStreaming) {
-  const apiKey = normalizeApiKey(process.env.OPENAI_API_KEY);
+async function createDeepSeekCompletion(config: { apiKey: string; baseUrl: string }, request: ChatCompletionCreateParamsNonStreaming) {
+  const apiKey = config.apiKey;
   if (!apiKey) {
-    throw new AppError("DATA_PROVIDER_ERROR", "DeepSeek API key 未配置。请在 .env 中设置 OPENAI_API_KEY 后重启网站和 worker。");
+    throw new AppError("DATA_PROVIDER_ERROR", "API key 未配置。请在 AI 设置页面填写 API 密钥。");
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), numberEnv("AI_REQUEST_TIMEOUT_MS", 60000));
+  const timeout = setTimeout(() => controller.abort(), numberEnv("AI_REQUEST_TIMEOUT_MS", 120000));
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -71,22 +71,12 @@ async function createDeepSeekCompletion(baseUrl: string, request: ChatCompletion
     if (error instanceof AppError) throw error;
     const message = error instanceof Error ? error.message : "未知连接错误";
     throw new AppError("DATA_PROVIDER_ERROR", `DeepSeek API 连接失败：${message}`, {
-      baseUrl,
-      hint: "请在服务器执行 curl -I https://api.deepseek.com 检查出站网络。"
+      baseUrl: config.baseUrl,
+      hint: "请检查 API 地址和密钥是否正确。"
     });
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function normalizeBaseUrl(value?: string) {
-  return (value || "https://api.deepseek.com").trim().replace(/\/+$/, "");
-}
-
-function normalizeApiKey(value?: string) {
-  const key = value?.trim().replace(/^["']|["']$/g, "");
-  if (!key || key.includes("CHANGE_ME")) return null;
-  return key;
 }
 
 function parsePayload(text: string): ChatCompletion & DeepSeekErrorPayload {

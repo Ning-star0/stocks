@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
 
@@ -24,7 +25,8 @@ export type NewsSearchPlan = {
 
 export async function generateNewsSearchPlan(input: GenerateNewsSearchQueriesInput): Promise<NewsSearchPlan> {
   const fallback = fallbackPlan(input);
-  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) return fallback;
+  const config = await getAiConfig();
+  if (!config.apiKey) return fallback;
 
   const cacheKey = `news_search_plan:v1:${hash(
     JSON.stringify({
@@ -38,11 +40,11 @@ export async function generateNewsSearchPlan(input: GenerateNewsSearchQueriesInp
 
   try {
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL || undefined
+      apiKey: config.apiKey,
+      baseURL: config.baseUrl || undefined
     });
     const request: ChatCompletionCreateParamsNonStreaming = {
-      model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+      model: config.model,
       response_format: { type: "json_object" },
       messages: [
         {

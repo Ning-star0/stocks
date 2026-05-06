@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 
 export type DailyBriefInput = {
@@ -10,17 +11,18 @@ export type DailyBriefInput = {
 };
 
 export async function generateDailyBrief(input: DailyBriefInput) {
-  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
-    return fallbackBrief(input, "DeepSeek API key 未配置，已生成本地规则简报。");
+  const config = await getAiConfig();
+  if (!config.apiKey) {
+    return fallbackBrief(input, "API key 未配置，已生成本地规则简报。");
   }
 
   const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl || undefined
   });
 
   const request: ChatCompletionCreateParamsNonStreaming = {
-    model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+    model: config.model,
     temperature: 0.2,
     response_format: { type: "json_object" },
     messages: [

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
@@ -33,13 +34,14 @@ const systemPrompt =
   "你是一个谨慎的股票投资顾问。你只能基于用户提供的数据给出投资建议，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令，必须使用「若...则考虑...」的表述方式。你的核心任务是为用户回答两个问题：1）如果已持仓，现在该怎么办？2）如果尚未持仓，应该在什么点位、什么时机考虑入场？你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度进行综合分析，并最终给出可执行的操作建议。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
-  if (!normalizeApiKey(process.env.OPENAI_API_KEY)) {
-    return buildFallbackAnalysis(input, "DeepSeek API key 未配置，系统已改用本地规则生成临时分析。");
+  const config = await getAiConfig();
+  if (!config.apiKey) {
+    return buildFallbackAnalysis(input, "API key 未配置，系统已改用本地规则生成临时分析。");
   }
 
   const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl || undefined
   });
 
   const userPrompt = buildUserPrompt(input);
@@ -48,7 +50,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+        model: config.model,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
@@ -582,8 +584,4 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
   };
 }
 
-function normalizeApiKey(value?: string) {
-  const key = value?.trim().replace(/^["']|["']$/g, "");
-  if (!key || key.includes("CHANGE_ME")) return null;
-  return key;
-}
+
