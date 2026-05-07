@@ -9,12 +9,16 @@ export interface AiConfigData {
 let cached: AiConfigData | null = null;
 let cachedAt = 0;
 
+function isValidBaseUrl(url: string): boolean {
+  return url.startsWith("https://") || url.startsWith("http://");
+}
+
 export async function getAiConfig(): Promise<AiConfigData> {
   if (cached && Date.now() - cachedAt < 30_000) return cached;
 
   try {
     const row = await prisma.aiConfig.findFirst();
-    if (row && row.apiKey) {
+    if (row && row.apiKey && isValidBaseUrl(row.baseUrl)) {
       cached = { apiKey: row.apiKey, baseUrl: row.baseUrl, model: row.model };
       cachedAt = Date.now();
       return cached;

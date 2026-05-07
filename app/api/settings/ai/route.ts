@@ -24,9 +24,15 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const newApiKey = String(body.apiKey ?? "").trim();
     const current = await getAiConfig();
+    const rawBaseUrl = String(body.baseUrl ?? "").trim();
+    let baseUrl = rawBaseUrl || "https://api.deepseek.com";
+    if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) {
+      baseUrl = "https://api.deepseek.com";
+    }
+
     const config = await updateAiConfig({
       apiKey: newApiKey || current.apiKey,
-      baseUrl: String(body.baseUrl ?? "").trim() || "https://api.deepseek.com",
+      baseUrl,
       model: String(body.model ?? "").trim() || "deepseek-v4-pro"
     });
     return NextResponse.json({

@@ -15,6 +15,9 @@ export async function POST(request: Request) {
 
     const config = await getAiConfig();
     if (!config.apiKey) throw new AppError("DATA_PROVIDER_ERROR", "API key 未配置，请在设置页面填写。");
+    if (!config.baseUrl.startsWith("https://") && !config.baseUrl.startsWith("http://")) {
+      throw new AppError("DATA_PROVIDER_ERROR", "API 地址配置异常，请在设置页面检查。");
+    }
 
     const context = await buildChatContext(user.id);
     const systemPrompt = `你是一个谨慎的股票投资顾问，正在帮助用户分析他的投资组合。你可以看到用户的持仓、最近的AI分析结果和相关新闻。请基于这些上下文回答问题。不能给出确定性买卖指令，不能保证收益。使用简体中文回复。
