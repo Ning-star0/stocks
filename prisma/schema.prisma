@@ -30,6 +30,7 @@ model User {
   dailyBriefs   DailyMarketBrief[]
   analysisJobs  AnalysisJob[]
   aiUsageLogs   AiUsageLog[]
+  userMemory    UserMemory?
 }
 
 model Watchlist {
@@ -246,4 +247,10 @@ model AiConfig {
   baseUrl   String   @default("https://api.deepseek.com")
   model     String   @default("deepseek-v4-pro")
   updatedAt DateTime @updatedAt
+}
+
+model UserMemory {
+  userId  String @id
+  content String @default("")
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
