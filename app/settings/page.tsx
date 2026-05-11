@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 
 export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
+  const [hasExistingKey, setHasExistingKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("https://api.deepseek.com");
   const [model, setModel] = useState("deepseek-v4-pro");
   const [saving, setSaving] = useState(false);
@@ -23,7 +24,7 @@ export default function SettingsPage() {
       .then((data) => {
         if (data.baseUrl) setBaseUrl(data.baseUrl);
         if (data.model) setModel(data.model);
-        if (data.apiKeyMasked) setApiKey(data.apiKeyMasked);
+        setHasExistingKey(!!data.apiKeyMasked);
       })
       .catch(() => {});
   }, []);
@@ -83,8 +84,8 @@ export default function SettingsPage() {
 
           <div className="space-y-2">
             <span className="block text-sm font-medium mb-1">API 密钥</span>
-            <Input id="apiKey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="留空则不修改" autoComplete="off" />
-            <p className="text-xs text-muted-foreground">输入新密钥替换，留空则保持现有密钥</p>
+            <Input id="apiKey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasExistingKey ? "已配置，留空则不修改" : "请输入密钥"} autoComplete="off" />
+            <p className="text-xs text-muted-foreground">{hasExistingKey ? "密钥已配置。如需更换请输入新密钥，留空则保持现有密钥不变。" : "输入 API 密钥。"}</p>
           </div>
 
           <div className="space-y-2">
