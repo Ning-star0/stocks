@@ -14,6 +14,7 @@ export type AnalyzeStockInput = {
   indicators: unknown;
   historySummary: unknown;
   userContext: unknown;
+  userMemory?: string;
   analysisAsOf?: string;
   dataScope?: {
     quoteTime?: string | null;
@@ -122,6 +123,10 @@ ${JSON.stringify(input.historySummary, null, 2)}
 
 用户持仓和风险上下文：
 ${JSON.stringify(input.userContext, null, 2)}
+
+用户的交易记忆（交易习惯、偏好、历史总结等）：
+${input.userMemory || "暂无记录"}
+
 
 已入库的高重要性相关新闻：
 ${JSON.stringify(input.recentNews ?? [], null, 2)}

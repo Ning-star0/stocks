@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAiConfig } from "@/lib/ai/config";
 import { getCurrentUser } from "@/lib/currentUser";
 import { AppError, apiError } from "@/lib/errors";
+import { getMemory } from "@/lib/memory";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 
@@ -72,7 +73,7 @@ ${context}`;
 }
 
 async function buildChatContext(userId: string) {
-  const [watchlistItems, latestAnalyses, recentNews] = await Promise.all([
+  const [watchlistItems, latestAnalyses, recentNews, memory] = await Promise.all([
     prisma.watchlistItem.findMany({
       where: { watchlist: { userId } },
       take: 30
@@ -85,7 +86,8 @@ async function buildChatContext(userId: string) {
     prisma.newsItem.findMany({
       orderBy: { publishedAt: "desc" },
       take: 10
-    })
+    }),
+    getMemory(userId)
   ]);
 
   const items = watchlistItems.map((item) => {
@@ -115,6 +117,9 @@ async function buildChatContext(userId: string) {
     ...(analyses.length ? analyses : ["暂无分析"]),
     "",
     "=== 近期新闻 ===",
-    ...(news.length ? news : ["暂无新闻"])
+    ...(news.length ? news : ["暂无新闻"]),
+    "",
+    "=== 交易记忆（用户的交易习惯和偏好） ===",
+    memory || "暂无记录"
   ].join("\n");
 }

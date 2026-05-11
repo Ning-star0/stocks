@@ -16,22 +16,32 @@ function isValidBaseUrl(url: string): boolean {
 export async function getAiConfig(): Promise<AiConfigData> {
   if (cached && Date.now() - cachedAt < 30_000) return cached;
 
+  // 每个字段独立 fallback：DB 有值则用 DB，没有则用 .env 默认
+  let dbApiKey: string | undefined;
+  let dbBaseUrl: string | undefined;
+  let dbModel: string | undefined;
+
   try {
     const row = await prisma.aiConfig.findFirst();
-    if (row && row.apiKey && isValidBaseUrl(row.baseUrl)) {
-      cached = { apiKey: row.apiKey, baseUrl: row.baseUrl, model: row.model };
-      cachedAt = Date.now();
-      return cached;
+    if (row) {
+      if (row.apiKey) dbApiKey = row.apiKey;
+      if (row.baseUrl) dbBaseUrl = row.baseUrl;
+      if (row.model) dbModel = row.model;
     }
   } catch {
     // DB 不可用时 fallback
   }
 
-  return {
-    apiKey: process.env.OPENAI_API_KEY?.trim() ?? "",
-    baseUrl: process.env.OPENAI_BASE_URL?.trim() || "https://api.deepseek.com",
-    model: process.env.OPENAI_MODEL?.trim() || "deepseek-v4-pro"
-  };
+  const apiKey = dbApiKey ?? process.env.OPENAI_API_KEY?.trim() ?? "";
+  const model = dbModel ?? process.env.OPENAI_MODEL?.trim() ?? "deepseek-v4-pro";
+  let baseUrl = dbBaseUrl ?? process.env.OPENAI_BASE_URL?.trim() ?? "";
+  if (!isValidBaseUrl(baseUrl)) {
+    baseUrl = "https://api.deepseek.com";
+  }
+
+  cached = { apiKey, baseUrl, model };
+  cachedAt = Date.now();
+  return cached;
 }
 
 export async function updateAiConfig(data: AiConfigData): Promise<AiConfigData> {

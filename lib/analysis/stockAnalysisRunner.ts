@@ -5,6 +5,7 @@ import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
+import { getMemory } from "@/lib/memory";
 import { buildSectorNewsKeywords, buildStockNewsKeywords } from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
 import { prisma } from "@/lib/prisma";
@@ -87,9 +88,10 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const history = await provider.getHistory(canonicalSymbol, "1y", "1d").catch((error) => {
     throw parseProviderError(error);
   });
-  const [watchlistItem, sectorWatches] = await Promise.all([
+  const [watchlistItem, sectorWatches, memory] = await Promise.all([
     prisma.watchlistItem.findFirst({ where: { symbol: { in: [symbol, canonicalSymbol] }, watchlist: { userId } } }),
-    prisma.sectorWatch.findMany({ where: { userId } })
+    prisma.sectorWatch.findMany({ where: { userId } }),
+    getMemory(userId)
   ]);
 
   const indicators = calculateIndicators(canonicalSymbol, history);
@@ -175,6 +177,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     indicators,
     historySummary,
     userContext,
+    userMemory: memory || "",
     analysisAsOf,
     dataScope,
     recentNews,

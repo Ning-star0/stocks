@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { BarChart3, Bell, Code2, ListChecks, Newspaper, Settings } from "lucide-react";
+import { BarChart3, Bell, BookOpen, Code2, ListChecks, Newspaper, Settings } from "lucide-react";
 
 import { ChatPanel } from "@/components/ChatPanel";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -33,6 +33,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   <NavLink href="/alerts" icon={<Bell className="h-4 w-4" />} label="提醒" />
                   <NavLink href="/api-docs" icon={<Code2 className="h-4 w-4" />} label="接口" />
                   <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="设置" />
+                  <NavLink href="/memory" icon={<BookOpen className="h-4 w-4" />} label="记忆" />
                   <LogoutButton />
                 </nav>
               ) : null}
