@@ -40,30 +40,36 @@ export function PositionEditor({
     event.preventDefault();
     setSaving(true);
     setMessage(null);
-    const form = new FormData(event.currentTarget);
+    try {
+      const form = new FormData(event.currentTarget);
 
-    const response = await fetch(`/api/watchlist/items/${itemId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        holdingPrice: optionalNumber(form.get("holdingPrice")),
-        targetPrice: optionalNumber(form.get("targetPrice")),
-        stopLoss: optionalNumber(form.get("stopLoss")),
-        positionOpenedAt: optionalDate(form.get("positionOpenedAt")),
-        timeHorizon: form.get("timeHorizon"),
-        riskLevel: form.get("riskLevel"),
-        note: String(form.get("note") ?? "")
-      })
-    });
-    const json = await response.json();
-    setSaving(false);
+      const response = await fetch(`/api/watchlist/items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          holdingPrice: optionalNumber(form.get("holdingPrice")),
+          targetPrice: optionalNumber(form.get("targetPrice")),
+          stopLoss: optionalNumber(form.get("stopLoss")),
+          positionOpenedAt: optionalDateValue(form.get("positionOpenedAt")),
+          timeHorizon: form.get("timeHorizon"),
+          riskLevel: form.get("riskLevel"),
+          note: String(form.get("note") ?? "")
+        })
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    if (!response.ok) {
-      setMessage(json.error?.message ?? "保存失败。");
-      return;
+      if (!response.ok) {
+        setMessage(json.error?.message ?? "保存失败。");
+        return;
+      }
+
+      setMessage("已保存，正在刷新数据...");
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+      setSaving(false);
+      setMessage(err instanceof Error ? err.message : "保存失败，请重试。");
     }
-
-    setMessage("已保存。下次 AI 分析会使用新的持仓上下文。");
   }
 
   return (
@@ -149,7 +155,7 @@ function optionalNumber(value: FormDataEntryValue | null) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function optionalDate(value: FormDataEntryValue | null) {
+function optionalDateValue(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
   return text || null;
 }
