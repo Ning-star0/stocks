@@ -1,5 +1,7 @@
 # Stock AI Monitor
 
+[中文](./README.md) | English
+
 A stock monitoring and AI-assisted analysis system built with Next.js 15 App Router. Features watchlist management, price caching, technical indicators, alert rules, news aggregation, AI structured analysis, and a background job queue.
 
 This project is for research and analysis purposes only. It does not include real trading or order execution.

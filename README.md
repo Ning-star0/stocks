@@ -1,5 +1,7 @@
 # Stock AI Monitor
 
+[English](./README_EN.md) | 中文
+
 基于 Next.js 15 App Router 的股票监控与 AI 辅助分析系统。支持自选股管理、行情缓存、技术指标、提醒规则、新闻聚合、AI 结构化分析和后台任务队列。
 
 本项目仅用于研究和辅助分析，不包含真实交易下单功能。
