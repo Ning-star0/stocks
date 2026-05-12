@@ -62,15 +62,17 @@ export default async function StockDetailPage({
   const provider = getStockDataProvider();
   const quote = await getQuote(normalized);
   const quoteSymbol = quote.raw?.symbol ?? quote.symbol;
+  // A 股代码可能带 .SH/.SZ/.BJ 后缀，查询时把几种格式都覆盖
+  const symbolVariants = [normalized, quoteSymbol, ...expandChinaSymbol(normalized)];
   const candles = quote.raw ? await provider.getHistory(quoteSymbol, range, interval) : [];
 
   const [latestAnalysis, watchlistItem] = await Promise.all([
     prisma.aiAnalysis.findFirst({
-      where: { userId: user.id, symbol: { in: [normalized, quoteSymbol] } },
+      where: { userId: user.id, symbol: { in: symbolVariants } },
       orderBy: { createdAt: "desc" }
     }),
     prisma.watchlistItem.findFirst({
-      where: { symbol: { in: [normalized, quoteSymbol] }, watchlist: { userId: user.id } }
+      where: { symbol: { in: symbolVariants }, watchlist: { userId: user.id } }
     })
   ]);
 
@@ -260,4 +262,11 @@ function formatQuoteStatus(status: string) {
     error: "行情错误"
   };
   return map[status] ?? status;
+}
+
+// 6 位纯数字代码展开成可能的 A 股格式，让 DB 查询能匹配上各种后缀
+function expandChinaSymbol(normalized: string): string[] {
+  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  if (!/^\d{6}$/.test(base)) return [];
+  return [base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }
