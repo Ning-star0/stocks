@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function MemoryPage() {
   const [content, setContent] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +18,7 @@ export default function MemoryPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.content) setContent(data.content);
+        if (data.updatedAt) setUpdatedAt(data.updatedAt);
       })
       .catch(() => setMessage("加载失败"))
       .finally(() => setLoading(false));
@@ -54,7 +56,7 @@ export default function MemoryPage() {
       <h1 className="text-2xl font-bold">交易记忆</h1>
       <p className="text-sm text-muted-foreground">
         记录你的交易习惯、偏好和历史总结。这些内容会在 AI 分析和智能问答中作为背景参考。
-        请用简体中文填写。
+        AI 对话中会自动更新记忆。{updatedAt ? ` 最近更新：${new Date(updatedAt).toLocaleString("zh-CN")}` : ""}
       </p>
 
       <Card>

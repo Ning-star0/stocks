@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
-
 import { getAiConfig } from "@/lib/ai/config";
 import { getCurrentUser } from "@/lib/currentUser";
-import { AppError, apiError } from "@/lib/errors";
-import { getMemory } from "@/lib/memory";
+import { AppError } from "@/lib/errors";
+import { appendMemory, getMemoryContent } from "@/lib/memory";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
+
+const MEMORY_TAG = /\[MEMORY:([\s\S]*?)\]/g;
 
 export async function POST(request: Request) {
   try {
@@ -22,6 +22,8 @@ export async function POST(request: Request) {
 
     const context = await buildChatContext(user.id);
     const systemPrompt = `你是一个谨慎的股票投资顾问，正在帮助用户分析他的投资组合。你可以看到用户的持仓、最近的AI分析结果和相关新闻。请基于这些上下文回答问题。不能给出确定性买卖指令，不能保证收益。使用简体中文回复。
+
+你有权写入用户的交易记忆。当你在对话中了解到用户的重要信息（如交易习惯、风险偏好、持仓策略等），可以在回复末尾用 [MEMORY:记录内容] 的格式写入。记忆会持久化，供未来的对话参考。每条记忆应简洁、具体、客观，不要写重复信息。
 
 当前时间：${new Date().toLocaleString("zh-CN")}
 
@@ -44,31 +46,88 @@ ${context}`;
             { role: "system", content: systemPrompt },
             { role: "user", content: message }
           ],
+          stream: true,
           thinking: { type: "disabled" }
         }),
         signal: controller.signal
       });
 
-      const text = await response.text();
-
       if (!response.ok) {
+        const text = await response.text();
         let errPayload: { error?: { message?: string } } = { error: undefined };
         try { errPayload = JSON.parse(text); } catch { /* not JSON */ }
-        const errMsg = errPayload.error?.message || text.slice(0, 300) || response.statusText;
-        throw new AppError("DATA_PROVIDER_ERROR", `AI 请求失败：${errMsg}`);
+        throw new AppError("DATA_PROVIDER_ERROR", `AI 请求失败：${errPayload.error?.message || text.slice(0, 300) || response.statusText}`);
       }
 
-      const payload = JSON.parse(text) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const reply = payload.choices?.[0]?.message?.content ?? "";
+      const reader = response.body?.getReader();
+      if (!reader) throw new AppError("DATA_PROVIDER_ERROR", "无法读取 AI 响应流。");
 
-      return NextResponse.json({ reply });
+      const decoder = new TextDecoder();
+      let fullContent = "";
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split("\n");
+
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const data = line.slice(6).trim();
+                if (data === "[DONE]") continue;
+
+                try {
+                  const parsed = JSON.parse(data) as {
+                    choices?: Array<{ delta?: { content?: string } }>;
+                  };
+                  const content = parsed.choices?.[0]?.delta?.content ?? "";
+                  if (content) {
+                    fullContent += content;
+                    controller.enqueue(new TextEncoder().encode(content));
+                  }
+                } catch {
+                  // skip unparseable lines
+                }
+              }
+            }
+            controller.close();
+
+            // 流结束后提取记忆
+            const memories: string[] = [];
+            let match: RegExpExecArray | null;
+            const tagRegex = /\[MEMORY:([\s\S]*?)\]/g;
+            while ((match = tagRegex.exec(fullContent)) !== null) {
+              const mem = match[1].trim();
+              if (mem) memories.push(mem);
+            }
+            if (memories.length) {
+              await appendMemory(user.id, memories.join("\n\n"));
+            }
+          } catch {
+            controller.close();
+          }
+        }
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "X-Content-Type-Options": "nosniff"
+        }
+      });
     } finally {
       clearTimeout(timeout);
     }
   } catch (error) {
-    return apiError(error);
+    if (error instanceof AppError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: codeToStatus(error.code) });
+    }
+    return Response.json({ error: { code: "DATA_PROVIDER_ERROR", message: "AI 服务异常" } }, { status: 502 });
   }
 }
 
@@ -87,7 +146,7 @@ async function buildChatContext(userId: string) {
       orderBy: { publishedAt: "desc" },
       take: 10
     }),
-    getMemory(userId)
+    getMemoryContent(userId)
   ]);
 
   const items = watchlistItems.map((item) => {
@@ -122,4 +181,12 @@ async function buildChatContext(userId: string) {
     "=== 交易记忆（用户的交易习惯和偏好） ===",
     memory || "暂无记录"
   ].join("\n");
+}
+
+function codeToStatus(code: string) {
+  switch (code) {
+    case "BAD_REQUEST": return 400;
+    case "RATE_LIMIT": return 429;
+    default: return 502;
+  }
 }

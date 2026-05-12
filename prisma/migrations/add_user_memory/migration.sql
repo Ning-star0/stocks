@@ -1,6 +1,7 @@
 CREATE TABLE "UserMemory" (
     "userId" TEXT NOT NULL,
     "content" TEXT NOT NULL DEFAULT '',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "UserMemory_pkey" PRIMARY KEY ("userId")
 );

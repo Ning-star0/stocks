@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Bot, Loader2, MessageCircle, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 type Message = { role: "user" | "assistant"; content: string };
+
+function cleanReply(text: string) {
+  return text.replace(/\[MEMORY:[\s\S]*?\]/g, "").trim();
+}
 
 export function ChatPanel() {
   const [open, setOpen] = useState(false);
@@ -13,7 +19,9 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [memoryUpdated, setMemoryUpdated] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -25,23 +33,79 @@ export function ChatPanel() {
 
     setInput("");
     setError(null);
+    setMemoryUpdated(false);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setLoading(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({ message: text }),
+        signal: controller.signal
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message ?? "请求失败");
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply || "未收到回复" }]);
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error?.message ?? "请求失败");
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("无法读取响应流");
+
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated.at(-1);
+          if (last && last.role === "assistant") {
+            updated[updated.length - 1] = { ...last, content: cleanReply(last.content + chunk) };
+          }
+          return updated;
+        });
+      }
+
+      // 检查是否有记忆更新
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated.at(-1);
+        if (last && last.role === "assistant") {
+          const raw = last.content;
+          const memMatch = raw.match(/\[MEMORY:([\s\S]*?)\]/g);
+          if (memMatch?.length) {
+            setTimeout(() => setMemoryUpdated(true), 500);
+            setTimeout(() => setMemoryUpdated(false), 5000);
+          }
+        }
+        return updated;
+      });
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "请求失败");
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated.at(-1);
+        if (last && last.role === "assistant" && !last.content) {
+          updated.pop();
+        }
+        return updated;
+      });
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
+  }
+
+  function stop() {
+    abortRef.current?.abort();
   }
 
   return (
@@ -55,11 +119,12 @@ export function ChatPanel() {
           <MessageCircle className="h-6 w-6" />
         </button>
       ) : (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[520px] w-[380px] flex-col rounded-xl border border-border bg-card shadow-2xl max-sm:bottom-0 max-sm:right-0 max-sm:h-full max-sm:w-full max-sm:rounded-none">
+        <div className="fixed bottom-6 right-6 z-50 flex h-[560px] w-[420px] flex-col rounded-xl border border-border bg-card shadow-2xl max-sm:bottom-0 max-sm:right-0 max-sm:h-full max-sm:w-full max-sm:rounded-none">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Bot className="h-4 w-4" />
               AI 投资助手
+              {memoryUpdated ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">已更新记忆</span> : null}
             </div>
             <button onClick={() => setOpen(false)} className="rounded-md p-1 hover:bg-muted">
               <X className="h-4 w-4" />
@@ -74,8 +139,9 @@ export function ChatPanel() {
                   {["我的持仓风险集中在哪里？", "最近哪些新闻会影响我？", "帮我分析当前仓位是否合理"].map((q) => (
                     <button
                       key={q}
-                      onClick={() => { setInput(q); }}
+                      onClick={() => { if (!loading) { setInput(q); } }}
                       className="block w-full rounded-md border border-border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                      disabled={loading}
                     >
                       {q}
                     </button>
@@ -85,10 +151,18 @@ export function ChatPanel() {
             ) : (
               messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  <div className={`max-w-[88%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted/60"
                   }`}>
-                    {msg.content}
+                    {msg.role === "assistant" ? (
+                      <div className="prose prose-sm prose-invert max-w-none break-words prose-headings:text-foreground prose-a:text-blue-400 prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-pre:bg-muted prose-pre:rounded-md prose-li:marker:text-muted-foreground">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content || (loading ? "..." : "未收到回复")}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
                 </div>
               ))
@@ -98,6 +172,7 @@ export function ChatPanel() {
                 <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   思考中...
+                  <button onClick={stop} className="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted">停止</button>
                 </div>
               </div>
             ) : null}

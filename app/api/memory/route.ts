@@ -7,8 +7,8 @@ import { getMemory, updateMemory } from "@/lib/memory";
 export async function GET() {
   try {
     const user = await getCurrentUser();
-    const content = await getMemory(user.id);
-    return NextResponse.json({ content });
+    const memory = await getMemory(user.id);
+    return NextResponse.json({ content: memory.content, updatedAt: memory.updatedAt });
   } catch (error) {
     return apiError(error);
   }
