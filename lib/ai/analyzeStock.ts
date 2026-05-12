@@ -14,6 +14,7 @@ export type AnalyzeStockInput = {
   indicators: unknown;
   historySummary: unknown;
   userContext: unknown;
+  // 用户在 /memory 页面维护的长期交易习惯，AI 分析时作为背景参考
   userMemory?: string;
   analysisAsOf?: string;
   dataScope?: {

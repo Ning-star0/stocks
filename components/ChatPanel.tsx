@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 type Message = { role: "user" | "assistant"; content: string };
 
+// 把 AI 回复里的 [MEMORY:...] 标签过滤掉，不展示给用户
 function cleanReply(text: string) {
   return text.replace(/\[MEMORY:[\s\S]*?\]/g, "").trim();
 }
@@ -53,40 +54,37 @@ export function ChatPanel() {
         throw new Error(data.error?.message ?? "请求失败");
       }
 
+      // 从 ReadableStream 逐块读取，拼到最新一条 AI 消息上
       const reader = res.body?.getReader();
       if (!reader) throw new Error("无法读取响应流");
 
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       const decoder = new TextDecoder();
+      // 保留未经过滤的原始文本，流结束后用来检查是否有 [MEMORY:...]
+      const rawBuffer: string[] = [];
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+        rawBuffer.push(chunk);
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated.at(-1);
           if (last && last.role === "assistant") {
+            // 实时过滤 [MEMORY:...] 标签，用户看不到
             updated[updated.length - 1] = { ...last, content: cleanReply(last.content + chunk) };
           }
           return updated;
         });
       }
 
-      // 检查是否有记忆更新
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated.at(-1);
-        if (last && last.role === "assistant") {
-          const raw = last.content;
-          const memMatch = raw.match(/\[MEMORY:([\s\S]*?)\]/g);
-          if (memMatch?.length) {
-            setTimeout(() => setMemoryUpdated(true), 500);
-            setTimeout(() => setMemoryUpdated(false), 5000);
-          }
-        }
-        return updated;
-      });
+      // 流结束，用原始文本检查是否有记忆写入
+      const raw = rawBuffer.join("");
+      if (/\[MEMORY:[\s\S]*?\]/.test(raw)) {
+        setTimeout(() => setMemoryUpdated(true), 500);
+        setTimeout(() => setMemoryUpdated(false), 5000);
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "请求失败");

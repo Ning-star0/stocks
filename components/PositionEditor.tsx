@@ -40,6 +40,7 @@ export function PositionEditor({
     event.preventDefault();
     setSaving(true);
     setMessage(null);
+    // 之前没有 try-catch，fetch 抛异常时错误被吞掉，用户看到按钮转了一下没反应
     try {
       const form = new FormData(event.currentTarget);
 
@@ -65,6 +66,7 @@ export function PositionEditor({
       }
 
       setMessage("已保存，正在刷新数据...");
+      // 保存后整页刷新，让服务端组件拿到最新持仓数据重新渲染
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       setSaving(false);
@@ -149,6 +151,7 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: stri
   );
 }
 
+// 表单输入为空或无效时返回 null，让后端保留原有值
 function optionalNumber(value: FormDataEntryValue | null) {
   if (!value) return null;
   const number = Number(value);

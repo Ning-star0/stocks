@@ -63,8 +63,10 @@ ${context}`;
       if (!reader) throw new AppError("DATA_PROVIDER_ERROR", "无法读取 AI 响应流。");
 
       const decoder = new TextDecoder();
+      // 收集完整回复文本，流结束后从里面提取 [MEMORY:...] 标签
       let fullContent = "";
 
+      // 把 DeepSeek 的 SSE 流转发成浏览器可读的流
       const stream = new ReadableStream({
         async start(controller) {
           try {
@@ -76,9 +78,10 @@ ${context}`;
               const lines = chunk.split("\n");
 
               for (const line of lines) {
+                // DeepSeek SSE 格式：每行 "data: {...json}"，空行分隔
                 if (!line.startsWith("data: ")) continue;
                 const data = line.slice(6).trim();
-                if (data === "[DONE]") continue;
+                if (data === "[DONE]") continue; // 流结束信号
 
                 try {
                   const parsed = JSON.parse(data) as {
@@ -96,7 +99,7 @@ ${context}`;
             }
             controller.close();
 
-            // 流结束后提取记忆
+            // 流结束了，看看 AI 有没有要写进记忆的内容
             const memories: string[] = [];
             let match: RegExpExecArray | null;
             const tagRegex = /\[MEMORY:([\s\S]*?)\]/g;
@@ -113,6 +116,8 @@ ${context}`;
         }
       });
 
+      // 用 text/plain 而不是 text/event-stream，前端更简单
+      // 直接 ReadableStream 推文本块，不需要 EventSource
       return new Response(stream, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",

@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export default function SettingsPage() {
+  // 密钥输入框始终为空，不存掩码值——之前把 "sk-abc***xyz" 写进 DB 的 bug 就出在这
   const [apiKey, setApiKey] = useState("");
+  // 单独记一下是否已有密钥，用来切换输入框的提示文案
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("https://api.deepseek.com");
   const [model, setModel] = useState("deepseek-v4-pro");
@@ -37,6 +39,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/settings/ai", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        // apiKey 为空时传 undefined，后端会保留原有密钥
         body: JSON.stringify({ apiKey: apiKey || undefined, baseUrl, model })
       });
       if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");

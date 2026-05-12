@@ -6,9 +6,11 @@ export interface AiConfigData {
   model: string;
 }
 
+// 30 秒内的重复查询直接走内存，不给 DB 压力
 let cached: AiConfigData | null = null;
 let cachedAt = 0;
 
+// 防止之前 bug：邮箱地址被误存成 API 地址
 function isValidBaseUrl(url: string): boolean {
   return url.startsWith("https://") || url.startsWith("http://");
 }

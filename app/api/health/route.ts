@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
+    // 之前这里直接用 process.env.OPENAI_MODEL，永远显示 .env 里的旧值
+    // 改成 getAiConfig() 才能反映用户在设置页保存后的真实生效配置
     await prisma.$queryRaw`SELECT 1`;
     const aiConfig = await getAiConfig();
     return NextResponse.json({
