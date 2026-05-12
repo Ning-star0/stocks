@@ -56,7 +56,7 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/health");
       const data = await res.json();
-      setTestResult(data.aiModel ? `当前模型: ${data.aiModel}` : "服务正常");
+      setTestResult(data.aiModel ? `生效模型: ${data.aiModel}${data.aiBaseUrl ? ` | ${data.aiBaseUrl}` : ""}${data.aiKeyConfigured ? " | 密钥已配置" : " | 密钥未配置"}` : "服务正常");
     } catch {
       setTestResult("连接测试失败");
     } finally {
