@@ -40,7 +40,8 @@ export function PositionEditor({
     event.preventDefault();
     setSaving(true);
     setMessage(null);
-    // 之前没有 try-catch，fetch 抛异常时错误被吞掉，用户看到按钮转了一下没反应
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const form = new FormData(event.currentTarget);
 
@@ -55,7 +56,8 @@ export function PositionEditor({
           timeHorizon: form.get("timeHorizon"),
           riskLevel: form.get("riskLevel"),
           note: String(form.get("note") ?? "")
-        })
+        }),
+        signal: controller.signal
       });
       const json = await response.json();
       setSaving(false);
@@ -66,11 +68,16 @@ export function PositionEditor({
       }
 
       setMessage("已保存，正在刷新数据...");
-      // 保存后整页刷新，让服务端组件拿到最新持仓数据重新渲染
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       setSaving(false);
-      setMessage(err instanceof Error ? err.message : "保存失败，请重试。");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setMessage("保存超时，请检查网络后重试。");
+      } else {
+        setMessage(err instanceof Error ? err.message : "保存失败，请重试。");
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
