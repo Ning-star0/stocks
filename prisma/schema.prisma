@@ -31,6 +31,7 @@ model User {
   analysisJobs  AnalysisJob[]
   aiUsageLogs   AiUsageLog[]
   userMemory    UserMemory?
+  focusGroup    FocusGroup?
 }
 
 model Watchlist {
@@ -254,4 +255,18 @@ model UserMemory {
   content   String   @default("")
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FocusGroup {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  name          String   @default("今日关注")
+  symbols       String[]
+  newsFetchTime String   @default("09:30")
+  analysisTimes String[] @default([])
+  lastNewsFetch DateTime?
+  lastAnalysis  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

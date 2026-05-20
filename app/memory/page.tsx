@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,11 @@ export default function MemoryPage() {
       .catch(() => setMessage("加载失败"))
       .finally(() => setLoading(false));
   }, []);
+
+  async function clear() {
+    setContent("");
+    setMessage(null);
+  }
 
   async function save() {
     setSaving(true);
@@ -89,6 +94,10 @@ export default function MemoryPage() {
             <Button onClick={save} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {saving ? "保存中..." : "保存记忆"}
+            </Button>
+            <Button variant="outline" onClick={clear} disabled={saving || !content} className="text-red-400">
+              <Trash2 className="h-4 w-4" />
+              清空
             </Button>
             {message ? <span className="text-sm text-muted-foreground">{message}</span> : null}
           </div>

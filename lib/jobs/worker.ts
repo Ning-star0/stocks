@@ -1,3 +1,4 @@
+import { checkFocusSchedules } from "@/lib/focus/scheduler";
 import { processNextJob } from "@/lib/jobs/processNextJob";
 
 export async function startWorker(options: { signal?: AbortSignal } = {}) {
@@ -7,6 +8,7 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
   const intervalMs = numberEnv("JOB_POLL_INTERVAL_MS", 5000);
   const maxConcurrent = Math.min(1, numberEnv("MAX_CONCURRENT_JOBS", 1));
   let running = 0;
+  let lastScheduleCheck = 0;
 
   while (!options.signal?.aborted) {
     if (running < maxConcurrent) {
@@ -15,6 +17,14 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
         running -= 1;
       });
     }
+
+    // 每 60 秒检查一次关注板块的定时任务
+    const now = Date.now();
+    if (now - lastScheduleCheck >= 60_000) {
+      lastScheduleCheck = now;
+      checkFocusSchedules().catch(() => {});
+    }
+
     await sleep(intervalMs);
   }
 }
