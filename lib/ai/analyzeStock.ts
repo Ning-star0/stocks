@@ -16,6 +16,8 @@ export type AnalyzeStockInput = {
   userContext: unknown;
   // 用户在 /memory 页面维护的长期交易习惯，AI 分析时作为背景参考
   userMemory?: string;
+  // 用户在 /focus 填的总本金，用于计算具体买入股数和仓位
+  userCapital?: number | null;
   analysisAsOf?: string;
   dataScope?: {
     quoteTime?: string | null;
@@ -127,6 +129,10 @@ ${JSON.stringify(input.userContext, null, 2)}
 
 用户的交易记忆（交易习惯、偏好、历史总结等）：
 ${input.userMemory || "暂无记录"}
+
+用户的可用本金：
+${input.userCapital ? `${input.userCapital} 元。请基于总本金计算 entryAdvice.firstPositionSize 为具体股数或百分比（如"约100股，占总本金8%"），不要写"轻仓"这种模糊表述。` : "用户未填写。仓位建议用百分比表述，不要写模糊词。"}
+
 
 
 已入库的高重要性相关新闻：

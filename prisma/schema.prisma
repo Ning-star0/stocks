@@ -262,6 +262,7 @@ model FocusGroup {
   userId        String   @unique
   name          String   @default("今日关注")
   symbols       String[]
+  capital       Decimal? @db.Decimal(18, 2)
   newsFetchTime String   @default("09:30")
   analysisTimes String[] @default([])
   lastNewsFetch DateTime?

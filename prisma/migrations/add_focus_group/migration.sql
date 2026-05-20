@@ -3,6 +3,7 @@ CREATE TABLE "FocusGroup" (
     "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL DEFAULT '今日关注',
     "symbols" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "capital" DECIMAL(18, 2),
     "newsFetchTime" TEXT NOT NULL DEFAULT '09:30',
     "analysisTimes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     "lastNewsFetch" TIMESTAMP(3),

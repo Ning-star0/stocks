@@ -88,10 +88,11 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const history = await provider.getHistory(canonicalSymbol, "1y", "1d").catch((error) => {
     throw parseProviderError(error);
   });
-  const [watchlistItem, sectorWatches, memory] = await Promise.all([
+  const [watchlistItem, sectorWatches, memory, focusGroup] = await Promise.all([
     prisma.watchlistItem.findFirst({ where: { symbol: { in: [symbol, canonicalSymbol] }, watchlist: { userId } } }),
     prisma.sectorWatch.findMany({ where: { userId } }),
-    getMemoryContent(userId)
+    getMemoryContent(userId),
+    prisma.focusGroup.findUnique({ where: { userId } })
   ]);
 
   const indicators = calculateIndicators(canonicalSymbol, history);
@@ -177,6 +178,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     indicators,
     historySummary,
     userContext,
+    userCapital: focusGroup?.capital ? Number(focusGroup.capital) : null,
     userMemory: memory || "",
     analysisAsOf,
     dataScope,

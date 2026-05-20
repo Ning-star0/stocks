@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 type FocusData = {
   name: string;
   symbols: string[];
+  capital: number | null;
   newsFetchTime: string;
   analysisTimes: string[];
   lastNewsFetch: string | null;
@@ -22,7 +23,7 @@ export default function FocusPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [focus, setFocus] = useState<FocusData>({ name: "今日关注", symbols: [], newsFetchTime: "09:30", analysisTimes: [], lastNewsFetch: null, lastAnalysis: null });
+  const [focus, setFocus] = useState<FocusData>({ name: "今日关注", symbols: [], capital: null, newsFetchTime: "09:30", analysisTimes: [], lastNewsFetch: null, lastAnalysis: null });
   const [watchlist, setWatchlist] = useState<StockItem[]>([]);
   const [newTime, setNewTime] = useState("");
 
@@ -147,9 +148,21 @@ export default function FocusPage() {
         {/* 时间设置区 */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">分析时间设置</CardTitle>
+            <CardTitle className="text-base">配置与分析时间</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm text-muted-foreground">总本金（用于 AI 计算仓位）</label>
+              <Input
+                type="number"
+                step="100"
+                min="0"
+                value={focus.capital ?? ""}
+                onChange={(e) => setFocus((prev) => ({ ...prev, capital: e.target.value ? Number(e.target.value) : null }))}
+                placeholder="例如 100000"
+              />
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm text-muted-foreground">每日新闻抓取时间</label>
               <Input

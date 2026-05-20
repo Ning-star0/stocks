@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
     const group = await prisma.focusGroup.findUnique({ where: { userId: user.id } });
-    if (!group) return NextResponse.json({ symbols: [], name: "今日关注", newsFetchTime: "09:30", analysisTimes: [], lastNewsFetch: null, lastAnalysis: null });
+    if (!group) return NextResponse.json({ symbols: [], name: "今日关注", capital: null, newsFetchTime: "09:30", analysisTimes: [], lastNewsFetch: null, lastAnalysis: null });
     return NextResponse.json(group);
   } catch (error) {
     return apiError(error);
@@ -19,6 +19,9 @@ export async function PUT(request: Request) {
   try {
     const user = await getCurrentUser();
     const body = await request.json();
+
+    const capital = body.capital != null ? Number(body.capital) : null;
+    if (capital !== null && (!Number.isFinite(capital) || capital <= 0)) throw new AppError("BAD_REQUEST", "本金须为正数。");
 
     const symbols = Array.isArray(body.symbols) ? body.symbols.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean) : [];
     if (!symbols.length) throw new AppError("BAD_REQUEST", "请至少选择一只股票。");
@@ -35,6 +38,7 @@ export async function PUT(request: Request) {
       update: {
         name: String(body.name ?? "今日关注").trim() || "今日关注",
         symbols,
+        capital: capital ?? null,
         newsFetchTime,
         analysisTimes,
         updatedAt: new Date()
@@ -43,6 +47,7 @@ export async function PUT(request: Request) {
         userId: user.id,
         name: String(body.name ?? "今日关注").trim() || "今日关注",
         symbols,
+        capital: capital ?? null,
         newsFetchTime,
         analysisTimes
       }
