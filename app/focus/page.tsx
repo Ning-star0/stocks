@@ -17,7 +17,7 @@ type FocusData = {
   lastAnalysis: string | null;
 };
 
-type StockItem = { symbol: string; note?: string | null };
+type StockItem = { symbol: string; name?: string; note?: string | null };
 
 export default function FocusPage() {
   const [loading, setLoading] = useState(true);
@@ -26,19 +26,38 @@ export default function FocusPage() {
   const [focus, setFocus] = useState<FocusData>({ name: "今日关注", symbols: [], capital: null, newsFetchTime: "09:30", analysisTimes: [], lastNewsFetch: null, lastAnalysis: null });
   const [watchlist, setWatchlist] = useState<StockItem[]>([]);
   const [newTime, setNewTime] = useState("");
+  const [names, setNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     Promise.all([
       fetch("/api/focus").then((r) => r.json()),
       fetch("/api/watchlist").then((r) => r.json())
     ])
-      .then(([focusData, wlData]) => {
+      .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
         const items = (wlData.watchlists?.[0]?.items || wlData.items || []).map((item: { symbol: string; note?: string | null }) => ({
           symbol: item.symbol,
           note: item.note
         }));
         setWatchlist(items);
+        // 批量获取股票名称
+        const symbols = items.map((i: StockItem) => i.symbol);
+        if (symbols.length) {
+          try {
+            const qRes = await fetch("/api/quotes/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ symbols })
+            });
+            const qData = await qRes.json();
+            const nameMap: Record<string, string> = {};
+            for (const [sym, q] of Object.entries(qData.quotes || {})) {
+              const quote = q as { name?: string };
+              if (quote?.name) nameMap[sym] = quote.name;
+            }
+            setNames(nameMap);
+          } catch { /* 名称获取失败不影响主流程 */ }
+        }
       })
       .catch(() => setMessage("加载失败"))
       .finally(() => setLoading(false));
@@ -135,7 +154,8 @@ export default function FocusPage() {
                         onChange={() => toggleSymbol(item.symbol)}
                         className="h-4 w-4 rounded accent-primary"
                       />
-                      <span className="font-medium tabular-nums">{item.symbol}</span>
+                      <span className="font-medium">{names[item.symbol] || item.symbol}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{item.symbol}</span>
                       {item.note ? <span className="text-xs text-muted-foreground">{item.note}</span> : null}
                     </label>
                   ))}
