@@ -80,7 +80,14 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
 
 export async function buildStockAnalysisContext(userId: string, symbol: string, options: { includeWebSearch?: boolean } = {}) {
   const provider = getStockDataProvider();
-  const quoteStatus = await getQuote(symbol, { allowStale: true });
+  // 先试原始 symbol，失败则尝试去掉 A 股后缀重试
+  let quoteStatus = await getQuote(symbol, { allowStale: true });
+  if (!quoteStatus.raw) {
+    const stripped = cleanChinaSymbol(symbol);
+    if (stripped && stripped !== symbol) {
+      quoteStatus = await getQuote(stripped, { allowStale: true });
+    }
+  }
   if (!quoteStatus.raw) throw new AppError("DATA_PROVIDER_ERROR", quoteStatus.error ?? "行情不可用，无法构造分析上下文。");
 
   const quote = quoteStatus.raw;
@@ -259,4 +266,11 @@ function estimateTokens(text: string) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+// "600519.SH" → "600519"，纯代码去后缀
+function cleanChinaSymbol(symbol: string): string | null {
+  const cleaned = symbol.trim().toUpperCase().replace(/\.(SH|SZ|BJ)$/, "");
+  if (cleaned === symbol.trim().toUpperCase()) return null;
+  return cleaned;
 }
