@@ -8,6 +8,7 @@ import { getCache, setCache } from "@/lib/cache";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
 import { saveNewsAnalysis } from "@/lib/news/store";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const workerId = `${process.pid}-${randomUUID()}`;
@@ -280,7 +281,7 @@ async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string
     if (existing) {
       return prisma.aiAnalysis.update({
         where: { id: existing.id },
-        data: { outputJson: outputJson as any }
+        data: { outputJson: outputJson as Prisma.InputJsonValue }
       });
     }
 
@@ -288,8 +289,8 @@ async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string
       data: {
         userId,
         symbol,
-        inputJson: { symbol, error: errorMessage, fallback: true } as any,
-        outputJson: outputJson as any
+        inputJson: { symbol, error: errorMessage, fallback: true } as Prisma.InputJsonValue,
+        outputJson: outputJson as Prisma.InputJsonValue
       }
     });
   } catch {

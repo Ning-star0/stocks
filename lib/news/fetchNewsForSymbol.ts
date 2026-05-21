@@ -8,11 +8,10 @@ import {
   buildStockNewsKeywords,
   filterRelevantNewsForStock,
   isLowValueMarketMoveNews,
-  isNewsRelevantToStock,
   scoreNewsCatalyst
 } from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
-import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
+import { upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
 import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
