@@ -145,7 +145,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     url: item.url,
     source: item.source,
     publishedAt: item.publishedAt.toISOString(),
-    summary: truncateText(item.analyses[0]?.aiSummary ?? item.summary ?? item.title, 700),
+    summary: truncateText(item.analyses[0]?.aiSummary ?? item.summary ?? item.title, numberEnv("AI_NEWS_SUMMARY_MAX_CHARS", 420)),
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
@@ -154,7 +154,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     url: item.url ?? null,
     source: item.source ?? null,
     publishedAt: item.publishedAt ?? null,
-    summary: truncateText(item.summary ?? item.rawContent ?? item.title, 700)
+    summary: truncateText(item.summary ?? item.rawContent ?? item.title, numberEnv("AI_WEB_SUMMARY_MAX_CHARS", 420))
   }));
   const recentNews = dedupeAnalysisNews([
     ...newsReferences,

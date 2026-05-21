@@ -198,6 +198,7 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
   const request: ChatCompletionCreateParamsNonStreaming = {
     model: config.model,
     temperature: 0.2,
+    max_tokens: numberEnv("AI_FOCUS_DECISION_MAX_TOKENS", 1400),
     response_format: { type: "json_object" },
     messages: [
       {

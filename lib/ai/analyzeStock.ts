@@ -63,6 +63,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
       const request: ChatCompletionCreateParamsNonStreaming = {
         model: config.model,
         temperature: 0.2,
+        max_tokens: numberEnv("AI_STOCK_MAX_TOKENS", 2200),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -95,6 +96,11 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
     input,
     `AI 返回内容多次未通过 JSON/schema 校验，系统已改用本地规则生成临时分析。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
   );
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function buildUserPrompt(input: AnalyzeStockInput) {
@@ -606,4 +612,3 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
     disclaimer: "本内容由系统本地规则生成，仅供研究参考，不构成投资建议。"
   };
 }
-

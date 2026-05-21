@@ -53,6 +53,7 @@ export function ChatPanel() {
         const data = await res.json();
         throw new Error(data.error?.message ?? "请求失败");
       }
+      const memoryUpdatedByServer = res.headers.get("X-Memory-Updated") === "true";
 
       // 从 ReadableStream 逐块读取，拼到最新一条 AI 消息上
       const reader = res.body?.getReader();
@@ -81,7 +82,7 @@ export function ChatPanel() {
 
       // 流结束，用原始文本检查是否有记忆写入
       const raw = rawBuffer.join("");
-      if (/\[MEMORY:[\s\S]*?\]/.test(raw)) {
+      if (memoryUpdatedByServer || /\[MEMORY:[\s\S]*?\]/.test(raw)) {
         setTimeout(() => setMemoryUpdated(true), 500);
         setTimeout(() => setMemoryUpdated(false), 5000);
       }

@@ -56,12 +56,18 @@ export default function SettingsPage() {
   async function testConnection() {
     setTesting(true);
     setTestResult(null);
+    setError(null);
     try {
-      const res = await fetch("/api/health");
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: apiKey || undefined, baseUrl, model })
+      });
       const data = await res.json();
-      setTestResult(data.aiModel ? `生效模型: ${data.aiModel}${data.aiBaseUrl ? ` | ${data.aiBaseUrl}` : ""}${data.aiKeyConfigured ? " | 密钥已配置" : " | 密钥未配置"}` : "服务正常");
-    } catch {
-      setTestResult("连接测试失败");
+      if (!res.ok) throw new Error(data.error?.message ?? "连接测试失败");
+      setTestResult(`连接成功：${data.model} | ${data.baseUrl} | ${data.latencyMs}ms`);
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : "连接测试失败");
     } finally {
       setTesting(false);
     }
