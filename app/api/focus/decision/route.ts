@@ -84,13 +84,14 @@ export async function POST() {
 async function handleDecisionRequest({ forceRefresh }: { forceRefresh: boolean }) {
   try {
     const user = await getCurrentUser();
-    const input = await loadDecisionInput(user.id);
-    const cacheKey = `focus_decision:${user.id}:${createDecisionSignature(input)}`;
+    const seed = await loadDecisionSeed(user.id);
+    const cacheKey = `focus_decision:${user.id}:${createDecisionSignature(seed)}`;
     if (!forceRefresh) {
       const cached = await getCache<Awaited<ReturnType<typeof generateFocusDecision>>>(cacheKey);
       if (cached) return Response.json({ ...cached, fromCache: true });
     }
 
+    const input = await loadDecisionInput(seed);
     const decision = await generateFocusDecision(input);
     await setCache(cacheKey, decision, numberEnv("FOCUS_DECISION_CACHE_TTL_SECONDS", 900));
     return Response.json({ ...decision, fromCache: false });
@@ -99,30 +100,47 @@ async function handleDecisionRequest({ forceRefresh }: { forceRefresh: boolean }
   }
 }
 
-async function loadDecisionInput(userId: string) {
+async function loadDecisionSeed(userId: string) {
   const focus = await prisma.focusGroup.findUnique({ where: { userId } });
   if (!focus?.symbols.length) throw new AppError("BAD_REQUEST", "请先在今日关注中选择股票。");
 
   const capital = toNumber(focus.capital);
   if (!capital || capital <= 0) throw new AppError("BAD_REQUEST", "请先填写总本金，AI 才能计算买入金额。");
 
-  const symbols = focus.symbols.map((symbol) => symbol.toUpperCase());
+  const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
+  const allSymbolVariants = symbols.flatMap(symbolVariants);
+  const analyses = await prisma.aiAnalysis.findMany({
+    where: { userId, symbol: { in: allSymbolVariants } },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(20, symbols.length * 5)
+  });
+  const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
+
+  return {
+    userId,
+    capital,
+    symbols,
+    allSymbolVariants,
+    focusUpdatedAt: focus.updatedAt.toISOString(),
+    focusLastAnalysis: focus.lastAnalysis?.toISOString() ?? null,
+    analyses,
+    latestAnalysisBySymbol
+  };
+}
+
+async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSeed>>) {
   const [watchlistItems, quotes] = await Promise.all([
     prisma.watchlistItem.findMany({
-      where: { watchlist: { userId }, symbol: { in: symbols.flatMap(symbolVariants) } }
+      where: { watchlist: { userId: seed.userId }, symbol: { in: seed.allSymbolVariants } }
     }),
-    getQuotesBatch(symbols, { allowStale: true })
+    getQuotesBatch(seed.symbols, { allowStale: true })
   ]);
-  const analyses = await prisma.aiAnalysis.findMany({
-    where: { userId, symbol: { in: symbols.flatMap(symbolVariants) } },
-    orderBy: { createdAt: "desc" },
-    take: 80
-  });
 
-  const candidates = symbols.map((symbol) => {
+  const candidates = seed.symbols.map((symbol) => {
+    const variants = symbolVariants(symbol);
     const quote = quotes[symbol] ?? quotes[symbolVariants(symbol).find((item) => quotes[item]) ?? symbol] ?? null;
-    const item = watchlistItems.find((row) => symbolVariants(symbol).includes(row.symbol));
-    const analysis = analyses.find((row) => symbolVariants(symbol).includes(row.symbol));
+    const item = watchlistItems.find((row) => variants.includes(row.symbol));
+    const analysis = seed.latestAnalysisBySymbol.get(symbol) ?? null;
     const output = analysis?.outputJson as Candidate["latestAnalysis"] | undefined;
     return {
       symbol: quote?.symbol ?? symbol,
@@ -149,24 +167,23 @@ async function loadDecisionInput(userId: string) {
   });
 
   return {
-    capital,
+    capital: seed.capital,
     candidates,
-    focusUpdatedAt: focus.updatedAt.toISOString(),
-    focusLastAnalysis: focus.lastAnalysis?.toISOString() ?? null,
-    latestAnalysisIds: analyses.slice(0, symbols.length).map((analysis) => analysis.id)
+    focusUpdatedAt: seed.focusUpdatedAt,
+    focusLastAnalysis: seed.focusLastAnalysis,
+    latestAnalysisIds: [...seed.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
   };
 }
 
-function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionInput>>) {
+function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSeed>>) {
   return createHash("sha256")
     .update(
       JSON.stringify({
         capital: input.capital,
-        symbols: input.candidates.map((candidate) => candidate.symbol).sort(),
-        prices: input.candidates.map((candidate) => [candidate.symbol, candidate.price]),
+        symbols: input.symbols,
         focusUpdatedAt: input.focusUpdatedAt,
         focusLastAnalysis: input.focusLastAnalysis,
-        latestAnalysisIds: input.latestAnalysisIds
+        latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )
     .digest("hex")
@@ -371,6 +388,16 @@ function symbolVariants(symbol: string) {
   return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }
 
+function latestAnalysesForSymbols<T extends { id: string; symbol: string; createdAt: Date }>(symbols: string[], analyses: T[]) {
+  const output = new Map<string, T>();
+  for (const symbol of symbols) {
+    const variants = symbolVariants(symbol);
+    const match = analyses.find((analysis) => variants.includes(analysis.symbol));
+    if (match) output.set(symbol, match);
+  }
+  return output;
+}
+
 function sharesFromAmount(amount: number, price: number | null) {
   if (!price || price <= 0) return 0;
   return Math.floor(amount / price / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
@@ -378,8 +405,13 @@ function sharesFromAmount(amount: number, price: number | null) {
 
 function normalizeShares(shares: number, price: number, availableCash: number) {
   if (!price || price <= 0) return 0;
-  const maxShares = Math.floor((availableCash - TRADING_FEE_RULE.minimumFee) / price / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
-  return Math.max(0, Math.min(Math.floor(shares / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize, maxShares));
+  let nextShares = Math.floor(shares / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
+  while (nextShares > 0) {
+    const amount = nextShares * price;
+    if (amount + calculateFee(amount) <= availableCash) return nextShares;
+    nextShares -= TRADING_FEE_RULE.lotSize;
+  }
+  return 0;
 }
 
 function calculateFee(amount: number) {

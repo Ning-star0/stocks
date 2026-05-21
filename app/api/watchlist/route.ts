@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/currentUser";
-import { remember } from "@/lib/cache";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
-import { getStockDataProvider } from "@/lib/stock-data";
+import { getQuotesBatch } from "@/lib/services/quoteService";
 
 export async function GET() {
   try {
@@ -19,39 +18,21 @@ export async function GET() {
       },
       orderBy: { createdAt: "asc" }
     });
+    const symbols = [...new Set(watchlists.flatMap((watchlist) => watchlist.items.map((item) => item.symbol)))];
+    const [quotes, latestAnalyses] = await Promise.all([
+      getQuotesBatch(symbols, { allowStale: true }),
+      loadLatestAnalyses(user.id, symbols)
+    ]);
 
-    const provider = getStockDataProvider();
-    const enrichedWatchlists = await Promise.all(
-      watchlists.map(async (watchlist) => {
-        const items = await Promise.all(
-          watchlist.items.map(async (item) => {
-            const [quoteResult, latestAnalysis] = await Promise.allSettled([
-              remember(`quote:${item.symbol}`, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30), () => provider.getQuote(item.symbol)),
-              prisma.aiAnalysis.findFirst({
-                where: { userId: user.id, symbol: item.symbol },
-                orderBy: { createdAt: "desc" }
-              })
-            ]);
-
-            return {
-              ...serializeWatchlistItem(item),
-              quote: quoteResult.status === "fulfilled" ? quoteResult.value : null,
-              quoteError: quoteResult.status === "rejected" ? (quoteResult.reason instanceof Error ? quoteResult.reason.message : "报价暂不可用") : null,
-              latestAnalysis:
-                latestAnalysis.status === "fulfilled" && latestAnalysis.value
-                  ? {
-                      id: latestAnalysis.value.id,
-                      createdAt: latestAnalysis.value.createdAt,
-                      outputJson: latestAnalysis.value.outputJson
-                    }
-                  : null
-            };
-          })
-        );
-
-        return { ...watchlist, items };
-      })
-    );
+    const enrichedWatchlists = watchlists.map((watchlist) => ({
+      ...watchlist,
+      items: watchlist.items.map((item) => ({
+        ...serializeWatchlistItem(item),
+        quote: quotes[item.symbol] ?? null,
+        quoteError: quotes[item.symbol]?.error ?? null,
+        latestAnalysis: latestAnalyses[item.symbol] ?? null
+      }))
+    }));
 
     return NextResponse.json({ user: { id: user.id, email: user.email }, watchlists: enrichedWatchlists });
   } catch (error) {
@@ -59,7 +40,29 @@ export async function GET() {
   }
 }
 
-function numberEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+async function loadLatestAnalyses(userId: string, symbols: string[]) {
+  const variants = [...new Set(symbols.flatMap(symbolVariants))];
+  const analyses = await prisma.aiAnalysis.findMany({
+    where: { userId, symbol: { in: variants } },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(20, symbols.length * 5)
+  });
+  const output: Record<string, { id: string; createdAt: Date; outputJson: unknown } | null> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
+  for (const symbol of symbols) {
+    const match = analyses.find((analysis) => symbolVariants(symbol).includes(analysis.symbol));
+    if (!match) continue;
+    output[symbol] = {
+      id: match.id,
+      createdAt: match.createdAt,
+      outputJson: match.outputJson
+    };
+  }
+  return output;
+}
+
+function symbolVariants(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  if (!/^\d{6}$/.test(base)) return [normalized];
+  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }

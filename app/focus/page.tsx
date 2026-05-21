@@ -69,35 +69,20 @@ export default function FocusPage() {
     ])
       .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
-        const items = (wlData.watchlists?.[0]?.items || wlData.items || []).map((item: { symbol: string; note?: string | null }) => ({
+        const items = (wlData.watchlists?.[0]?.items || wlData.items || []).map((item: { symbol: string; note?: string | null; quote?: { name?: string | null } | null }) => ({
           symbol: item.symbol,
+          name: item.quote?.name ?? undefined,
           note: item.note
         }));
         setWatchlist(items);
-        // 批量获取股票名称
-        const symbols = items.map((i: StockItem) => i.symbol);
-        if (symbols.length) {
-          try {
-            const qRes = await fetch("/api/quotes/batch", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ symbols })
-            });
-            const qData = await qRes.json();
-            const nameMap: Record<string, string> = {};
-            for (const [sym, q] of Object.entries(qData.quotes || {})) {
-              const quote = q as { name?: string };
-              if (quote?.name) nameMap[sym] = quote.name;
-            }
-            setNames(nameMap);
-          } catch { /* 名称获取失败不影响主流程 */ }
-        }
+        setNames(Object.fromEntries(items.filter((item: StockItem) => item.name).map((item: StockItem) => [item.symbol, item.name as string])));
       })
       .catch(() => setMessage("加载失败"))
       .finally(() => setLoading(false));
   }, []);
 
   function toggleSymbol(symbol: string) {
+    setDecision(null);
     setFocus((prev) => {
       const has = prev.symbols.includes(symbol);
       return { ...prev, symbols: has ? prev.symbols.filter((s) => s !== symbol) : [...prev.symbols, symbol] };
@@ -270,7 +255,10 @@ export default function FocusPage() {
                 step="100"
                 min="0"
                 value={focus.capital ?? ""}
-                onChange={(e) => setFocus((prev) => ({ ...prev, capital: e.target.value ? Number(e.target.value) : null }))}
+                onChange={(e) => {
+                  setDecision(null);
+                  setFocus((prev) => ({ ...prev, capital: e.target.value ? Number(e.target.value) : null }));
+                }}
                 placeholder="例如 100000"
               />
               <p className="text-xs text-muted-foreground">用于 AI 计算首次建仓股数和仓位比例。</p>

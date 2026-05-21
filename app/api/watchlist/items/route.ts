@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser, getDefaultWatchlist } from "@/lib/currentUser";
-import { AppError, apiError } from "@/lib/errors";
+import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { prisma } from "@/lib/prisma";

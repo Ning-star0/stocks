@@ -1,6 +1,6 @@
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
-import { buildSectorNewsKeywords, buildStockNewsKeywords, filterRelevantNewsForStock, isLowValueMarketMoveNews, scoreNewsCatalyst } from "@/lib/news/relevance";
+import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNews, scoreNewsCatalyst } from "@/lib/news/relevance";
 import { upsertNewsItem } from "@/lib/news/store";
 import type { NewsItem } from "@/lib/types";
 import { getNewsProvider } from "@/lib/news";

@@ -233,9 +233,3 @@ function impactLabel(value: string) {
 function truncate(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
-
-function normalizeApiKey(value?: string) {
-  const key = value?.trim().replace(/^["']|["']$/g, "");
-  if (!key || key.includes("CHANGE_ME")) return null;
-  return key;
-}

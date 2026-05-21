@@ -337,12 +337,6 @@ function uniqueText(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-function normalizeApiKey(value?: string) {
-  const key = value?.trim().replace(/^["']|["']$/g, "");
-  if (!key || key.includes("CHANGE_ME") || key.includes("你的")) return null;
-  return key;
-}
-
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }

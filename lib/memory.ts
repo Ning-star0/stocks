@@ -120,11 +120,12 @@ function normalizeAdditions(additions: string | string[]) {
 }
 
 function cleanMemoryText(value: string) {
-  return value
+  const text = value
     .replace(/^\s*[-*]\s*/, "")
     .replace(/^\[(manual|auto|手动|自动)\]\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
+  return text.length > 1000 ? `${text.slice(0, 1000)}...` : text;
 }
 
 function dedupeEntries(entries: MemoryEntry[]) {

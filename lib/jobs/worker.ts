@@ -9,6 +9,7 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
   const maxConcurrent = Math.min(1, numberEnv("MAX_CONCURRENT_JOBS", 1));
   let running = 0;
   let lastScheduleCheck = 0;
+  let scheduleCheckRunning = false;
 
   while (!options.signal?.aborted) {
     if (running < maxConcurrent) {
@@ -20,9 +21,14 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
 
     // 每 60 秒检查一次关注板块的定时任务
     const now = Date.now();
-    if (now - lastScheduleCheck >= 60_000) {
+    if (!scheduleCheckRunning && now - lastScheduleCheck >= 60_000) {
       lastScheduleCheck = now;
-      checkFocusSchedules().catch(() => {});
+      scheduleCheckRunning = true;
+      checkFocusSchedules()
+        .catch(() => {})
+        .finally(() => {
+          scheduleCheckRunning = false;
+        });
     }
 
     await sleep(intervalMs);

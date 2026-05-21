@@ -84,9 +84,3 @@ function toNonEmptyString(value: unknown, fallback: string) {
   const text = String(value ?? "").trim();
   return text || fallback;
 }
-
-function normalizeApiKey(value?: string) {
-  const key = value?.trim().replace(/^["']|["']$/g, "");
-  if (!key || key.includes("CHANGE_ME")) return null;
-  return key;
-}
