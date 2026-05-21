@@ -6,6 +6,7 @@ import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { getCache, setCache } from "@/lib/cache";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
+import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
 import { saveNewsAnalysis } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 
@@ -102,15 +103,35 @@ async function failTimedOutJobs() {
 async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJob>>>) {
   if (job.jobType === JOB_TYPES.STOCK_ANALYSIS) {
     if (!job.symbol) throw new Error("股票分析任务缺少股票代码。");
-    const payload = job.payload as { reason?: string } | null;
-    const result = await runStockAnalysis({
-      userId: job.userId,
-      symbol: job.symbol,
-      inputHash: job.inputHash,
-      jobId: job.id,
-      reason: payload?.reason ?? "job_queue"
-    });
-    return { resultId: result.analysisId, skippedCached: result.fromCache };
+    const payload = job.payload as { reason?: string; refreshNews?: boolean } | null;
+
+    // 定时新闻抓取：先实际抓取新闻入库，再运行股票分析
+    if (payload?.refreshNews) {
+      try {
+        await fetchNewsForSymbol(job.symbol, job.userId);
+      } catch {
+        // 新闻抓取失败不应阻断后续股票分析
+      }
+    }
+
+    try {
+      const result = await runStockAnalysis({
+        userId: job.userId,
+        symbol: job.symbol,
+        inputHash: job.inputHash,
+        jobId: job.id,
+        reason: payload?.reason ?? "job_queue"
+      });
+      return { resultId: result.analysisId, skippedCached: result.fromCache };
+    } catch (error) {
+      // 行情不可用时保存 fallback 分析，避免任务失败后无任何分析记录
+      const message = error instanceof Error ? error.message : "未知错误";
+      const fallback = await saveFallbackAnalysisForFailedStock(job.userId, job.symbol, message);
+      if (fallback) {
+        return { resultId: fallback.id, skippedCached: false };
+      }
+      throw error;
+    }
   }
 
   if (job.jobType === JOB_TYPES.NEWS_ANALYSIS) {
@@ -193,6 +214,87 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
   }
 
   throw new Error(`未知任务类型：${job.jobType}`);
+}
+
+async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string, errorMessage: string) {
+  try {
+    const existing = await prisma.aiAnalysis.findFirst({
+      where: { userId, symbol },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const outputJson = {
+      trend: "neutral",
+      confidence: 0.3,
+      analysisAsOf: new Date().toISOString(),
+      isFallback: true,
+      fallbackReason: `系统无法获取 ${symbol} 的行情数据（${errorMessage}），已生成占位分析。请检查数据源配置或股票代码是否正确。`,
+      summary: `${symbol} 无法获取行情数据，已跳过 AI 分析。原因：${errorMessage}`,
+      newsSummary: "",
+      newsSentiment: "neutral",
+      webSearchSummary: "",
+      newsReferences: [],
+      webSearchResults: [],
+      catalystEvents: [],
+      macroRisks: [],
+      sectorRisks: [],
+      keyLevels: { support: [], resistance: [] },
+      riskFactors: [`行情数据不可用：${errorMessage}`],
+      holdAdvice: {
+        action: "继续持有观察",
+        reason: `因行情数据不可用（${errorMessage}），无法提供基于数据的持仓建议。请先确认数据源配置正确。`,
+        stopLoss: "请手动设置止损位。",
+        takeProfit: "请手动设置止盈位。",
+        positionManagement: "数据缺失期间建议不再加仓。",
+        keyMonitorPoints: "确认股票代码正确，检查数据源 API 是否正常。",
+        invalidIf: "行情数据恢复后需重新分析。"
+      },
+      entryAdvice: {
+        action: "不建议入场",
+        reason: `因行情数据不可用（${errorMessage}），无法提供入场建议。`,
+        entryZone: "",
+        timing: "",
+        triggerCondition: "等待行情数据恢复后再评估。",
+        firstPositionSize: "",
+        stopLoss: "",
+        takeProfit: "",
+        invalidIf: "行情数据恢复后需重新分析。"
+      },
+      possibleActions: [
+        {
+          action: "watch",
+          reason: `行情数据不可用：${errorMessage}。请检查数据源配置。`,
+          timing: "持续观察",
+          triggerCondition: "行情数据恢复后重新分析。",
+          entryZone: "",
+          stopLossPlan: "",
+          takeProfitPlan: "",
+          positionSizing: "",
+          followUpCheck: "确认数据源 API 密钥、股票代码是否正确。",
+          invalidIf: "行情数据恢复、股票代码变更。"
+        }
+      ],
+      disclaimer: "系统无法获取该股票的行情数据，此占位分析仅供提示参考。"
+    };
+
+    if (existing) {
+      return prisma.aiAnalysis.update({
+        where: { id: existing.id },
+        data: { outputJson: outputJson as any }
+      });
+    }
+
+    return prisma.aiAnalysis.create({
+      data: {
+        userId,
+        symbol,
+        inputJson: { symbol, error: errorMessage, fallback: true } as any,
+        outputJson: outputJson as any
+      }
+    });
+  } catch {
+    return null;
+  }
 }
 
 function truncate(value: string, maxLength: number) {

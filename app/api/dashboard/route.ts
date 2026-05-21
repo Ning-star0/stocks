@@ -24,7 +24,7 @@ export async function GET() {
       prisma.alert.findMany({ where: { userId: user.id, isActive: true }, orderBy: { createdAt: "desc" }, take: 20 }),
       symbols.length
         ? prisma.newsItem.findMany({
-            where: { importance: "high", symbols: { hasSome: symbols } },
+            where: { importance: { in: ["high", "medium"] }, symbols: { hasSome: symbols } },
             select: {
               id: true,
               title: true,
@@ -38,8 +38,8 @@ export async function GET() {
               importance: true,
               createdAt: true
             },
-            orderBy: { publishedAt: "desc" },
-            take: 10
+            orderBy: [{ importance: "asc" }, { publishedAt: "desc" }],
+            take: 20
           })
         : Promise.resolve([])
     ]);
