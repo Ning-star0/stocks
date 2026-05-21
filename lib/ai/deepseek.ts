@@ -69,10 +69,14 @@ async function createDeepSeekCompletion(config: { apiKey: string; baseUrl: strin
     return payload as ChatCompletion;
   } catch (error) {
     if (error instanceof AppError) throw error;
-    const message = error instanceof Error ? error.message : "未知连接错误";
+    const message = error instanceof Error && error.name === "AbortError"
+      ? `请求超过 ${Math.round(numberEnv("AI_REQUEST_TIMEOUT_MS", 120000) / 1000)} 秒未返回，已自动中断`
+      : error instanceof Error ? error.message : "未知连接错误";
     throw new AppError("DATA_PROVIDER_ERROR", `DeepSeek API 连接失败：${message}`, {
       baseUrl: config.baseUrl,
-      hint: "请检查 API 地址和密钥是否正确。"
+      hint: error instanceof Error && error.name === "AbortError"
+        ? "请稍后重试，或减少传入新闻数量/切换更快模型。"
+        : "请检查 API 地址和密钥是否正确。"
     });
   } finally {
     clearTimeout(timeout);

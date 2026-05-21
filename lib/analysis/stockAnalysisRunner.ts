@@ -145,7 +145,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     url: item.url,
     source: item.source,
     publishedAt: item.publishedAt.toISOString(),
-    summary: item.analyses[0]?.aiSummary ?? item.summary ?? item.title,
+    summary: truncateText(item.analyses[0]?.aiSummary ?? item.summary ?? item.title, 700),
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
@@ -154,7 +154,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     url: item.url ?? null,
     source: item.source ?? null,
     publishedAt: item.publishedAt ?? null,
-    summary: item.summary ?? item.rawContent ?? item.title
+    summary: truncateText(item.summary ?? item.rawContent ?? item.title, 700)
   }));
   const recentNews = dedupeAnalysisNews([
     ...newsReferences,
@@ -189,6 +189,13 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     userMemory: memory || "",
     analysisAsOf,
     dataScope,
+    tradingFeeRule: {
+      rate: 0.0005,
+      minimumFeeBase: 10000,
+      minimumFee: 5,
+      lotSize: 100,
+      description: "买入手续费为成交金额的万分之五；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 按 100 股/份整数手买入。"
+    },
     recentNews,
     webSearchResults
   };
@@ -230,6 +237,11 @@ function dedupeAnalysisNews<T extends { title: string; url?: string | null }>(it
     output.push(item);
   }
   return output;
+}
+
+function truncateText(value: string, maxLength: number) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
 async function logAiUsage(input: {

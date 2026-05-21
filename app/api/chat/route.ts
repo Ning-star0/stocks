@@ -102,8 +102,8 @@ ${context}`;
             // 流结束了，看看 AI 有没有要写进记忆的内容
             const memories: string[] = [];
             let match: RegExpExecArray | null;
-            const tagRegex = /\[MEMORY:([\s\S]*?)\]/g;
-            while ((match = tagRegex.exec(fullContent)) !== null) {
+            MEMORY_TAG.lastIndex = 0;
+            while ((match = MEMORY_TAG.exec(fullContent)) !== null) {
               const mem = match[1].trim();
               if (mem) memories.push(mem);
             }

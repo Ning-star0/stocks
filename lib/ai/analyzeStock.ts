@@ -30,6 +30,13 @@ export type AnalyzeStockInput = {
     newsCount?: number;
     webSearchStatus?: string;
   };
+  tradingFeeRule?: {
+    rate: number;
+    minimumFeeBase: number;
+    minimumFee: number;
+    lotSize: number;
+    description: string;
+  };
   recentNews?: unknown;
   webSearchResults?: unknown;
 };
@@ -104,7 +111,8 @@ function buildUserPrompt(input: AnalyzeStockInput) {
 8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
 9. 所有自然语言分析字段必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
 10. holdAdvice 和 entryAdvice 是本报告的核心。holdAdvice 回答”如果已持仓，现在该怎么办”；entryAdvice 回答”如果尚未持仓，应该在什么点位、什么时机考虑入场”。每个字段都必须具体、可执行，不能写空话。必须使用”若...则考虑...”的谨慎语气。
-11. possibleActions 保留作为补充计划，沿用原有格式，至少 2 个场景。
+11. 如果用户提供了交易手续费规则，entryAdvice.firstPositionSize 必须结合手续费和最小计费金额，不要建议过小金额的交易；A 股/ETF 买入数量按 100 股/份取整。
+12. possibleActions 保留作为补充计划，沿用原有格式，至少 2 个场景。
 
 股票代码：
 ${input.symbol}
@@ -132,6 +140,9 @@ ${input.userMemory || "暂无记录"}
 
 用户的可用本金：
 ${input.userCapital ? `${input.userCapital} 元。请基于总本金计算 entryAdvice.firstPositionSize 为具体股数或百分比（如"约100股，占总本金8%"），不要写"轻仓"这种模糊表述。` : "用户未填写。仓位建议用百分比表述，不要写模糊词。"}
+
+交易手续费规则：
+${input.tradingFeeRule ? JSON.stringify(input.tradingFeeRule, null, 2) : "未提供。"}
 
 
 
@@ -595,5 +606,4 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
     disclaimer: "本内容由系统本地规则生成，仅供研究参考，不构成投资建议。"
   };
 }
-
 
