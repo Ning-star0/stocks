@@ -70,28 +70,14 @@ export default function FocusPage() {
     });
   }
 
-  function addAnalysisTime() {
-    const t = newTime.trim();
-    if (!/^\d{1,2}:\d{2}$/.test(t)) return;
-    setFocus((prev) => ({
-      ...prev,
-      analysisTimes: [...new Set([...prev.analysisTimes, t])].sort()
-    }));
-    setNewTime("");
-  }
-
-  function removeAnalysisTime(t: string) {
-    setFocus((prev) => ({ ...prev, analysisTimes: prev.analysisTimes.filter((x) => x !== t) }));
-  }
-
-  async function save() {
+  async function doSave(data: FocusData) {
     setSaving(true);
     setMessage(null);
     try {
       const res = await fetch("/api/focus", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(focus)
+        body: JSON.stringify(data)
       });
       if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");
       setMessage("已保存");
@@ -101,6 +87,29 @@ export default function FocusPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function addAnalysisTime() {
+    const t = newTime.trim();
+    if (!/^\d{1,2}:\d{2}$/.test(t)) return;
+    setFocus((prev) => {
+      const next = { ...prev, analysisTimes: [...new Set([...prev.analysisTimes, t])].sort() };
+      doSave(next);
+      return next;
+    });
+    setNewTime("");
+  }
+
+  function removeAnalysisTime(t: string) {
+    setFocus((prev) => {
+      const next = { ...prev, analysisTimes: prev.analysisTimes.filter((x) => x !== t) };
+      doSave(next);
+      return next;
+    });
+  }
+
+  async function save() {
+    doSave(focus);
   }
 
   if (loading) {
