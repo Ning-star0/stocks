@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,13 +49,12 @@ export function AiAnalysisPanel({
   const primaryAdvice = getPrimaryAdvice(analysis, position);
 
   return (
-    <Card>
+    <Card className="soft-card">
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div>
-          <CardTitle>AI 投资建议</CardTitle>
+          <CardTitle>AI 策略观察</CardTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>生成：{formatTime(createdAt)}</span>
-            {analysis.analysisAsOf ? <span>截至：{formatTime(analysis.analysisAsOf)}</span> : null}
             <Badge variant="secondary">置信度 {formatConfidence(confidence)}</Badge>
             {fromCache ? <Badge variant="secondary">缓存结果</Badge> : null}
             {analysis.isFallback ? <Badge variant="danger">本地兜底</Badge> : null}
@@ -68,22 +69,23 @@ export function AiAnalysisPanel({
           </div>
         ) : null}
 
-        {dataScope ? (
-          <Block title="分析口径">
-            <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground md:grid-cols-2">
-              <ScopeLine label="报价时间" value={formatTime(dataScope.quoteTime)} />
-              <ScopeLine label="历史数据" value={`${dataScope.historyRange ?? "--"} / ${dataScope.historyInterval ?? "--"}，${dataScope.historyCandles ?? 0} 根 K 线`} />
-              <ScopeLine label="历史范围" value={`${formatDate(dataScope.historyFrom)} 至 ${formatDate(dataScope.historyTo)}`} />
-              <ScopeLine label="新闻范围" value={dataScope.newsWindow ?? "--"} />
-              <ScopeLine label="新闻数量" value={`${dataScope.newsCount ?? 0} 条传入 AI`} />
-              <ScopeLine label="联网检索" value={dataScope.webSearchStatus ?? "--"} />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <StrategyBadge tone={trendToStrategy(analysis.trend).tone}>策略方向：{trendToStrategy(analysis.trend).label}</StrategyBadge>
+              <StrategyBadge tone={actionTone(primaryAdvice.action)}>当前动作：{primaryAdvice.action || "继续观察"}</StrategyBadge>
+              <Badge variant="secondary">风险等级：{riskLevelText(riskFactors)}</Badge>
             </div>
-          </Block>
-        ) : null}
-
-        <Block title="摘要">
-          <p className="text-sm leading-6">{analysis.summary || "暂无摘要。"}</p>
-        </Block>
+            <h3 className="mt-4 text-xl font-semibold">{strategyHeadline(analysis, primaryAdvice.action)}</h3>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{analysis.summary || primaryAdvice.reason || "暂无摘要。"}</p>
+          </div>
+          <div className="grid gap-2 rounded-xl border border-border bg-muted/15 p-4 text-sm">
+            <ScopeLine label="置信度" value={formatConfidence(confidence)} />
+            <ScopeLine label="适合状态" value={primaryAdvice.isHolding ? "持仓跟踪" : "未持仓观察"} />
+            <ScopeLine label="当前动作" value={primaryAdvice.action || "继续观察"} />
+            <ScopeLine label="截至" value={formatTime(analysis.analysisAsOf)} />
+          </div>
+        </div>
 
         {analysis.holdAdvice || analysis.entryAdvice ? (
           <PrimaryAdviceCard analysis={analysis} primaryAdvice={primaryAdvice} />
@@ -127,12 +129,22 @@ export function AiAnalysisPanel({
           </Block>
         ) : null}
 
-        {analysis.webSearchSummary || webSearchResults.length ? (
-          <Block title="联网新闻检索">
-            {analysis.webSearchSummary ? <p className="text-sm leading-6">{analysis.webSearchSummary}</p> : null}
+        <CollapsiblePanel title="分析依据与数据来源">
+          <div className="space-y-4">
+            {dataScope ? (
+              <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground md:grid-cols-2">
+                <ScopeLine label="报价时间" value={formatTime(dataScope.quoteTime)} />
+                <ScopeLine label="历史数据" value={`${dataScope.historyRange ?? "--"} / ${dataScope.historyInterval ?? "--"}，${dataScope.historyCandles ?? 0} 根 K 线`} />
+                <ScopeLine label="历史范围" value={`${formatDate(dataScope.historyFrom)} 至 ${formatDate(dataScope.historyTo)}`} />
+                <ScopeLine label="新闻范围" value={dataScope.newsWindow ?? "--"} />
+                <ScopeLine label="新闻数量" value={`${dataScope.newsCount ?? 0} 条传入 AI`} />
+                <ScopeLine label="联网检索" value={dataScope.webSearchStatus ?? "--"} />
+              </div>
+            ) : null}
+            {analysis.webSearchSummary ? <p className="text-sm leading-6 text-muted-foreground">{analysis.webSearchSummary}</p> : null}
             <SearchResultList items={webSearchResults} />
-          </Block>
-        ) : null}
+          </div>
+        </CollapsiblePanel>
 
         <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
@@ -147,18 +159,17 @@ function PrimaryAdviceCard({
   analysis: AiAnalysisResult;
   primaryAdvice: ReturnType<typeof getPrimaryAdvice>;
 }) {
-  const tone = primaryAdvice.isHolding ? "blue" : "green";
   const secondary = primaryAdvice.isHolding ? analysis.entryAdvice : analysis.holdAdvice;
   return (
     <div className="space-y-3">
-      <div className={tone === "blue" ? "rounded-lg border-2 border-blue-500/30 bg-blue-500/5 p-4" : "rounded-lg border-2 border-green-500/30 bg-green-500/5 p-4"}>
-        <div className={tone === "blue" ? "mb-3 flex flex-wrap items-center gap-2 text-sm font-bold text-blue-700 dark:text-blue-400" : "mb-3 flex flex-wrap items-center gap-2 text-sm font-bold text-green-700 dark:text-green-400"}>
-          <span>{primaryAdvice.title}</span>
-          <Badge variant="secondary">{primaryAdvice.statusLabel}</Badge>
+      <div className="rounded-xl border border-primary/25 bg-background/45 p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold text-primary">
+          <span>{primaryAdvice.isHolding ? "持仓策略" : "交易情景"}</span>
+          <Badge variant="secondary">{primaryAdvice.isHolding ? "持仓跟踪" : "未持仓观察"}</Badge>
         </div>
         {primaryAdvice.action ? (
           <div className="mb-3">
-            <Badge variant="default" className="text-sm font-bold">{primaryAdvice.action}</Badge>
+            <StrategyBadge tone={actionTone(primaryAdvice.action)}>{primaryAdvice.action}</StrategyBadge>
           </div>
         ) : null}
         <div className="mb-3 text-sm leading-6 text-muted-foreground">{primaryAdvice.reason}</div>
@@ -170,7 +181,7 @@ function PrimaryAdviceCard({
       </div>
       {secondary ? (
         <details className="rounded-md border border-border bg-muted/15 p-3">
-          <summary className="cursor-pointer text-sm text-muted-foreground">查看另一种场景建议</summary>
+          <summary className="cursor-pointer text-sm text-muted-foreground">查看另一种交易情景</summary>
           <div className="mt-3 text-sm leading-6 text-muted-foreground">{secondary.reason}</div>
         </details>
       ) : null}
@@ -398,6 +409,29 @@ function formatAction(action: string) {
     avoid: "回避"
   };
   return map[action] ?? action;
+}
+
+function actionTone(action?: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
+  const text = action ?? "";
+  if (/回避|止损|减仓|离场|不建议/.test(text)) return "avoid";
+  if (/等待|回调|观察|观望/.test(text)) return "wait";
+  if (/入场|建仓|试探|加仓|增持/.test(text)) return "bullish";
+  return "watch";
+}
+
+function strategyHeadline(analysis: AiAnalysisResult, action?: string) {
+  const trend = trendToStrategy(analysis.trend).label;
+  if (/等待|回调|观察|观望/.test(action ?? "")) return `${trend}，但不宜追高`;
+  if (/回避|止损|减仓|离场|不建议/.test(action ?? "")) return `${trend}，优先控制风险`;
+  if (/入场|建仓|试探|加仓|增持/.test(action ?? "")) return `${trend}，等待触发条件`;
+  return `${trend}，保持策略观察`;
+}
+
+function riskLevelText(values: string[]) {
+  const text = values.join(" ");
+  if (/高|重大|过热|止损|下跌|风险/.test(text)) return "高";
+  if (values.length) return "中";
+  return "低";
 }
 
 function formatTime(value?: string | Date | null) {

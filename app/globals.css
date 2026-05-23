@@ -4,13 +4,13 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
+    --background: 210 24% 98%;
     --foreground: 220 24% 9%;
     --card: 0 0% 100%;
     --card-foreground: 220 24% 9%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 24% 9%;
-    --primary: 166 76% 31%;
+    --primary: 166 58% 34%;
     --primary-foreground: 0 0% 100%;
     --secondary: 216 18% 92%;
     --secondary-foreground: 220 24% 12%;
@@ -22,7 +22,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 18% 86%;
     --input: 214 18% 86%;
-    --ring: 166 76% 31%;
+    --ring: 166 58% 34%;
     --radius: 0.5rem;
   }
 
@@ -33,7 +33,7 @@
     --card-foreground: 210 20% 94%;
     --popover: 220 20% 11%;
     --popover-foreground: 210 20% 94%;
-    --primary: 166 68% 42%;
+    --primary: 166 56% 45%;
     --primary-foreground: 220 24% 7%;
     --secondary: 218 16% 18%;
     --secondary-foreground: 210 20% 94%;
@@ -61,8 +61,201 @@
 @layer components {
   .terminal-grid {
     background-image:
-      linear-gradient(hsl(var(--border) / 0.22) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--border) / 0.22) 1px, transparent 1px);
+      linear-gradient(hsl(var(--border) / 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.12) 1px, transparent 1px);
     background-size: 32px 32px;
+  }
+
+  .soft-card {
+    @apply border-border/70 bg-card/90 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
+  }
+
+  .motion-page-enter,
+  .page-enter {
+    animation: page-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-card-enter,
+  .animate-card {
+    animation: card-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-fade-up {
+    animation: fade-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-badge-pop,
+  .animate-badge {
+    animation: badge-pop 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-number-change {
+    animation: number-change 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-chart-enter {
+    animation: chart-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .motion-hover-lift {
+    @apply transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_14px_34px_hsl(220_20%_20%/0.08)];
+  }
+
+  .motion-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .motion-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, hsl(var(--foreground) / 0.05), transparent);
+    animation: shimmer 1500ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    pointer-events: none;
+  }
+
+  .table-row-focus {
+    @apply relative transition-colors duration-150 hover:bg-primary/5;
+  }
+
+  .table-row-focus::before {
+    content: "";
+    position: absolute;
+    inset-block: 8px;
+    left: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: hsl(var(--primary) / 0);
+    transition: background 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .table-row-focus:hover::before {
+    background: hsl(var(--primary) / 0.45);
+  }
+
+  .table-row-focus .row-actions {
+    opacity: 0.72;
+    transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .table-row-focus:hover .row-actions {
+    opacity: 1;
+  }
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes number-change {
+  from {
+    opacity: 0.4;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chart-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 120ms !important;
+  }
+
+  .motion-page-enter,
+  .page-enter,
+  .motion-card-enter,
+  .animate-card,
+  .motion-fade-up,
+  .motion-badge-pop,
+  .animate-badge,
+  .motion-number-change,
+  .motion-chart-enter {
+    animation-name: reduced-fade !important;
+    transform: none !important;
+  }
+
+  .motion-hover-lift,
+  .motion-hover-lift:hover,
+  .table-row-focus,
+  .table-row-focus:hover {
+    transform: none !important;
+  }
+
+  .motion-shimmer::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
+@keyframes reduced-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

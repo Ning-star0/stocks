@@ -6,9 +6,11 @@ import { IndicatorPanel } from "@/components/IndicatorPanel";
 import { NewsPanel } from "@/components/NewsPanel";
 import { PositionEditor } from "@/components/PositionEditor";
 import { RiskBadge } from "@/components/RiskBadge";
+import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { StockChart } from "@/components/StockChart";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageContainer } from "@/components/ui/layout";
 import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/lib/currentUser";
 import { calculateIndicators } from "@/lib/indicators";
@@ -81,37 +83,43 @@ export default async function StockDetailPage({
   const analysis = latestAnalysis?.outputJson as AiAnalysisResult | undefined;
   const displayName = quote.name ?? quoteSymbol;
   const isIndex = isIndexSymbol(quoteSymbol);
+  const strategy = trendToStrategy(analysis?.trend);
+  const currentAction = currentActionLabel(analysis);
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
       {quote.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
       {quote.status === "error" || quote.status === "unavailable" ? (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{quote.error ?? "行情不可用。"}</div>
       ) : null}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-normal">{displayName}</h1>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {quoteSymbol} / {formatQuoteStatus(quote.status)}
+      <Card className="soft-card">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-semibold tracking-normal">{displayName}</h1>
+                <span className="text-sm text-muted-foreground">{quoteSymbol}</span>
+                <TrendBadge trend={analysis?.trend} />
+                {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                <span className="text-3xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatPriceValue(quote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
+                <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
+                  {quote.changePct === null ? "--" : formatPercent(quote.changePct)}
+                </span>
+                <span>成交量 {quote.volume === null ? "--" : formatNumber(quote.volume)}</span>
+                <span>{quote.updatedAt ? new Date(quote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
               </div>
             </div>
-            <TrendBadge trend={analysis?.trend} />
-            {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <StrategyBadge tone={strategy.tone}>策略方向：{strategy.label}</StrategyBadge>
+              <StrategyBadge tone={currentAction.tone}>当前动作：{currentAction.label}</StrategyBadge>
+              <AnalyzeStockButton symbol={quoteSymbol} />
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <span className="text-2xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatPriceValue(quote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
-            <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
-              {quote.changePct === null ? "--" : formatPercent(quote.changePct)}
-            </span>
-            <span>成交量 {quote.volume === null ? "--" : formatNumber(quote.volume)}</span>
-            <span>{quote.updatedAt ? new Date(quote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
-          </div>
-        </div>
-        <AnalyzeStockButton symbol={quoteSymbol} />
-      </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">
@@ -168,7 +176,7 @@ export default async function StockDetailPage({
           </Card>
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }
 
@@ -260,19 +268,16 @@ function normalizeRange(value: string | undefined, interval: string) {
   return isIntraday(interval) ? "1mo" : "6mo";
 }
 
-function isIntraday(interval: string) {
-  return ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
+function currentActionLabel(analysis?: AiAnalysisResult): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {
+  const action = analysis?.entryAdvice?.action || analysis?.holdAdvice?.action || "";
+  if (/回避|止损|减仓|离场|不建议/.test(action)) return { label: "风险规避", tone: "avoid" };
+  if (/等待|回调|观察|观望/.test(action)) return { label: "等待回调", tone: "wait" };
+  if (/入场|建仓|试探|加仓|增持/.test(action)) return { label: "谨慎追踪", tone: "bullish" };
+  return { label: "继续观察", tone: "watch" };
 }
 
-function formatQuoteStatus(status: string) {
-  const map: Record<string, string> = {
-    normal: "实时行情",
-    cached: "缓存行情",
-    stale: "旧行情",
-    unavailable: "不可用",
-    error: "行情错误"
-  };
-  return map[status] ?? status;
+function isIntraday(interval: string) {
+  return ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
 }
 
 // 6 位纯数字代码展开成可能的 A 股格式，让 DB 查询能匹配上各种后缀

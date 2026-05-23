@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Brain, Check, Loader2, Server } from "lucide-react";
+import type { ReactNode } from "react";
+import Link from "next/link";
+import { BookOpen, Brain, Check, Code2, Loader2, Server } from "lucide-react";
 
+import { LogoutButton } from "@/components/LogoutButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PageContainer, SectionHeader } from "@/components/ui/layout";
 
 export default function SettingsPage() {
   // 密钥输入框始终为空，不存掩码值——之前把 "sk-abc***xyz" 写进 DB 的 bug 就出在这
@@ -74,10 +79,29 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
-      <h1 className="text-2xl font-bold">AI 设置</h1>
+    <PageContainer className="max-w-4xl">
+      <SectionHeader title="设置" description="管理 AI 接口、主题、记忆与系统入口。后台类功能已收纳在这里，避免主导航过重。" />
 
-      <Card>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <QuickLink href="/api-docs" icon={<Code2 className="h-4 w-4" />} title="接口与健康检查" text="查看 API、连接状态与运行成本。" />
+        <QuickLink href="/memory" icon={<BookOpen className="h-4 w-4" />} title="记忆管理" text="维护手动记忆和自动沉淀的偏好。" />
+      </div>
+
+      <Card className="soft-card">
+        <CardHeader>
+          <CardTitle>外观与账号</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <div className="mr-auto min-w-0">
+            <div className="text-sm font-medium">主题：跟随系统</div>
+            <p className="mt-1 text-xs text-muted-foreground">可切换浅色、深色或跟随系统设置。</p>
+          </div>
+          <ThemeToggle />
+          <LogoutButton />
+        </CardContent>
+      </Card>
+
+      <Card className="soft-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Brain className="h-5 w-5" />
@@ -118,6 +142,18 @@ export default function SettingsPage() {
           {error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
         </CardContent>
       </Card>
-    </div>
+    </PageContainer>
+  );
+}
+
+function QuickLink({ href, icon, title, text }: { href: string; icon: ReactNode; title: string; text: string }) {
+  return (
+    <Link href={href} className="group rounded-lg border border-border/70 bg-card/85 p-4 shadow-sm transition-all duration-150 hover:-translate-y-px hover:border-primary/30 hover:shadow-md">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <span className="text-primary transition-transform duration-150 group-hover:-translate-y-px">{icon}</span>
+        {title}
+      </div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{text}</p>
+    </Link>
   );
 }

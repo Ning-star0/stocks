@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Brain, Loader2 } from "lucide-react";
+import { Brain } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadingInsight } from "@/components/ui/layout";
 
 type JobStatus = "idle" | "cached" | "queued" | "running" | "completed" | "failed";
 
@@ -79,7 +80,7 @@ export function AnalyzeStockButton({ symbol }: { symbol: string }) {
     <div className="flex flex-col items-start gap-2 md:items-end">
       <div className="flex gap-2">
         <Button onClick={() => analyze(false)} disabled={isBusy}>
-          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+          <Brain className="h-4 w-4" />
           {buttonText(status)}
         </Button>
         <Button variant="outline" onClick={() => analyze(true)} disabled={isBusy}>
@@ -87,19 +88,8 @@ export function AnalyzeStockButton({ symbol }: { symbol: string }) {
         </Button>
       </div>
       {isBusy ? (
-        <div className="max-w-sm space-y-1.5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex gap-0.5">
-              <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: "0ms" }} />
-              <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: "150ms" }} />
-              <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-blue-400" style={{ animationDelay: "300ms" }} />
-            </span>
-            <span>{thinkingMessage(elapsed)}</span>
-            <span className="tabular-nums">({formatElapsed(elapsed)})</span>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div className="h-full animate-pulse rounded-full bg-blue-500/50" style={{ width: `${Math.min(elapsed * 2, 90)}%` }} />
-          </div>
+        <div className="w-full max-w-sm">
+          <LoadingInsight text={`${thinkingMessage(elapsed)}（${formatElapsed(elapsed)}）`} />
         </div>
       ) : null}
       {status === "completed" ? (
@@ -127,11 +117,11 @@ async function pollJob(jobId: string) {
 }
 
 function thinkingMessage(elapsed: number) {
-  if (elapsed < 10) return "正在获取数据并进行分析...";
-  if (elapsed < 30) return "AI 正在综合技术面、新闻和行业催化...";
-  if (elapsed < 60) return "模型深度推理中，请耐心等待...";
-  if (elapsed < 120) return "分析即将完成...";
-  return "数据量较大，仍在处理中...";
+  if (elapsed < 8) return "正在读取行情数据";
+  if (elapsed < 20) return "正在分析技术指标";
+  if (elapsed < 45) return "正在综合新闻情绪";
+  if (elapsed < 120) return "正在生成策略观察";
+  return "数据量较大，仍在稳妥处理中";
 }
 
 function formatElapsed(seconds: number) {

@@ -2,8 +2,9 @@
 
 import { MouseEvent, useMemo, useRef, useState } from "react";
 
+import { motionClassNames } from "@/lib/motion";
 import type { Candle } from "@/lib/types";
-import { formatNumber, formatPriceValue } from "@/lib/utils";
+import { cn, formatNumber, formatPriceValue } from "@/lib/utils";
 
 type ChartPoint = Candle & {
   date: string;
@@ -114,7 +115,11 @@ export function StockChart({
   }
 
   if (!data.length) {
-    return <div className="flex h-[460px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>;
+    return (
+      <div className={cn(motionClassNames.shimmer, "flex h-[460px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground md:h-[520px]")}>
+        暂无可展示的 K 线数据。
+      </div>
+    );
   }
 
   return (
@@ -145,7 +150,7 @@ export function StockChart({
 
       <div className="grid items-start gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
-        <div className="h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]">
+        <div className={cn(motionClassNames.chartEnter, "h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
           <svg
             className="h-full w-full"
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}

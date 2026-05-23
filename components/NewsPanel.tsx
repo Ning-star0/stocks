@@ -153,7 +153,7 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
 
   return (
     <div className="space-y-2">
-      {items.slice(0, 5).map((item) => {
+      {items.slice(0, 3).map((item) => {
         const analysis = item.analyses?.[0];
         const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.filter(Boolean) : [];
         return (

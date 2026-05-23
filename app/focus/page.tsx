@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LoadingInsight, PageContainer, SectionHeader, StatCard } from "@/components/ui/layout";
+import { StrategyBadge } from "@/components/StrategyBadge";
+import { motionClassNames, staggerDelay } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 type FocusData = {
@@ -181,27 +184,24 @@ export default function FocusPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 py-4">
-      <div className="flex flex-col gap-4 rounded-lg border border-border/80 bg-card/80 px-5 py-5 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-normal">今日关注</h1>
-            <Badge variant={focus.symbols.length ? "success" : "secondary"}>{focus.symbols.length} 只已关注</Badge>
-          </div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">从自选股中挑出今天真正需要盯盘的标的，定时抓取新闻并触发 AI 分析，减少无效消耗。</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <PageContainer>
+      <SectionHeader
+        title="今日关注"
+        description="今日关注用于从自选股中筛选少量重点标的。系统只会对这些标的定时抓取新闻和生成 AI 分析，以减少无效消耗。"
+        action={
+          <>
           {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
           <Button onClick={save} disabled={saving || !focus.symbols.length} className="min-w-32">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "保存中" : "保存配置"}
+            {saving ? "保存中" : "保存今日关注设置"}
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         {/* 选股区 */}
-        <Card className="bg-card/90">
+        <Card className="soft-card">
           <CardHeader>
             <CardTitle className="flex items-center justify-between gap-3">
               <span>选择关注股票</span>
@@ -223,9 +223,9 @@ export default function FocusPage() {
                     <label
                       key={item.symbol}
                       className={cn(
-                        "group flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 text-sm transition-colors",
+                        "group flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 text-sm transition-all duration-150 hover:-translate-y-px",
                         focus.symbols.includes(item.symbol)
-                          ? "border-primary/30 bg-primary/10"
+                          ? "border-primary/35 bg-primary/10 shadow-sm"
                           : "border-border/70 bg-background/30 hover:border-primary/30 hover:bg-muted/40"
                       )}
                     >
@@ -237,7 +237,7 @@ export default function FocusPage() {
                       />
                       <span
                         className={cn(
-                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
                           focus.symbols.includes(item.symbol) ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
                         )}
                       >
@@ -259,7 +259,7 @@ export default function FocusPage() {
         </Card>
 
         {/* 时间设置区 */}
-        <Card className="bg-card/90">
+        <Card className="soft-card">
           <CardHeader>
             <CardTitle>配置与分析时间</CardTitle>
           </CardHeader>
@@ -321,7 +321,7 @@ export default function FocusPage() {
         </Card>
       </div>
 
-      <Card className="bg-card/90">
+      <Card id="decision" className="soft-card">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -343,10 +343,7 @@ export default function FocusPage() {
           ) : decision ? (
             <FocusDecisionPanel decision={decision} />
           ) : decisionLoading ? (
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background/20 p-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在读取买入决策
-            </div>
+            <LoadingInsight />
           ) : (
             <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">到达自动分析时间后，这里会显示系统后台生成的推荐买入计划、预计手续费、总成本和保留现金。</div>
           )}
@@ -355,7 +352,7 @@ export default function FocusPage() {
 
       {/* 分析结果 */}
       {focus.symbols.length > 0 ? (
-        <Card className="bg-card/90">
+        <Card className="soft-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Brain className="h-4 w-4" />
@@ -371,12 +368,13 @@ export default function FocusPage() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </PageContainer>
   );
 }
 
 function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
   const shouldBuy = decision.recommendedAction === "buy" && decision.orders.length > 0;
+  const nextObserve = decision.scheduledFor ? formatDateTime(decision.scheduledFor) : "等待下一次自动分析";
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
@@ -390,15 +388,18 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
         {decision.fromCache ? <Badge variant="secondary">已保存决策</Badge> : <Badge variant="success">最新决策</Badge>}
         {decision.stale ? <Badge variant="secondary">配置已变化</Badge> : null}
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
-        <Metric label="总本金" value={Math.round(decision.capital)} />
-        <Metric label="计划买入" value={Math.round(decision.totalBudgetToUse)} />
-        <Metric label="预计手续费" value={Math.round(decision.totalEstimatedFee)} />
-        <Metric label="保留现金" value={Math.round(decision.cashReserve)} />
+      <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/10" : "border-amber-500/25 bg-amber-500/10")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
+          <Badge variant="secondary">下一次观察：{nextObserve}</Badge>
+        </div>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">原因：{decision.summary}</p>
       </div>
-      <div className={cn("rounded-md border px-4 py-3", shouldBuy ? "border-primary/30 bg-primary/10" : "border-amber-500/30 bg-amber-500/10")}>
-        <div className="mb-1 text-sm font-semibold">{shouldBuy ? "建议买入" : "建议等待"}</div>
-        <p className="text-sm leading-6 text-muted-foreground">{decision.summary}</p>
+      <div className="grid gap-3 md:grid-cols-4">
+        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} />
+        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={1} />
+        <StatCard label="保留现金" value={formatMoney(decision.cashReserve)} delayIndex={2} />
+        <StatCard label="总本金" value={formatMoney(decision.capital)} delayIndex={3} />
       </div>
       {decision.orders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">
@@ -428,14 +429,21 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
       {decision.ranking.length ? (
         <div className="space-y-2">
           <div className="text-xs font-medium text-muted-foreground">候选排序</div>
-          <div className="grid gap-2 md:grid-cols-3">
-            {decision.ranking.slice(0, 6).map((item) => (
-              <div key={`${item.symbol}-${item.rank}`} className="rounded-md border border-border bg-muted/15 px-3 py-2 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{item.rank}. {item.symbol}</span>
-                  <span className="text-xs text-muted-foreground">{item.view}</span>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {decision.ranking.slice(0, 6).map((item, index) => (
+              <div
+                key={`${item.symbol}-${item.rank}`}
+                className={cn(motionClassNames.cardEnter, motionClassNames.hoverLift, "rounded-lg border border-border bg-muted/15 p-3 text-sm")}
+                style={{ animationDelay: `${staggerDelay(index)}ms` }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-medium">#{item.rank} {item.symbol}</span>
+                    <p className="mt-1 text-xs text-muted-foreground">建议动作：{item.view}</p>
+                  </div>
+                  <StrategyBadge tone={rankingTone(item.view)}>{item.view}</StrategyBadge>
                 </div>
-                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.reason}</p>
+                <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">{item.reason}</p>
               </div>
             ))}
           </div>
@@ -444,6 +452,13 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
     </div>
   );
+}
+
+function rankingTone(view: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
+  if (/回避|风险/.test(view)) return "avoid";
+  if (/等待|观察/.test(view)) return "wait";
+  if (/优先|偏多/.test(view)) return "bullish";
+  return "watch";
 }
 
 function DecisionNumber({ label, value, className }: { label: string; value: string; className?: string }) {
