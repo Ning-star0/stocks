@@ -29,8 +29,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <div className="min-h-screen bg-background terminal-grid">
-          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/72 backdrop-blur-xl">
+        <div className="min-h-screen terminal-grid">
+          <header className="sticky top-0 z-40 border-b border-white/35 bg-background/28 backdrop-blur-2xl dark:border-white/10">
             <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-5 py-3 lg:px-8">
               {session ? (
                 <AppNav />

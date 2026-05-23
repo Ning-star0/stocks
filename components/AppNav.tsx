@@ -19,7 +19,7 @@ export function AppNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex w-max max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full border border-border/70 bg-card/70 p-1 shadow-[0_10px_30px_hsl(220_20%_20%/0.08)] backdrop-blur-xl">
+    <nav className="liquid-glass flex w-max max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full p-1">
       {navItems.map((item) => {
         const Icon = item.icon;
         const active = isNavItemActive(item, pathname);
@@ -44,8 +44,8 @@ function NavItem({ href, active, children }: { href: string; active: boolean; ch
     <Link
       href={href}
       className={cn(
-        "group inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-all duration-150 hover:bg-secondary/70 hover:text-foreground active:scale-[0.98]",
-        active ? "bg-primary/10 text-primary shadow-sm ring-1 ring-primary/15" : "text-muted-foreground"
+        "group inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-all duration-150 hover:bg-white/42 hover:text-foreground active:scale-[0.98] dark:hover:bg-white/8",
+        active ? "bg-white/72 text-primary shadow-[inset_0_1px_0_hsl(0_0%_100%/0.72),0_8px_22px_hsl(166_45%_28%/0.14)] ring-1 ring-white/60 dark:bg-white/12 dark:ring-white/10" : "text-muted-foreground"
       )}
     >
       {children}

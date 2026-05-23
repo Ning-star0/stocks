@@ -12,16 +12,16 @@
     --popover-foreground: 220 24% 9%;
     --primary: 166 58% 34%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 216 18% 92%;
+    --secondary: 210 24% 94%;
     --secondary-foreground: 220 24% 12%;
-    --muted: 216 16% 94%;
+    --muted: 210 20% 94%;
     --muted-foreground: 220 8% 42%;
     --accent: 38 96% 54%;
     --accent-foreground: 220 24% 9%;
     --destructive: 0 74% 45%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 18% 86%;
-    --input: 214 18% 86%;
+    --border: 210 20% 84%;
+    --input: 210 20% 84%;
     --ring: 166 58% 34%;
     --radius: 0.5rem;
   }
@@ -35,7 +35,7 @@
     --popover-foreground: 210 20% 94%;
     --primary: 166 56% 45%;
     --primary-foreground: 220 24% 7%;
-    --secondary: 218 16% 18%;
+    --secondary: 218 18% 18%;
     --secondary-foreground: 210 20% 94%;
     --muted: 218 16% 16%;
     --muted-foreground: 214 10% 66%;
@@ -43,8 +43,8 @@
     --accent-foreground: 220 24% 9%;
     --destructive: 0 68% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 218 16% 21%;
-    --input: 218 16% 21%;
+    --border: 218 18% 24%;
+    --input: 218 18% 24%;
     --ring: 166 68% 42%;
   }
 
@@ -59,20 +59,67 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
     font-feature-settings: "tnum";
+    background:
+      radial-gradient(circle at 18% 12%, hsl(var(--primary) / 0.13), transparent 30rem),
+      radial-gradient(circle at 82% 6%, hsl(205 85% 70% / 0.16), transparent 28rem),
+      radial-gradient(circle at 72% 88%, hsl(38 96% 62% / 0.10), transparent 24rem),
+      hsl(var(--background));
   }
 }
 
 @layer components {
   .terminal-grid {
     background-image:
-      linear-gradient(hsl(var(--border) / 0.12) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--border) / 0.12) 1px, transparent 1px);
+      linear-gradient(hsl(var(--border) / 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.08) 1px, transparent 1px);
     background-size: 32px 32px;
   }
 
+  .liquid-glass {
+    border: 1px solid hsl(0 0% 100% / 0.46);
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.62), hsl(var(--card) / 0.30)),
+      linear-gradient(180deg, hsl(var(--primary) / 0.06), transparent 55%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.56),
+      inset 0 -1px 0 hsl(220 20% 20% / 0.04),
+      0 20px 60px hsl(220 35% 18% / 0.10);
+    backdrop-filter: blur(28px) saturate(1.55);
+    -webkit-backdrop-filter: blur(28px) saturate(1.55);
+  }
+
+  .dark .liquid-glass {
+    border-color: hsl(0 0% 100% / 0.12);
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.10), hsl(var(--card) / 0.42)),
+      linear-gradient(180deg, hsl(var(--primary) / 0.08), transparent 60%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.13),
+      inset 0 -1px 0 hsl(0 0% 100% / 0.04),
+      0 24px 70px hsl(0 0% 0% / 0.28);
+  }
+
   .soft-card {
-    @apply border-border/70 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
-    background-color: hsl(var(--card) / 0.82);
+    @apply rounded-2xl;
+    border: 1px solid hsl(0 0% 100% / 0.48);
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.58), hsl(var(--card) / 0.32)),
+      linear-gradient(180deg, hsl(var(--primary) / 0.045), transparent 55%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.54),
+      0 18px 50px hsl(220 35% 18% / 0.09);
+    backdrop-filter: blur(26px) saturate(1.45);
+    -webkit-backdrop-filter: blur(26px) saturate(1.45);
+  }
+
+  .dark .soft-card {
+    border-color: hsl(0 0% 100% / 0.11);
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.09), hsl(var(--card) / 0.46)),
+      linear-gradient(180deg, hsl(var(--primary) / 0.065), transparent 58%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.10),
+      0 22px 60px hsl(0 0% 0% / 0.30);
   }
 
   .motion-page-enter,
@@ -103,7 +150,7 @@
   }
 
   .motion-hover-lift {
-    @apply transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_14px_34px_hsl(220_20%_20%/0.08)];
+    @apply transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_48px_hsl(220_30%_18%/0.12)];
   }
 
   .motion-shimmer {
@@ -165,7 +212,7 @@
   }
 
   .table-row-focus {
-    @apply transition-colors duration-150 hover:bg-primary/5;
+    @apply transition-colors duration-150 hover:bg-white/35 dark:hover:bg-white/5;
   }
 
   .table-row-focus > td:first-child {

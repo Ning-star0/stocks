@@ -54,9 +54,9 @@ export function AddStockDialog({ onAdded }: AddStockDialogProps) {
         添加自选股
       </Button>
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-lg border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/45 p-4 backdrop-blur-xl">
+          <div className="liquid-glass w-full max-w-lg rounded-2xl">
+            <div className="flex items-center justify-between border-b border-white/30 p-4 dark:border-white/10">
               <div>
                 <div className="font-semibold">添加自选股</div>
                 <div className="mt-1 text-xs text-muted-foreground">只需要输入代码。买入时间、成本、目标价等在股票详情页里再填。</div>

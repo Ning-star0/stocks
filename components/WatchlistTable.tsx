@@ -127,12 +127,10 @@ export function WatchlistTable() {
   }, [data]);
 
   const rows = useMemo(() => buildWatchlistRows(items, data), [items, data]);
-  const summary = useMemo(() => buildWatchlistSummary(rows), [rows]);
   const filteredRows = useMemo(
     () => filterAndSortRows(rows, { search, riskFilter, actionFilter, holdingFilter, sortKey }),
     [rows, search, riskFilter, actionFilter, holdingFilter, sortKey]
   );
-  const strategySummary = useMemo(() => buildStrategySummary(summary, rows.length), [summary, rows.length]);
   const hasAnyFilter = Boolean(search.trim()) || riskFilter !== "all" || actionFilter !== "all" || holdingFilter !== "all" || sortKey !== "default";
 
   async function analyze(symbol: string) {
@@ -198,17 +196,6 @@ export function WatchlistTable() {
       {data?.dataSource?.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
       {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">{notice}</div> : null}
-
-      <details className="rounded-lg border border-border bg-card/70 p-4 text-sm" open>
-        <summary className="cursor-pointer select-none font-medium text-foreground">今日策略小结</summary>
-        <ul className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-3">
-          {strategySummary.map((item) => (
-            <li key={item} className="rounded-md border border-border bg-background/45 px-3 py-2 leading-6">
-              {item}
-            </li>
-          ))}
-        </ul>
-      </details>
 
       <div className="grid gap-3 md:grid-cols-3">
         {(data?.marketIndices ?? defaultMarketIndices()).map((item) => (
@@ -526,30 +513,6 @@ function filterAndSortRows(
     if (filters.sortKey === "focusFirst") return Number(b.isFocus) - Number(a.isFocus) || a.index - b.index;
     return a.index - b.index;
   });
-}
-
-function buildWatchlistSummary(rows: WatchlistRowModel[]) {
-  const highRiskCount = rows.filter((row) => row.riskBucket === "high").length;
-  const waitCount = rows.filter((row) => row.actionCategory === "wait" || row.actionCategory === "avoid").length;
-  const watchCount = rows.filter((row) => row.isWatch).length;
-  const focusCount = rows.filter((row) => row.isFocus).length;
-  return {
-    totalCount: rows.length,
-    highRiskCount,
-    waitCount,
-    watchCount,
-    focusCount
-  };
-}
-
-function buildStrategySummary(summary: ReturnType<typeof buildWatchlistSummary>, totalCount: number) {
-  if (totalCount === 0) return ["暂无自选标的，添加股票后可查看策略观察。"];
-  const items = [];
-  if (summary.highRiskCount > 0) items.push(`高风险标的 ${summary.highRiskCount} 只，优先核对已持仓和短线涨幅较大的品种。`);
-  if (summary.waitCount > 0) items.push(`等待回调或风险规避 ${summary.waitCount} 只，当前更适合观察支撑位和量能变化。`);
-  if (summary.watchCount > 0) items.push(`可继续观察 ${summary.watchCount} 只，建议结合成交量和新闻变化跟踪。`);
-  if (!items.length) items.push("当前标的整体偏平稳，可按筛选条件继续查看具体风险和动作。");
-  return items.slice(0, 3);
 }
 
 function normalizeAction(action?: string, isHolding?: boolean): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {

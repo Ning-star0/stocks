@@ -118,8 +118,8 @@ export function ChatPanel() {
           <MessageCircle className="h-6 w-6" />
         </button>
       ) : (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[560px] w-[420px] flex-col rounded-xl border border-border bg-card shadow-2xl max-sm:bottom-0 max-sm:right-0 max-sm:h-full max-sm:w-full max-sm:rounded-none">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="liquid-glass fixed bottom-6 right-6 z-50 flex h-[560px] w-[420px] flex-col rounded-2xl max-sm:bottom-0 max-sm:right-0 max-sm:h-full max-sm:w-full max-sm:rounded-none">
+          <div className="flex items-center justify-between border-b border-white/30 px-4 py-3 dark:border-white/10">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Bot className="h-4 w-4" />
               AI 投资助手
@@ -139,7 +139,7 @@ export function ChatPanel() {
                     <button
                       key={q}
                       onClick={() => { if (!loading) { setInput(q); } }}
-                      className="block w-full rounded-md border border-border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                      className="block w-full rounded-xl border border-white/35 bg-white/20 px-3 py-2 text-left text-xs backdrop-blur-md hover:bg-white/35 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/9"
                       disabled={loading}
                     >
                       {q}
@@ -171,7 +171,7 @@ export function ChatPanel() {
                 <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   思考中...
-                  <button onClick={stop} className="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted">停止</button>
+                  <button onClick={stop} className="ml-1 rounded-full border border-white/35 bg-white/20 px-1.5 py-0.5 text-[10px] hover:bg-white/35 dark:border-white/10 dark:bg-white/5">停止</button>
                 </div>
               </div>
             ) : null}
@@ -179,14 +179,14 @@ export function ChatPanel() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-border px-4 py-3">
+          <div className="border-t border-white/30 px-4 py-3 dark:border-white/10">
             <div className="flex gap-2">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
                 placeholder="输入你的问题..."
-                className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                className="flex-1 rounded-xl border border-white/45 bg-white/35 px-3 py-2 text-sm shadow-[inset_0_1px_0_hsl(0_0%_100%/0.35)] outline-none backdrop-blur-xl focus:border-primary dark:border-white/10 dark:bg-white/6"
                 disabled={loading}
               />
               <Button size="icon" onClick={send} disabled={loading || !input.trim()}>
