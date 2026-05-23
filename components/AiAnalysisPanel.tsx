@@ -31,7 +31,7 @@ export function AiAnalysisPanel({
     return (
       <Card className="soft-card">
         <CardHeader>
-          <CardTitle>AI 投资建议</CardTitle>
+          <CardTitle>AI 策略观察</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">暂无 AI 分析，可点击重新分析。</CardContent>
       </Card>

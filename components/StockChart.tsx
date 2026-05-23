@@ -149,7 +149,7 @@ export function StockChart({
       </div>
 
       <div className="space-y-3">
-        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
+        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} showMovingAverages={showMovingAverages} /> : null}
         <div className={cn(motionClassNames.chartEnter, "h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
           <svg
             className="h-full w-full"
@@ -364,7 +364,7 @@ function Axes({ data, scale, currency, symbol, unit }: { data: ChartPoint[]; sca
 
 function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoint; currency?: string; symbol?: string; unit?: string }) {
   const tooltipWidth = 196;
-  const tooltipHeight = cursor.area === "volume" && cursor.volume !== null ? 72 : 54;
+  const tooltipHeight = 72;
   const tooltipX = cursor.x + tooltipWidth + 18 > CHART_LEFT + CHART_WIDTH ? cursor.x - tooltipWidth - 14 : cursor.x + 14;
   const tooltipY = cursor.y + tooltipHeight + 14 > VOLUME_TOP + VOLUME_HEIGHT ? cursor.y - tooltipHeight - 14 : cursor.y + 14;
   const priceLabelY = clamp(cursor.y, PRICE_TOP + 10, PRICE_TOP + PRICE_HEIGHT - 6);
@@ -385,19 +385,30 @@ function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoi
         {cursor.timeLabel}
       </text>
       <text x={tooltipX + 10} y={tooltipY + 38} className="fill-slate-800 dark:fill-slate-100" fontSize={12}>
-        {cursor.area === "volume" ? "成交量 " : "价格 "}
-        {cursor.area === "volume" && cursor.volume !== null ? formatNumber(cursor.volume) : formatPriceValue(cursor.price, { currency, symbol, unit })}
+        价格 {formatPriceValue(cursor.price, { currency, symbol, unit })}
       </text>
-      {cursor.area === "volume" && cursor.volume !== null ? (
-        <text x={tooltipX + 10} y={tooltipY + 58} className="fill-slate-500 dark:fill-slate-400" fontSize={11}>
-          价格 {formatPriceValue(cursor.price, { currency, symbol, unit })}
-        </text>
-      ) : null}
+      <text x={tooltipX + 10} y={tooltipY + 58} className="fill-slate-500 dark:fill-slate-400" fontSize={11}>
+        成交量 {formatNumber(cursor.volume)}
+      </text>
     </g>
   );
 }
 
-function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoint; cursor: CursorPoint | null; currency?: string; symbol?: string; unit?: string }) {
+function InfoPanel({
+  point,
+  cursor,
+  currency,
+  symbol,
+  unit,
+  showMovingAverages
+}: {
+  point: ChartPoint;
+  cursor: CursorPoint | null;
+  currency?: string;
+  symbol?: string;
+  unit?: string;
+  showMovingAverages: boolean;
+}) {
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
@@ -405,7 +416,7 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
   const cursorPrice = cursor?.price ?? point.close;
   return (
     <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+      <div className="flex min-h-6 flex-nowrap items-center gap-x-5 overflow-x-auto pb-0.5">
         <InfoItem label="时间" value={cursorTime} />
         <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />
         <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} />
@@ -413,7 +424,7 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
         <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
         <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
         <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
           <span className="text-muted-foreground">涨跌</span>
           <span className={`tabular-nums ${up ? "text-red-500" : "text-emerald-500"}`}>
             {change >= 0 ? "+" : ""}
@@ -422,24 +433,28 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
           </span>
         </span>
       </div>
-      {!cursor ? (
-        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 pt-1.5">
+      <div className="mt-1.5 min-h-6 border-t border-border/70 pt-1.5">
+        {showMovingAverages ? (
+          <div className="flex flex-nowrap gap-x-4 overflow-x-auto pb-0.5">
           {maSeries.map((item) => (
-            <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
+            <span key={item.key} className="shrink-0 whitespace-nowrap tabular-nums" style={{ color: item.color }}>
               {item.label}: {formatNumber(point[item.key])}
             </span>
           ))}
-        </div>
-      ) : null}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">分时图不显示 MA 均线</span>
+        )}
+      </div>
     </div>
   );
 }
 
 function InfoItem({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
+    <span className="inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap">
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("truncate tabular-nums text-foreground", strong ? "font-semibold" : "")}>{value}</span>
+      <span className={cn("max-w-32 truncate tabular-nums text-foreground", strong ? "font-semibold" : "")}>{value}</span>
     </span>
   );
 }

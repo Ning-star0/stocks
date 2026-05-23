@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, BarChart3, Brain, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, BarChart3, Brain, Eye, RefreshCw, Search, Trash2, X } from "lucide-react";
 
 import { AddStockDialog } from "@/components/AddStockDialog";
 import { RiskBadge } from "@/components/RiskBadge";
@@ -10,11 +10,13 @@ import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageContainer, SectionHeader, StatCard } from "@/components/ui/layout";
+import { Input } from "@/components/ui/input";
+import { PageContainer, SectionHeader } from "@/components/ui/layout";
+import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getPrimaryAdvice, hasUserPosition } from "@/lib/positionAdvice";
 import type { AiAnalysisResult } from "@/lib/types";
-import { formatNumber, formatPercent, formatPriceValue } from "@/lib/utils";
+import { cn, formatNumber, formatPercent, formatPriceValue } from "@/lib/utils";
 
 type QuoteWithStatus = {
   symbol: string;
@@ -65,12 +67,42 @@ type DashboardResponse = {
   }>;
 };
 
+type RiskBucket = "high" | "medium" | "low";
+type ActionCategory = "wait" | "watch" | "avoid" | "none";
+type SummaryFilter = "all" | "focus" | "highRisk" | "wait" | "watch";
+type SortKey = "default" | "changeDesc" | "changeAsc" | "riskFirst" | "focusFirst";
+
+type WatchlistRowModel = {
+  item: WatchlistItem;
+  quote?: QuoteWithStatus;
+  latest: LatestAnalysisSummary;
+  name: string;
+  symbol: string;
+  strategy: ReturnType<typeof trendToStrategy>;
+  action: ReturnType<typeof normalizeAction>;
+  actionCategory: ActionCategory;
+  riskBucket: RiskBucket;
+  isHolding: boolean;
+  hasAnalysis: boolean;
+  tags: string[];
+  isFocus: boolean;
+  isWatch: boolean;
+  searchText: string;
+  index: number;
+};
+
 export function WatchlistTable() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [summaryFilter, setSummaryFilter] = useState<SummaryFilter>("all");
+  const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState<"all" | RiskBucket>("all");
+  const [actionFilter, setActionFilter] = useState<"all" | ActionCategory>("all");
+  const [holdingFilter, setHoldingFilter] = useState<"all" | "holding" | "watching">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("default");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,7 +128,15 @@ export function WatchlistTable() {
     return watchlists.flatMap((watchlist) => (Array.isArray(watchlist.items) ? watchlist.items : []));
   }, [data]);
 
-  const summary = useMemo(() => buildWatchlistSummary(items, data), [items, data]);
+  const rows = useMemo(() => buildWatchlistRows(items, data), [items, data]);
+  const summary = useMemo(() => buildWatchlistSummary(rows), [rows]);
+  const filteredRows = useMemo(
+    () => filterAndSortRows(rows, { summaryFilter, search, riskFilter, actionFilter, holdingFilter, sortKey }),
+    [rows, summaryFilter, search, riskFilter, actionFilter, holdingFilter, sortKey]
+  );
+  const strategySummary = useMemo(() => buildStrategySummary(summary, rows.length), [summary, rows.length]);
+  const activeFilter = summaryFilterMeta.find((filter) => filter.key === summaryFilter) ?? summaryFilterMeta[0];
+  const hasAnyFilter = summaryFilter !== "all" || search.trim() || riskFilter !== "all" || actionFilter !== "all" || holdingFilter !== "all" || sortKey !== "default";
 
   async function analyze(symbol: string) {
     setAnalyzing(symbol);
@@ -121,6 +161,8 @@ export function WatchlistTable() {
   }
 
   async function remove(id: string) {
+    const target = rows.find((row) => row.item.id === id);
+    if (!window.confirm(`确认从自选股移除 ${target?.name ?? target?.symbol ?? "该标的"} 吗？`)) return;
     setError(null);
     try {
       const response = await fetch(`/api/watchlist/items/${id}`, { method: "DELETE" });
@@ -132,6 +174,15 @@ export function WatchlistTable() {
     }
   }
 
+  function clearFilters() {
+    setSummaryFilter("all");
+    setSearch("");
+    setRiskFilter("all");
+    setActionFilter("all");
+    setHoldingFilter("all");
+    setSortKey("default");
+  }
+
   return (
     <PageContainer>
       <SectionHeader
@@ -139,25 +190,44 @@ export function WatchlistTable() {
         description="快速扫读价格、风险和 AI 策略观察；详细理由保留在股票详情页。"
         action={
           <>
-          <Button size="sm" variant="outline" onClick={load} disabled={loading}>
-            <RefreshCw className="h-4 w-4" />
-            刷新
-          </Button>
-          <AddStockDialog onAdded={load} />
+            <Button size="sm" variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
+            <AddStockDialog onAdded={load} />
           </>
         }
       />
 
-      {data?.dataSource?.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
-      {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div> : null}
-      {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{notice}</div> : null}
+      {data?.dataSource?.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
+      {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
+      {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">{notice}</div> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="今日需关注" value={summary.focusCount} hint="偏空、高风险或等待回调" tone="warning" delayIndex={0} />
-        <StatCard label="高风险" value={summary.highRiskCount} hint="风险等级或 AI 风险提示" tone="danger" delayIndex={1} />
-        <StatCard label="建议等待" value={summary.waitCount} hint="等待回调或继续观察" tone="warning" delayIndex={2} />
-        <StatCard label="可继续观察" value={summary.watchCount} hint="中性/偏多但未触发" tone="success" delayIndex={3} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {summaryFilterMeta.map((filter, index) => (
+          <SummaryFilterCard
+            key={filter.key}
+            active={summaryFilter === filter.key}
+            count={summary[filter.countKey]}
+            delayIndex={index}
+            hint={filter.hint}
+            label={filter.label}
+            tone={filter.tone}
+            onClick={() => setSummaryFilter(filter.key)}
+          />
+        ))}
       </div>
+
+      <details className="rounded-lg border border-border bg-card/70 p-4 text-sm" open>
+        <summary className="cursor-pointer select-none font-medium text-foreground">今日策略小结</summary>
+        <ul className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-3">
+          {strategySummary.map((item) => (
+            <li key={item} className="rounded-md border border-border bg-background/45 px-3 py-2 leading-6">
+              {item}
+            </li>
+          ))}
+        </ul>
+      </details>
 
       <div className="grid gap-3 md:grid-cols-3">
         {(data?.marketIndices ?? defaultMarketIndices()).map((item) => (
@@ -166,126 +236,190 @@ export function WatchlistTable() {
       </div>
 
       <Card className="soft-card overflow-hidden">
-        <CardHeader>
-          <CardTitle>策略观察列表</CardTitle>
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <CardTitle>
+                策略观察列表
+                {summaryFilter !== "all" ? <span className="text-muted-foreground"> · {activeFilter.label} {filteredRows.length}</span> : null}
+              </CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">
+                当前显示 {filteredRows.length} / {rows.length} 只标的，筛选和排序仅影响当前页面展示。
+              </p>
+            </div>
+            {hasAnyFilter ? (
+              <Button size="sm" variant="outline" onClick={clearFilters}>
+                <X className="h-4 w-4" />
+                清除筛选
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(132px,1fr))]">
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或代码" className="pl-9" />
+            </label>
+            <Select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as "all" | RiskBucket)}>
+              <option value="all">全部风险</option>
+              <option value="high">高风险</option>
+              <option value="medium">中风险</option>
+              <option value="low">低风险</option>
+            </Select>
+            <Select value={actionFilter} onChange={(event) => setActionFilter(event.target.value as "all" | ActionCategory)}>
+              <option value="all">全部动作</option>
+              <option value="wait">等待回调</option>
+              <option value="watch">继续观察</option>
+              <option value="avoid">风险规避</option>
+              <option value="none">暂无分析</option>
+            </Select>
+            <Select value={holdingFilter} onChange={(event) => setHoldingFilter(event.target.value as "all" | "holding" | "watching")}>
+              <option value="all">全部持仓</option>
+              <option value="holding">已持仓</option>
+              <option value="watching">未持仓观察</option>
+            </Select>
+            <Select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+              <option value="default">默认排序</option>
+              <option value="changeDesc">涨跌幅从高到低</option>
+              <option value="changeAsc">涨跌幅从低到高</option>
+              <option value="riskFirst">风险优先</option>
+              <option value="focusFirst">今日需关注优先</option>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="py-8 text-sm text-muted-foreground">正在加载自选股数据...</div>
-          ) : items.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-dashed text-center">
               <div className="text-sm font-medium">自选股列表为空。</div>
               <p className="max-w-sm text-sm text-muted-foreground">添加股票代码后即可查看行情、指标、提醒和 AI 分析。</p>
               <AddStockDialog onAdded={load} />
             </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              没有符合当前筛选条件的标的。
+            </div>
           ) : (
             <>
-            <div className="hidden lg:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名称 / 代码</TableHead>
-                  <TableHead>价格</TableHead>
-                  <TableHead>涨跌幅</TableHead>
-                  <TableHead>策略方向</TableHead>
-                  <TableHead>风险</TableHead>
-                  <TableHead>持仓状态</TableHead>
-                  <TableHead>当前动作</TableHead>
-                  <TableHead>关键理由</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => {
-                  const quote = data?.quotes[item.symbol];
-                  const latest = data?.latestAnalyses[item.symbol];
-                  const primaryAdvice = getPrimaryAdvice(latest?.outputJson, item);
-                  const isHolding = hasUserPosition(item);
-                  const strategy = trendToStrategy(latest?.outputJson.trend);
-                  const action = normalizeAction(primaryAdvice.action, primaryAdvice.isHolding);
-                  const tags = reasonTags(latest?.outputJson, primaryAdvice.reason);
-                  return (
-                    <TableRow key={item.id} className="table-row-focus">
-                      <TableCell className="py-3">
-                        <Link href={`/stocks/${item.symbol}`} className="font-semibold text-primary">
-                          {quote?.name ?? item.symbol}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">{item.symbol}</div>
-                      </TableCell>
-                      <TableCell className="py-3 font-medium tabular-nums">
-                        {quote?.price === null || !quote ? (
-                          <span className="text-xs text-red-400">{formatQuoteStatus(quote?.status)}</span>
-                        ) : (
-                          formatPriceValue(quote.price, { currency: quote.currency, symbol: quote.symbol })
-                        )}
-                      </TableCell>
-                      <TableCell className={quote?.changePct === null || !quote ? "py-3 tabular-nums text-muted-foreground" : quote.changePct >= 0 ? "py-3 tabular-nums text-red-500" : "py-3 tabular-nums text-emerald-500"}>
-                        {quote?.changePct === null || !quote ? "--" : formatPercent(quote.changePct)}
-                      </TableCell>
-                      <TableCell>
-                        <StrategyBadge tone={strategy.tone}>{strategy.label}</StrategyBadge>
-                      </TableCell>
-                      <TableCell>
-                        <RiskBadge risk={item.riskLevel} />
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "已持仓" : "未持仓"}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <StrategyBadge tone={action.tone}>{action.label}</StrategyBadge>
-                      </TableCell>
-                      <TableCell className="max-w-[260px]">
-                        <div className="flex flex-wrap gap-1.5">
-                          {tags.length ? tags.map((tag) => <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{tag}</span>) : <span className="text-sm text-muted-foreground">{item.note ?? "暂无分析"}</span>}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="row-actions flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => analyze(item.symbol)} disabled={analyzing === item.symbol}>
-                            <Brain className="h-4 w-4" />
-                            {analyzing === item.symbol ? "排队中" : "分析"}
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => remove(item.id)} aria-label={`删除 ${item.symbol}`}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className="hidden lg:block">
+                <Table className="table-fixed">
+                  <colgroup>
+                    <col className="w-[18%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[9%]" />
+                    <col className="w-[18%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名称 / 代码</TableHead>
+                      <TableHead className="text-right">价格</TableHead>
+                      <TableHead className="text-right">涨跌幅</TableHead>
+                      <TableHead>策略方向</TableHead>
+                      <TableHead>状态 / 动作</TableHead>
+                      <TableHead>关键理由</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            </div>
-            <div className="space-y-3 lg:hidden">
-              {items.map((item) => {
-                const quote = data?.quotes[item.symbol];
-                const latest = data?.latestAnalyses[item.symbol];
-                const primaryAdvice = getPrimaryAdvice(latest?.outputJson, item);
-                const isHolding = hasUserPosition(item);
-                const strategy = trendToStrategy(latest?.outputJson.trend);
-                const action = normalizeAction(primaryAdvice.action, primaryAdvice.isHolding);
-                return (
-                  <div key={item.id} className="motion-card-enter rounded-lg border border-border bg-background/50 p-3">
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRows.map((row) => (
+                      <TableRow key={row.item.id} className="table-row-focus h-16">
+                        <TableCell className="py-2.5">
+                          <Link href={`/stocks/${row.symbol}`} className="font-semibold text-primary">
+                            {row.name}
+                          </Link>
+                          <div className="text-xs text-muted-foreground">{row.symbol}</div>
+                        </TableCell>
+                        <TableCell className="py-2.5 text-right font-medium tabular-nums">
+                          {row.quote?.price === null || !row.quote ? (
+                            <span className="text-xs text-red-500">{formatQuoteStatus(row.quote?.status)}</span>
+                          ) : (
+                            formatPriceValue(row.quote.price, { currency: row.quote.currency, symbol: row.quote.symbol })
+                          )}
+                        </TableCell>
+                        <TableCell className={cn("py-2.5 text-right tabular-nums", changeClass(row.quote?.changePct))}>
+                          {row.quote?.changePct === null || !row.quote ? "--" : formatPercent(row.quote.changePct)}
+                        </TableCell>
+                        <TableCell className="py-2.5">
+                          <StrategyBadge tone={row.strategy.tone}>{row.strategy.label}</StrategyBadge>
+                        </TableCell>
+                        <TableCell className="py-2.5">
+                          <div className="flex flex-wrap gap-1.5">
+                            <RiskBadge risk={riskLabel(row.riskBucket)} />
+                            <StrategyBadge tone={row.action.tone}>{row.action.label}</StrategyBadge>
+                            <Badge variant={row.isHolding ? "success" : "secondary"}>{row.isHolding ? "已持仓" : "未持仓观察"}</Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2.5">
+                          <ReasonTags tags={row.tags} fallback={row.item.note ?? "暂无理由"} />
+                        </TableCell>
+                        <TableCell className="py-2.5">
+                          <div className="row-actions flex justify-end gap-1.5">
+                            <Button size="sm" variant="ghost" className="px-2" asChild>
+                              <Link href={`/stocks/${row.symbol}`}>
+                                <Eye className="h-4 w-4" />
+                                详情
+                              </Link>
+                            </Button>
+                            <Button size="sm" variant="outline" className="px-2" onClick={() => analyze(row.symbol)} disabled={analyzing === row.symbol}>
+                              <Brain className="h-4 w-4" />
+                              {analyzing === row.symbol ? "排队中" : "分析"}
+                            </Button>
+                            <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(row.item.id)} aria-label={`删除 ${row.symbol}`}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="space-y-3 lg:hidden">
+                {filteredRows.map((row) => (
+                  <div key={row.item.id} className="motion-card-enter rounded-lg border border-border bg-background/50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <Link href={`/stocks/${item.symbol}`} className="font-semibold text-primary">{quote?.name ?? item.symbol}</Link>
-                        <div className="text-xs text-muted-foreground">{item.symbol}</div>
+                        <Link href={`/stocks/${row.symbol}`} className="font-semibold text-primary">
+                          {row.name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{row.symbol}</div>
                       </div>
                       <div className="text-right">
-                        <div className="font-medium tabular-nums">{formatPriceValue(quote?.price, { currency: quote?.currency, symbol: quote?.symbol ?? item.symbol })}</div>
-                        <div className={quote?.changePct && quote.changePct >= 0 ? "text-xs text-red-500" : "text-xs text-emerald-500"}>{formatPercent(quote?.changePct)}</div>
+                        <div className="font-medium tabular-nums">{formatPriceValue(row.quote?.price, { currency: row.quote?.currency, symbol: row.quote?.symbol ?? row.symbol })}</div>
+                        <div className={cn("text-xs tabular-nums", changeClass(row.quote?.changePct))}>{formatPercent(row.quote?.changePct)}</div>
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <StrategyBadge tone={strategy.tone}>{strategy.label}</StrategyBadge>
-                      <StrategyBadge tone={action.tone}>{action.label}</StrategyBadge>
-                      <RiskBadge risk={item.riskLevel} />
-                      <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "已持仓" : "未持仓"}</Badge>
+                      <StrategyBadge tone={row.strategy.tone}>{row.strategy.label}</StrategyBadge>
+                      <RiskBadge risk={riskLabel(row.riskBucket)} />
+                      <StrategyBadge tone={row.action.tone}>{row.action.label}</StrategyBadge>
+                      <Badge variant={row.isHolding ? "success" : "secondary"}>{row.isHolding ? "已持仓" : "未持仓观察"}</Badge>
+                    </div>
+                    <div className="mt-3">
+                      <ReasonTags tags={row.tags} fallback={row.item.note ?? "暂无理由"} />
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link href={`/stocks/${row.symbol}`}>
+                          <Eye className="h-4 w-4" />
+                          详情
+                        </Link>
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => analyze(row.symbol)} disabled={analyzing === row.symbol}>
+                        <Brain className="h-4 w-4" />
+                        {analyzing === row.symbol ? "排队中" : "分析"}
+                      </Button>
+                      <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(row.item.id)} aria-label={`删除 ${row.symbol}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
             </>
           )}
         </CardContent>
@@ -294,9 +428,71 @@ export function WatchlistTable() {
   );
 }
 
+function SummaryFilterCard({
+  active,
+  count,
+  delayIndex,
+  hint,
+  label,
+  tone,
+  onClick
+}: {
+  active: boolean;
+  count: number;
+  delayIndex: number;
+  hint: string;
+  label: string;
+  tone: "neutral" | "success" | "warning" | "danger";
+  onClick: () => void;
+}) {
+  const toneClass = {
+    neutral: "from-slate-500/[0.08] to-transparent",
+    success: "from-emerald-500/[0.10] to-transparent",
+    warning: "from-amber-500/[0.12] to-transparent",
+    danger: "from-rose-500/[0.12] to-transparent"
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "motion-card-enter motion-hover-lift rounded-lg border bg-gradient-to-br p-4 text-left shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur transition-colors",
+        toneClass,
+        active ? "border-primary/55 bg-primary/5" : "border-border/70 bg-card/80 hover:border-primary/30"
+      )}
+      style={{ animationDelay: `${Math.min(delayIndex * 40, 120)}ms` }}
+    >
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">{count}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
+    </button>
+  );
+}
+
+function ReasonTags({ tags, fallback }: { tags: string[]; fallback: string }) {
+  if (!tags.length) return <span className="text-sm text-muted-foreground">{fallback}</span>;
+
+  const visible = tags.slice(0, 2);
+  const hidden = tags.slice(2);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {visible.map((tag) => (
+        <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          {tag}
+        </span>
+      ))}
+      {hidden.length ? (
+        <span title={hidden.join("、")} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          +{hidden.length}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: boolean }) {
   const quote = item.quote;
-  const changeClass = quote?.changePct === null || !quote ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500";
   const href = `/stocks/${quote?.symbol ?? item.symbol}`;
 
   return (
@@ -315,7 +511,7 @@ function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: bo
         <CardContent className="space-y-2">
           <div>
             <div className="text-xl font-semibold tabular-nums">{loading ? "--" : formatPriceValue(quote?.price, { symbol: quote?.symbol ?? item.symbol, unit: "point" })}</div>
-            <div className={`text-sm tabular-nums ${changeClass}`}>{loading ? "--" : formatPercent(quote?.changePct)}</div>
+            <div className={cn("text-sm tabular-nums", changeClass(quote?.changePct))}>{loading ? "--" : formatPercent(quote?.changePct)}</div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Activity className="h-3.5 w-3.5" />
@@ -328,25 +524,113 @@ function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: bo
   );
 }
 
-function buildWatchlistSummary(items: WatchlistItem[], data: DashboardResponse | null) {
-  let highRiskCount = 0;
-  let waitCount = 0;
-  let watchCount = 0;
-  for (const item of items) {
-    const analysis = data?.latestAnalyses[item.symbol]?.outputJson;
-    const advice = getPrimaryAdvice(analysis, item);
-    const action = normalizeAction(advice.action, advice.isHolding);
-    const riskText = `${item.riskLevel} ${analysis?.riskFactors?.join(" ") ?? ""}`.toLowerCase();
-    if (/high|高|风险/.test(riskText) || analysis?.trend === "bearish") highRiskCount += 1;
-    if (action.tone === "wait" || action.tone === "avoid") waitCount += 1;
-    if (action.tone === "watch" || analysis?.trend === "neutral" || analysis?.trend === "bullish") watchCount += 1;
+const summaryFilterMeta: Array<{
+  key: SummaryFilter;
+  label: string;
+  hint: string;
+  countKey: keyof ReturnType<typeof buildWatchlistSummary>;
+  tone: "neutral" | "success" | "warning" | "danger";
+}> = [
+  { key: "all", label: "全部", hint: "清除顶部筛选", countKey: "totalCount", tone: "neutral" },
+  { key: "focus", label: "今日需关注", hint: "偏空、高风险或等待回调", countKey: "focusCount", tone: "warning" },
+  { key: "highRisk", label: "高风险", hint: "风险等级或 AI 风险提示", countKey: "highRiskCount", tone: "danger" },
+  { key: "wait", label: "建议等待", hint: "等待回调或风险规避", countKey: "waitCount", tone: "warning" },
+  { key: "watch", label: "可继续观察", hint: "风险较低或动作平稳", countKey: "watchCount", tone: "success" }
+];
+
+function buildWatchlistRows(items: WatchlistItem[], data: DashboardResponse | null): WatchlistRowModel[] {
+  return items.map((item, index) => {
+    const quote = data?.quotes[item.symbol];
+    const latest = data?.latestAnalyses[item.symbol] ?? null;
+    const analysis = latest?.outputJson;
+    const primaryAdvice = getPrimaryAdvice(analysis, item);
+    const isHolding = hasUserPosition(item);
+    const strategy = trendToStrategy(analysis?.trend);
+    const action = normalizeAction(primaryAdvice.action, primaryAdvice.isHolding);
+    const hasAnalysis = Boolean(analysis);
+    const actionCategory = classifyAction(action, hasAnalysis);
+    const riskBucket = classifyRisk(item, analysis, actionCategory);
+    const tags = reasonTags(analysis, primaryAdvice.reason);
+    const isFocus = riskBucket === "high" || actionCategory === "wait" || actionCategory === "avoid" || analysis?.trend === "bearish";
+    const isWatch = actionCategory === "watch" && riskBucket !== "high";
+    const name = quote?.name ?? item.symbol;
+    return {
+      item,
+      quote,
+      latest,
+      name,
+      symbol: item.symbol,
+      strategy,
+      action,
+      actionCategory,
+      riskBucket,
+      isHolding,
+      hasAnalysis,
+      tags,
+      isFocus,
+      isWatch,
+      searchText: `${name} ${item.symbol}`.toLowerCase(),
+      index
+    };
+  });
+}
+
+function filterAndSortRows(
+  rows: WatchlistRowModel[],
+  filters: {
+    summaryFilter: SummaryFilter;
+    search: string;
+    riskFilter: "all" | RiskBucket;
+    actionFilter: "all" | ActionCategory;
+    holdingFilter: "all" | "holding" | "watching";
+    sortKey: SortKey;
   }
+) {
+  const keyword = filters.search.trim().toLowerCase();
+  const filtered = rows.filter((row) => {
+    if (filters.summaryFilter === "focus" && !row.isFocus) return false;
+    if (filters.summaryFilter === "highRisk" && row.riskBucket !== "high") return false;
+    if (filters.summaryFilter === "wait" && row.actionCategory !== "wait" && row.actionCategory !== "avoid") return false;
+    if (filters.summaryFilter === "watch" && !row.isWatch) return false;
+    if (keyword && !row.searchText.includes(keyword)) return false;
+    if (filters.riskFilter !== "all" && row.riskBucket !== filters.riskFilter) return false;
+    if (filters.actionFilter !== "all" && row.actionCategory !== filters.actionFilter) return false;
+    if (filters.holdingFilter === "holding" && !row.isHolding) return false;
+    if (filters.holdingFilter === "watching" && row.isHolding) return false;
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    if (filters.sortKey === "changeDesc") return sortableChange(b) - sortableChange(a);
+    if (filters.sortKey === "changeAsc") return sortableChange(a) - sortableChange(b);
+    if (filters.sortKey === "riskFirst") return riskRank(a.riskBucket) - riskRank(b.riskBucket) || a.index - b.index;
+    if (filters.sortKey === "focusFirst") return Number(b.isFocus) - Number(a.isFocus) || a.index - b.index;
+    return a.index - b.index;
+  });
+}
+
+function buildWatchlistSummary(rows: WatchlistRowModel[]) {
+  const highRiskCount = rows.filter((row) => row.riskBucket === "high").length;
+  const waitCount = rows.filter((row) => row.actionCategory === "wait" || row.actionCategory === "avoid").length;
+  const watchCount = rows.filter((row) => row.isWatch).length;
+  const focusCount = rows.filter((row) => row.isFocus).length;
   return {
+    totalCount: rows.length,
     highRiskCount,
     waitCount,
     watchCount,
-    focusCount: Math.min(items.length, highRiskCount + waitCount + Math.max(0, watchCount - waitCount))
+    focusCount
   };
+}
+
+function buildStrategySummary(summary: ReturnType<typeof buildWatchlistSummary>, totalCount: number) {
+  if (totalCount === 0) return ["暂无自选标的，添加股票后可查看策略观察。"];
+  const items = [];
+  if (summary.highRiskCount > 0) items.push(`高风险标的 ${summary.highRiskCount} 只，优先核对已持仓和短线涨幅较大的品种。`);
+  if (summary.waitCount > 0) items.push(`等待回调或风险规避 ${summary.waitCount} 只，当前更适合观察支撑位和量能变化。`);
+  if (summary.watchCount > 0) items.push(`可继续观察 ${summary.watchCount} 只，建议结合成交量和新闻变化跟踪。`);
+  if (!items.length) items.push("当前标的整体偏平稳，可按筛选条件继续查看具体风险和动作。");
+  return items.slice(0, 3);
 }
 
 function normalizeAction(action?: string, isHolding?: boolean): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {
@@ -356,6 +640,20 @@ function normalizeAction(action?: string, isHolding?: boolean): { label: string;
   if (/加仓|增持|持有/.test(text)) return { label: isHolding ? "持仓跟踪" : "谨慎追踪", tone: "watch" };
   if (/入场|建仓|买入|试探/.test(text)) return { label: "谨慎追踪", tone: "bullish" };
   return { label: isHolding ? "持仓跟踪" : "继续观察", tone: "neutral" };
+}
+
+function classifyAction(action: ReturnType<typeof normalizeAction>, hasAnalysis: boolean): ActionCategory {
+  if (!hasAnalysis) return "none";
+  if (action.tone === "avoid") return "avoid";
+  if (action.tone === "wait") return "wait";
+  return "watch";
+}
+
+function classifyRisk(item: WatchlistItem, analysis: AiAnalysisResult | undefined, actionCategory: ActionCategory): RiskBucket {
+  const text = `${item.riskLevel} ${(analysis?.riskFactors ?? []).join(" ")} ${analysis?.summary ?? ""}`.toLowerCase();
+  if (analysis?.trend === "bearish" || actionCategory === "avoid" || /high|高风险|风险较高|偏高/.test(text)) return "high";
+  if (/low|低风险|风险较低/.test(text)) return "low";
+  return "medium";
 }
 
 function reasonTags(analysis?: AiAnalysisResult | null, fallback?: string) {
@@ -369,7 +667,24 @@ function reasonTags(analysis?: AiAnalysisResult | null, fallback?: string) {
     [/趋势|均线|布林/i, "趋势观察"]
   ];
   const tags = rules.filter(([pattern]) => pattern.test(text)).map(([, label]) => label);
-  return [...new Set(tags)].slice(0, 3);
+  return [...new Set(tags)];
+}
+
+function riskRank(risk: RiskBucket) {
+  return { high: 0, medium: 1, low: 2 }[risk];
+}
+
+function sortableChange(row: WatchlistRowModel) {
+  return row.quote?.changePct ?? Number.NEGATIVE_INFINITY;
+}
+
+function riskLabel(risk: RiskBucket) {
+  return { high: "高风险", medium: "中风险", low: "低风险" }[risk];
+}
+
+function changeClass(changePct?: number | null) {
+  if (changePct === null || changePct === undefined) return "text-muted-foreground";
+  return changePct >= 0 ? "text-red-500" : "text-emerald-500";
 }
 
 function defaultMarketIndices(): MarketIndexItem[] {

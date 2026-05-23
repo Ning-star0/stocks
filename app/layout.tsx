@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { BarChart3 } from "lucide-react";
 
@@ -23,13 +22,16 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body>
         <div className="min-h-screen bg-background terminal-grid">
-          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
-            <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-3 lg:px-8">
-              <Link href="/watchlist" className="flex shrink-0 items-center gap-2 font-semibold">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                股票 AI 监控
-              </Link>
-              {session ? <AppNav /> : null}
+          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/72 backdrop-blur-xl">
+            <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-5 py-3 lg:px-8">
+              {session ? (
+                <AppNav />
+              ) : (
+                <div className="flex shrink-0 items-center gap-2 font-semibold">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  股票 AI 监控
+                </div>
+              )}
             </div>
           </header>
           <main className="mx-auto w-full max-w-7xl px-5 py-6 lg:px-8">{children}</main>
