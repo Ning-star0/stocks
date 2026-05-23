@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
+import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { buildStockAnalysisContext } from "@/lib/analysis/stockAnalysisRunner";
 import { shouldRunStockAnalysis } from "@/lib/analysis/shouldAnalyze";
 import { getCache } from "@/lib/cache";
@@ -41,10 +42,34 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
         riskLevel: watchlistItem?.riskLevel ?? null
       }
     });
+    const run = await createAnalysisRun({
+      userId: user.id,
+      runType: "manual",
+      totalSymbols: 1
+    });
     const cacheKey = `ai_analysis:v3:${canonicalSymbol}:${contextHash}`;
     const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
     if (cached && !forceRefresh) {
       await logCacheHit(user.id, canonicalSymbol, contextHash, "stock_analysis_cache_hit");
+      const history = await createDecisionHistoryFromAnalysis({
+        userId: user.id,
+        runId: run.id,
+        analysisId: cached.analysisId,
+        symbol: canonicalSymbol,
+        stockName: analysisContext.quote.name,
+        source: "manual",
+        riskLevel: watchlistItem?.riskLevel ?? null,
+        outputJson: cached.outputJson
+      });
+      await finishAnalysisRunItem({
+        runId: run.id,
+        symbol: canonicalSymbol,
+        status: "skipped",
+        decisionId: history.id,
+        aiStatus: "success",
+        quoteStatus: "success",
+        newsStatus: "success"
+      });
       return NextResponse.json({
         analysis: {
           id: cached.analysisId,
@@ -58,6 +83,25 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     }
     const existingByHash = await findAnalysisByContextHash(user.id, canonicalSymbol, contextHash);
     if (existingByHash && !forceRefresh) {
+      const history = await createDecisionHistoryFromAnalysis({
+        userId: user.id,
+        runId: run.id,
+        analysisId: existingByHash.id,
+        symbol: canonicalSymbol,
+        stockName: analysisContext.quote.name,
+        source: "manual",
+        riskLevel: watchlistItem?.riskLevel ?? null,
+        outputJson: existingByHash.outputJson
+      });
+      await finishAnalysisRunItem({
+        runId: run.id,
+        symbol: canonicalSymbol,
+        status: "skipped",
+        decisionId: history.id,
+        aiStatus: "success",
+        quoteStatus: "success",
+        newsStatus: "success"
+      });
       return NextResponse.json({
         analysis: { id: existingByHash.id, createdAt: existingByHash.createdAt, outputJson: existingByHash.outputJson },
         fromCache: true,
@@ -80,6 +124,25 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     });
 
     if (!gate.shouldRun && latestAnalysis && !forceRefresh) {
+      const history = await createDecisionHistoryFromAnalysis({
+        userId: user.id,
+        runId: run.id,
+        analysisId: latestAnalysis.id,
+        symbol: canonicalSymbol,
+        stockName: analysisContext.quote.name,
+        source: "manual",
+        riskLevel: watchlistItem?.riskLevel ?? null,
+        outputJson: latestAnalysis.outputJson
+      });
+      await finishAnalysisRunItem({
+        runId: run.id,
+        symbol: canonicalSymbol,
+        status: "skipped",
+        decisionId: history.id,
+        aiStatus: "success",
+        quoteStatus: "success",
+        newsStatus: "success"
+      });
       return NextResponse.json({
         analysis: { id: latestAnalysis.id, createdAt: latestAnalysis.createdAt, outputJson: latestAnalysis.outputJson },
         fromCache: true,
@@ -95,7 +158,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
       jobType: JOB_TYPES.STOCK_ANALYSIS,
       priority: forceRefresh ? JOB_PRIORITY.USER_MANUAL_ANALYSIS : priorityForReason(gate.reason),
       inputHash: contextHash,
-      payload: { reason: gate.reason, forceRefresh }
+      payload: { reason: gate.reason, forceRefresh, runId: run.id }
     });
 
     if (forceRefresh) {

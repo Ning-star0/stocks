@@ -1,9 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { Brain, CalendarClock, Check, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles, Trash2, WalletCards } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { CalendarClock, Check, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles, Trash2, WalletCards } from "lucide-react";
 
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +59,65 @@ type FocusDecision = {
   disclaimer: string;
 };
 
+type AnalysisRunResponse = {
+  summary: {
+    nextRunAt: string | null;
+    todayRunCount: number;
+    latestStatus: string;
+    latestStartedAt: string | null;
+    latestFinishedAt: string | null;
+    successCount: number;
+    failedCount: number;
+    fallbackCount: number;
+  };
+  runs: AnalysisRunItem[];
+};
+
+type AnalysisRunItem = {
+  id: string;
+  runType: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  totalSymbols: number;
+  successCount: number;
+  failedCount: number;
+  fallbackUsed: boolean;
+  errorSummary: string | null;
+  items: Array<{
+    id: string;
+    symbol: string;
+    stockName: string | null;
+    status: string;
+    aiStatus: string | null;
+    quoteStatus: string | null;
+    newsStatus: string | null;
+    errorMessage: string | null;
+    durationMs: number | null;
+    aiDurationMs: number | null;
+    quoteDurationMs: number | null;
+    newsDurationMs: number | null;
+    fallbackUsed: boolean;
+  }>;
+};
+
+type DecisionHistoryRecord = {
+  id: string;
+  symbol: string;
+  stockName: string | null;
+  decisionTime: string;
+  source: string;
+  strategyDirection: string;
+  action: string;
+  riskLevel: string | null;
+  confidence: number | null;
+  summary: string;
+  keyReasons: unknown;
+  fallbackUsed: boolean;
+  changeSummary: string | null;
+};
+
 export default function FocusPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -69,6 +130,8 @@ export default function FocusPage() {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [decisionNotice, setDecisionNotice] = useState<string | null>(null);
+  const [runs, setRuns] = useState<AnalysisRunResponse | null>(null);
+  const [history, setHistory] = useState<DecisionHistoryRecord[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -144,13 +207,16 @@ export default function FocusPage() {
     doSave(focus);
   }
 
-  useEffect(() => {
-    if (loading || decision || decisionLoading || decisionError || decisionNotice) return;
-    if (!focus.symbols.length || !focus.capital) return;
-    void loadDecision("GET");
-  }, [decision, decisionError, decisionLoading, decisionNotice, focus.capital, focus.symbols.length, loading]);
+  const refreshTrackingData = useCallback(async () => {
+    const [runsResponse, historyResponse] = await Promise.all([
+      fetch("/api/analysis-runs?limit=6", { cache: "no-store" }).then((response) => response.ok ? response.json() : null),
+      fetch("/api/decision-history?limit=5", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+    ]);
+    if (runsResponse) setRuns(runsResponse);
+    if (historyResponse?.records) setHistory(historyResponse.records);
+  }, []);
 
-  async function loadDecision(method: "GET" | "POST") {
+  const loadDecision = useCallback(async (method: "GET" | "POST") => {
     setDecisionLoading(true);
     setDecisionError(null);
     setDecisionNotice(null);
@@ -164,12 +230,24 @@ export default function FocusPage() {
         return;
       }
       setDecision(json);
+      void refreshTrackingData();
     } catch (error) {
       setDecisionError(error instanceof Error ? error.message : "生成决策失败");
     } finally {
       setDecisionLoading(false);
     }
-  }
+  }, [refreshTrackingData]);
+
+  useEffect(() => {
+    if (loading || decision || decisionLoading || decisionError || decisionNotice) return;
+    if (!focus.symbols.length || !focus.capital) return;
+    void loadDecision("GET");
+  }, [decision, decisionError, decisionLoading, decisionNotice, focus.capital, focus.symbols.length, loadDecision, loading]);
+
+  useEffect(() => {
+    if (loading) return;
+    void refreshTrackingData();
+  }, [loading, refreshTrackingData]);
 
   async function generateDecision() {
     await loadDecision("POST");
@@ -186,25 +264,51 @@ export default function FocusPage() {
   return (
     <PageContainer>
       <SectionHeader
-        title="今日关注"
-        description="今日关注用于从自选股中筛选少量重点标的。系统只会对这些标的定时抓取新闻和生成 AI 分析，以减少无效消耗。"
-        action={
-          <>
-          {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
-          <Button onClick={save} disabled={saving || !focus.symbols.length} className="min-w-32">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "保存中" : "保存今日关注设置"}
-          </Button>
-          </>
-        }
+        title="今日工作台"
+        description="先看今天的 AI 策略观察，再管理关注标的和自动分析时间。今日关注用于从自选股中筛选少量重点标的，减少无效消耗。"
       />
+
+      <Card id="decision" className="soft-card">
+        <CardHeader className="flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              今日 AI 策略观察
+            </CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">读取最近一次自动分析保存的策略观察；按钮用于手动重新分析。</p>
+          </div>
+          <Button onClick={generateDecision} disabled={decisionLoading || !focus.symbols.length || !focus.capital}>
+            {decisionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <WalletCards className="h-4 w-4" />}
+            {decisionLoading ? "分析中" : "重新分析"}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{decisionError}</div> : null}
+          {decisionNotice ? <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
+          {!focus.capital ? (
+            <EmptyDecision message="先填写总本金，AI 才能计算计划买入金额、保留现金和手续费。" />
+          ) : !focus.symbols.length ? (
+            <EmptyDecision message="先在下方选择今日关注标的，系统会在自动分析时间生成策略观察。" />
+          ) : decision ? (
+            <FocusDecisionPanel decision={decision} />
+          ) : decisionLoading ? (
+            <LoadingInsight />
+          ) : (
+            <EmptyDecision message="到达自动分析时间后，这里会显示系统后台生成的今日策略观察。" />
+          )}
+        </CardContent>
+      </Card>
+
+      <TaskStatusPanel focus={focus} runs={runs} decisionLoading={decisionLoading} decisionError={decisionError} />
+
+      <CandidateRanking decision={decision} names={names} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         {/* 选股区 */}
         <Card className="soft-card">
           <CardHeader>
             <CardTitle className="flex items-center justify-between gap-3">
-              <span>选择关注股票</span>
+              <span>今日关注配置</span>
               <span className="text-xs font-normal text-muted-foreground">来自自选股</span>
             </CardTitle>
           </CardHeader>
@@ -261,7 +365,7 @@ export default function FocusPage() {
         {/* 时间设置区 */}
         <Card className="soft-card">
           <CardHeader>
-            <CardTitle>配置与分析时间</CardTitle>
+            <CardTitle>资金与自动分析时间</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -317,56 +421,28 @@ export default function FocusPage() {
               <StatusLine label="新闻抓取" value={formatDateTime(focus.lastNewsFetch)} />
               <StatusLine label="AI 分析" value={formatDateTime(focus.lastAnalysis)} />
             </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : <span className="text-xs text-muted-foreground">修改配置后保存，下一次自动分析会按新设置执行。</span>}
+              <Button onClick={save} disabled={saving || !focus.symbols.length} className="min-w-32">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {saving ? "保存中" : "保存设置"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card id="decision" className="soft-card">
-        <CardHeader className="flex-row items-center justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              AI 买入决策
-            </CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">按你设置的自动分析时间后台生成并保存；打开页面直接读取最近一次决策。按钮用于手动强制刷新。</p>
-          </div>
-          <Button onClick={generateDecision} disabled={decisionLoading || !focus.symbols.length || !focus.capital}>
-            {decisionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <WalletCards className="h-4 w-4" />}
-            {decisionLoading ? "更新中" : "刷新决策"}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{decisionError}</div> : null}
-          {decisionNotice ? <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
-          {!focus.capital ? (
-            <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">先填写总本金，AI 才能计算买入金额和手续费。</div>
-          ) : decision ? (
-            <FocusDecisionPanel decision={decision} />
-          ) : decisionLoading ? (
-            <LoadingInsight />
-          ) : (
-            <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">到达自动分析时间后，这里会显示系统后台生成的推荐买入计划、预计手续费、总成本和保留现金。</div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* 分析结果 */}
       {focus.symbols.length > 0 ? (
-        <Card className="soft-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Brain className="h-4 w-4" />
-              最近分析
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 xl:grid-cols-3">
-              {focus.symbols.map((symbol) => (
-                <FocusAnalysisCard key={symbol} symbol={symbol} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <CollapsiblePanel title="最近分析 / 历史记录">
+          <DecisionHistoryTimeline records={history} />
+          <div className="mt-4 grid gap-3 xl:grid-cols-3">
+            {focus.symbols.map((symbol) => (
+              <FocusAnalysisCard key={symbol} symbol={symbol} />
+            ))}
+          </div>
+        </CollapsiblePanel>
       ) : null}
     </PageContainer>
   );
@@ -375,6 +451,7 @@ export default function FocusPage() {
 function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
   const shouldBuy = decision.recommendedAction === "buy" && decision.orders.length > 0;
   const nextObserve = decision.scheduledFor ? formatDateTime(decision.scheduledFor) : "等待下一次自动分析";
+  const actionLabel = shouldBuy ? "形成观察买入计划" : "等待 / 暂不行动";
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
@@ -391,9 +468,10 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
       <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/10" : "border-amber-500/25 bg-amber-500/10")}>
         <div className="flex flex-wrap items-center gap-2">
           <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
+          <StrategyBadge tone={shouldBuy ? "watch" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
           <Badge variant="secondary">下一次观察：{nextObserve}</Badge>
         </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">原因：{decision.summary}</p>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">核心原因：{decision.summary}</p>
       </div>
       <div className="grid gap-3 md:grid-cols-4">
         <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} />
@@ -426,32 +504,284 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
           ))}
         </div>
       ) : null}
-      {decision.ranking.length ? (
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-muted-foreground">候选排序</div>
+      <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+    </div>
+  );
+}
+
+function EmptyDecision({ message }: { message: string }) {
+  return <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
+}
+
+function TaskStatusPanel({
+  focus,
+  runs,
+  decisionLoading,
+  decisionError
+}: {
+  focus: FocusData;
+  runs: AnalysisRunResponse | null;
+  decisionLoading: boolean;
+  decisionError: string | null;
+}) {
+  const enabled = Boolean(focus.symbols.length && focus.capital && focus.analysisTimes.length);
+  const latest = runs?.runs[0] ?? null;
+  const latestStatus = decisionLoading
+    ? "执行中"
+    : decisionError
+      ? "最近失败"
+      : statusLabel(runs?.summary.latestStatus ?? "idle");
+  const successCount = runs?.summary.successCount ?? 0;
+  const failedCount = runs?.summary.failedCount ?? 0;
+
+  return (
+    <Card className="soft-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Clock3 className="h-4 w-4 text-primary" />
+          自动分析任务状态
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <StatusMetric label="自动任务" value={enabled ? "已启用" : "未启用"} tone={enabled ? "success" : "warning"} />
+          <StatusMetric label="下一次 AI 分析" value={runs?.summary.nextRunAt ? formatDateTime(runs.summary.nextRunAt) : nextAnalysisLabel(focus.analysisTimes)} />
+          <StatusMetric label="今日已执行" value={`${runs?.summary.todayRunCount ?? 0} 次`} />
+          <StatusMetric label="最近状态" value={latestStatus} tone={decisionError ? "danger" : latest?.fallbackUsed ? "warning" : "neutral"} />
+          <StatusMetric label="成功 / 失败" value={`${successCount} / ${failedCount}`} />
+          <StatusMetric label="兜底触发" value={`${runs?.summary.fallbackCount ?? 0} 次`} tone={(runs?.summary.fallbackCount ?? 0) > 0 ? "warning" : "success"} />
+        </div>
+        <div className="mt-4 space-y-2">
+          {(runs?.runs ?? []).slice(0, 4).map((run) => (
+            <CollapsiblePanel key={run.id} title={`${formatDateTime(run.startedAt)} · ${runTypeLabel(run.runType)} · ${statusLabel(run.status)} · ${run.successCount}/${run.totalSymbols} 成功`}>
+              <div className="space-y-2">
+                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                  <StatusLine label="耗时" value={formatDuration(run.durationMs)} />
+                  <StatusLine label="股票数量" value={String(run.totalSymbols)} />
+                  <StatusLine label="失败数量" value={String(run.failedCount)} />
+                  <StatusLine label="兜底规则" value={run.fallbackUsed ? "已触发" : "未触发"} />
+                </div>
+                <div className="overflow-hidden rounded-md border border-border">
+                  {run.items.length ? run.items.map((item) => (
+                    <div key={item.id} className="grid gap-2 border-b border-border px-3 py-2 text-xs last:border-0 md:grid-cols-[1fr_90px_90px_90px_90px_1.3fr]">
+                      <span className="font-medium">{item.stockName || item.symbol} <span className="text-muted-foreground">{item.symbol}</span></span>
+                      <span>{statusLabel(item.status)}</span>
+                      <span>AI {apiStatusLabel(item.aiStatus)}</span>
+                      <span>行情 {apiStatusLabel(item.quoteStatus)}</span>
+                      <span>新闻 {apiStatusLabel(item.newsStatus)}</span>
+                      <span className="text-muted-foreground">{item.errorMessage || `耗时 ${formatDuration(item.durationMs)}`}</span>
+                    </div>
+                  )) : <div className="px-3 py-2 text-xs text-muted-foreground">暂无单股执行明细。</div>}
+                </div>
+              </div>
+            </CollapsiblePanel>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CandidateRanking({ decision, names }: { decision: FocusDecision | null; names: Record<string, string> }) {
+  const items = decision?.ranking ?? [];
+  return (
+    <Card className="soft-card">
+      <CardHeader>
+        <CardTitle>候选标的排序</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {items.length ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {decision.ranking.slice(0, 6).map((item, index) => (
+            {items.slice(0, 6).map((item, index) => (
               <div
                 key={`${item.symbol}-${item.rank}`}
                 className={cn(motionClassNames.cardEnter, motionClassNames.hoverLift, "rounded-lg border border-border bg-muted/15 p-3 text-sm")}
                 style={{ animationDelay: `${staggerDelay(index)}ms` }}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="font-medium">#{item.rank} {item.symbol}</span>
-                    <p className="mt-1 text-xs text-muted-foreground">建议动作：{item.view}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground">#{item.rank}</div>
+                    <div className="mt-1 truncate font-semibold">{names[item.symbol] || item.symbol}</div>
+                    <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">{item.symbol}</div>
                   </div>
-                  <StrategyBadge tone={rankingTone(item.view)}>{item.view}</StrategyBadge>
+                  <StrategyBadge tone={rankingTone(item.view)}>{normalizeRankingView(item.view)}</StrategyBadge>
                 </div>
-                <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">{item.reason}</p>
+                <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted-foreground">排序原因：{item.reason}</p>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-amber-700 dark:text-amber-300">关键风险：{extractRiskText(item.reason)}</p>
+                <Button asChild variant="outline" size="sm" className="mt-3 w-full">
+                  <Link href={`/stocks/${item.symbol}`}>查看详情</Link>
+                </Button>
               </div>
             ))}
           </div>
-        </div>
-      ) : null}
-      <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+        ) : (
+          <EmptyDecision message="暂无候选排序。到达自动分析时间或点击重新分析后，这里会展示关注标的的排序和动作。" />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DecisionHistoryTimeline({ records }: { records: DecisionHistoryRecord[] }) {
+  if (!records.length) {
+    return <EmptyDecision message="暂无 AI 决策历史。自动分析或手动重新分析后，这里会按时间线保留记录。" />;
+  }
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-medium">AI 决策历史</div>
+      <div className="space-y-3">
+        {records.map((record, index) => {
+          const reasons = Array.isArray(record.keyReasons) ? record.keyReasons.map(String).slice(0, 3) : [];
+          return (
+            <div
+              key={record.id}
+              className={cn(motionClassNames.fadeUp, "relative rounded-lg border border-border bg-background/35 p-4")}
+              style={{ animationDelay: `${staggerDelay(index)}ms` }}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">{formatDateTime(record.decisionTime)} · {runTypeLabel(record.source)}</div>
+                  <div className="mt-1 font-semibold">{record.stockName || record.symbol} <span className="text-sm font-normal tabular-nums text-muted-foreground">{record.symbol}</span></div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <StrategyBadge tone={historyActionTone(record.action)}>{actionLabel(record.action)}</StrategyBadge>
+                  <Badge variant={riskVariant(record.riskLevel)}>{riskLabel(record.riskLevel)}</Badge>
+                  {record.confidence !== null ? <Badge variant="secondary">置信度 {Math.round(record.confidence * 100)}%</Badge> : null}
+                  {record.fallbackUsed ? <Badge variant="warning">兜底</Badge> : null}
+                </div>
+              </div>
+              <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{record.summary}</p>
+              {record.changeSummary ? <div className="mt-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">{record.changeSummary}</div> : null}
+              {reasons.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {reasons.map((reason) => <span key={reason} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{reason}</span>)}
+                </div>
+              ) : null}
+              <Button asChild variant="outline" size="sm" className="mt-3">
+                <Link href={`/stocks/${record.symbol}`}>查看详情</Link>
+              </Button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+function StatusMetric({
+  label,
+  value,
+  tone = "neutral"
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}) {
+  const toneClass = {
+    neutral: "border-border bg-muted/20",
+    success: "border-primary/20 bg-primary/10",
+    warning: "border-amber-500/25 bg-amber-500/10",
+    danger: "border-red-500/25 bg-red-500/10"
+  }[tone];
+  return (
+    <div className={cn("rounded-lg border px-3 py-3", toneClass)}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function nextAnalysisLabel(times: string[]) {
+  if (!times.length) return "未设置";
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const sorted = [...times].sort();
+  const nextToday = sorted.find((time) => minutesOfDay(time) > currentMinutes);
+  return nextToday ? `今天 ${nextToday}` : `明天 ${sorted[0]}`;
+}
+
+function minutesOfDay(time: string) {
+  const [hour = "0", minute = "0"] = time.split(":");
+  return Number(hour) * 60 + Number(minute);
+}
+
+function normalizeRankingView(view: string) {
+  if (/回避|风险/.test(view)) return "回避";
+  if (/等待|回调/.test(view)) return "等待回调";
+  if (/观察|观望/.test(view)) return "观察";
+  if (/买|优先|偏多/.test(view)) return "观察";
+  return view || "观察";
+}
+
+function statusLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    idle: "空闲",
+    running: "执行中",
+    success: "成功",
+    partial_failed: "部分失败",
+    failed: "失败",
+    skipped: "跳过"
+  };
+  return value ? map[value] ?? value : "未知";
+}
+
+function apiStatusLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    success: "成功",
+    failed: "失败",
+    fallback: "兜底",
+    skipped: "跳过"
+  };
+  return value ? map[value] ?? value : "--";
+}
+
+function runTypeLabel(value?: string | null) {
+  if (value === "scheduled") return "自动";
+  if (value === "manual") return "手动";
+  return value || "--";
+}
+
+function historyActionTone(action: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
+  if (action === "avoid" || action === "reduce") return "avoid";
+  if (action === "wait_pullback") return "wait";
+  if (action === "hold") return "watch";
+  return "neutral";
+}
+
+function actionLabel(action: string) {
+  const map: Record<string, string> = {
+    watch: "观察",
+    wait_pullback: "等待回调",
+    hold: "持有",
+    reduce: "减仓",
+    avoid: "回避"
+  };
+  return map[action] ?? action;
+}
+
+function riskLabel(risk?: string | null) {
+  if (risk === "low") return "低风险";
+  if (risk === "high") return "高风险";
+  if (risk === "medium") return "中风险";
+  return "风险待确认";
+}
+
+function riskVariant(risk?: string | null): "success" | "warning" | "danger" | "secondary" {
+  if (risk === "low") return "success";
+  if (risk === "high") return "danger";
+  if (risk === "medium") return "warning";
+  return "secondary";
+}
+
+function formatDuration(value?: number | null) {
+  if (!value) return "--";
+  if (value < 1000) return `${value}ms`;
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+function extractRiskText(text: string) {
+  const segments = text.split(/[。；;，,]/).map((item) => item.trim()).filter(Boolean);
+  return segments.find((item) => /风险|回调|高|弱|不足|失败|波动|追高|止损/.test(item)) ?? "需结合价格、量能和新闻变化复核。";
 }
 
 function rankingTone(view: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {

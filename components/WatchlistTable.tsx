@@ -189,6 +189,7 @@ export function WatchlistTable() {
                   <TableHead>涨跌幅</TableHead>
                   <TableHead>策略方向</TableHead>
                   <TableHead>风险</TableHead>
+                  <TableHead>持仓状态</TableHead>
                   <TableHead>当前动作</TableHead>
                   <TableHead>关键理由</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -225,10 +226,10 @@ export function WatchlistTable() {
                         <StrategyBadge tone={strategy.tone}>{strategy.label}</StrategyBadge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <RiskBadge risk={item.riskLevel} />
-                          <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "持仓跟踪" : "未持仓观察"}</Badge>
-                        </div>
+                        <RiskBadge risk={item.riskLevel} />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "已持仓" : "未持仓"}</Badge>
                       </TableCell>
                       <TableCell>
                         <StrategyBadge tone={action.tone}>{action.label}</StrategyBadge>
@@ -260,6 +261,7 @@ export function WatchlistTable() {
                 const quote = data?.quotes[item.symbol];
                 const latest = data?.latestAnalyses[item.symbol];
                 const primaryAdvice = getPrimaryAdvice(latest?.outputJson, item);
+                const isHolding = hasUserPosition(item);
                 const strategy = trendToStrategy(latest?.outputJson.trend);
                 const action = normalizeAction(primaryAdvice.action, primaryAdvice.isHolding);
                 return (
@@ -278,6 +280,7 @@ export function WatchlistTable() {
                       <StrategyBadge tone={strategy.tone}>{strategy.label}</StrategyBadge>
                       <StrategyBadge tone={action.tone}>{action.label}</StrategyBadge>
                       <RiskBadge risk={item.riskLevel} />
+                      <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "已持仓" : "未持仓"}</Badge>
                     </div>
                   </div>
                 );

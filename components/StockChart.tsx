@@ -148,7 +148,7 @@ export function StockChart({
         <div className="text-xs text-muted-foreground">{isTimeSharing ? "1 分钟分时线，柱状图为成交量" : "红涨绿跌，均线按当前周期 K 线计算"}</div>
       </div>
 
-      <div className="grid items-start gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="space-y-3">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
         <div className={cn(motionClassNames.chartEnter, "h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
           <svg
@@ -404,45 +404,43 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
   const cursorTime = cursor?.timeLabel ?? point.date;
   const cursorPrice = cursor?.price ?? point.close;
   return (
-    <div className="rounded-md border border-border bg-popover/95 p-3 text-[13px] leading-6 shadow-sm backdrop-blur antialiased xl:sticky xl:top-20">
-      <div className="mb-3 min-h-[86px] rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2">
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-muted-foreground">
-          <span>时间</span>
-          <span className="truncate text-right text-foreground">{cursorTime}</span>
-          <span>价格</span>
-          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(cursorPrice, { currency, symbol, unit })}</span>
-          <span>成交量</span>
-          <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatNumber(cursor?.volume ?? point.volume)}</span>
-        </div>
-      </div>
-
-      <div className="mb-2 font-medium text-popover-foreground">{point.date}</div>
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-muted-foreground">
-        <span>开盘</span>
-        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.open, { currency, symbol, unit })}</span>
-        <span>最高</span>
-        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.high, { currency, symbol, unit })}</span>
-        <span>最低</span>
-        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.low, { currency, symbol, unit })}</span>
-        <span>收盘</span>
-        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatPriceValue(point.close, { currency, symbol, unit })}</span>
-        <span>涨跌</span>
-        <span className={`whitespace-nowrap text-right tabular-nums ${up ? "text-red-400" : "text-emerald-400"}`}>
-          {change >= 0 ? "+" : ""}
-          {formatNumber(change)}/{changePct >= 0 ? "+" : ""}
-          {changePct.toFixed(2)}%
-        </span>
-        <span>成交量</span>
-        <span className="whitespace-nowrap text-right tabular-nums text-foreground">{formatNumber(point.volume)}</span>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2">
-        {maSeries.map((item) => (
-          <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
-            {item.label}: {formatNumber(point[item.key])}
+    <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+        <InfoItem label="时间" value={cursorTime} />
+        <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />
+        <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} />
+        <InfoItem label="开盘" value={formatPriceValue(point.open, { currency, symbol, unit })} />
+        <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
+        <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
+        <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-muted-foreground">涨跌</span>
+          <span className={`tabular-nums ${up ? "text-red-500" : "text-emerald-500"}`}>
+            {change >= 0 ? "+" : ""}
+            {formatNumber(change)}/{changePct >= 0 ? "+" : ""}
+            {changePct.toFixed(2)}%
           </span>
-        ))}
+        </span>
       </div>
+      {!cursor ? (
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 pt-1.5">
+          {maSeries.map((item) => (
+            <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
+              {item.label}: {formatNumber(point[item.key])}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function InfoItem({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("truncate tabular-nums text-foreground", strong ? "font-semibold" : "")}>{value}</span>
+    </span>
   );
 }
 

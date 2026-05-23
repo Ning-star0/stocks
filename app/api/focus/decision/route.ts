@@ -1,6 +1,8 @@
 import { getCurrentUser } from "@/lib/currentUser";
+import { createAnalysisRun } from "@/lib/analysis/runRecords";
 import { apiError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
@@ -21,10 +23,18 @@ export async function GET() {
 export async function POST() {
   try {
     const user = await getCurrentUser();
+    const focus = await prisma.focusGroup.findUnique({ where: { userId: user.id } });
+    const run = await createAnalysisRun({
+      userId: user.id,
+      runType: "manual",
+      totalSymbols: focus?.symbols.length ?? 0
+    });
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
       forceRefresh: true,
-      source: "manual"
+      source: "manual",
+      runId: run.id,
+      createRunItems: true
     });
     return Response.json(decision);
   } catch (error) {

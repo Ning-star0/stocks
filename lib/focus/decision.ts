@@ -6,6 +6,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { z } from "zod";
 
 import { getAiConfig } from "@/lib/ai/config";
+import { createDecisionHistoryFromFocusDecision, refreshAnalysisRun } from "@/lib/analysis/runRecords";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
@@ -80,6 +81,8 @@ type GenerateFocusDecisionOptions = {
   forceRefresh?: boolean;
   source?: "manual" | "scheduled";
   scheduledFor?: Date | string | null;
+  runId?: string | null;
+  createRunItems?: boolean;
 };
 
 export async function getLatestStoredFocusDecision(userId: string) {
@@ -125,6 +128,25 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     scheduledFor: normalizeScheduledFor(options.scheduledFor),
     decision
   });
+  await createDecisionHistoryFromFocusDecision({
+    userId: options.userId,
+    runId: options.runId ?? null,
+    source,
+    decision,
+    candidates: input.candidates.map((candidate) => ({
+      symbol: candidate.symbol,
+      name: candidate.name,
+      riskLevel: candidate.riskLevel,
+      latestAnalysis: candidate.latestAnalysis
+        ? {
+            confidence: candidate.latestAnalysis.confidence,
+            trend: candidate.latestAnalysis.trend
+          }
+        : null
+    })),
+    createRunItems: Boolean(options.createRunItems)
+  }).catch(() => []);
+  await refreshAnalysisRun(options.runId).catch(() => null);
   return attachStoredMetadata(row, { fromCache: false, stale: false });
 }
 

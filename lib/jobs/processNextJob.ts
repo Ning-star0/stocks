@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { analyzeNews } from "@/lib/ai/analyzeNews";
 import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
@@ -105,7 +106,10 @@ async function failTimedOutJobs() {
 async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJob>>>) {
   if (job.jobType === JOB_TYPES.STOCK_ANALYSIS) {
     if (!job.symbol) throw new Error("股票分析任务缺少股票代码。");
-    const payload = job.payload as { reason?: string; refreshNews?: boolean } | null;
+    const payload = job.payload as { reason?: string; refreshNews?: boolean; runId?: string } | null;
+    const runItem = payload?.runId
+      ? await startAnalysisRunItem({ runId: payload.runId, symbol: job.symbol }).catch(() => null)
+      : null;
 
     // 定时新闻抓取：先实际抓取新闻入库，再运行股票分析
     if (payload?.refreshNews) {
@@ -124,14 +128,71 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         jobId: job.id,
         reason: payload?.reason ?? "job_queue"
       });
+      const watchlistItem = await prisma.watchlistItem.findFirst({
+        where: { symbol: job.symbol, watchlist: { userId: job.userId } }
+      });
+      const history = await createDecisionHistoryFromAnalysis({
+        userId: job.userId,
+        runId: payload?.runId ?? null,
+        analysisId: result.analysisId,
+        symbol: job.symbol,
+        source: payload?.reason?.includes("定时") ? "scheduled" : "manual",
+        riskLevel: watchlistItem?.riskLevel ?? null,
+        outputJson: result.outputJson
+      }).catch(() => null);
+      await finishAnalysisRunItem({
+        itemId: runItem?.id,
+        runId: payload?.runId ?? null,
+        symbol: job.symbol,
+        status: result.fromCache ? "skipped" : "success",
+        decisionId: history?.id ?? null,
+        aiStatus: isFallbackOutput(result.outputJson) ? "fallback" : "success",
+        quoteStatus: "success",
+        newsStatus: "success",
+        durationMs: result.durationMs,
+        aiDurationMs: "aiDurationMs" in result.timings ? result.timings.aiDurationMs : null,
+        quoteDurationMs: result.timings?.quoteDurationMs ?? null,
+        newsDurationMs: result.timings?.newsDurationMs ?? null,
+        fallbackUsed: isFallbackOutput(result.outputJson)
+      });
       return { resultId: result.analysisId, skippedCached: result.fromCache };
     } catch (error) {
       // 行情不可用时保存 fallback 分析，避免任务失败后无任何分析记录
       const message = error instanceof Error ? error.message : "未知错误";
       const fallback = await saveFallbackAnalysisForFailedStock(job.userId, job.symbol, message);
       if (fallback) {
+        const history = await createDecisionHistoryFromAnalysis({
+          userId: job.userId,
+          runId: payload?.runId ?? null,
+          analysisId: fallback.id,
+          symbol: job.symbol,
+          source: payload?.reason?.includes("定时") ? "scheduled" : "manual",
+          outputJson: fallback.outputJson
+        }).catch(() => null);
+        await finishAnalysisRunItem({
+          itemId: runItem?.id,
+          runId: payload?.runId ?? null,
+          symbol: job.symbol,
+          status: "success",
+          decisionId: history?.id ?? null,
+          aiStatus: "fallback",
+          quoteStatus: "failed",
+          newsStatus: "skipped",
+          errorMessage: message,
+          fallbackUsed: true
+        });
         return { resultId: fallback.id, skippedCached: false };
       }
+      await finishAnalysisRunItem({
+        itemId: runItem?.id,
+        runId: payload?.runId ?? null,
+        symbol: job.symbol,
+        status: "failed",
+        aiStatus: "failed",
+        quoteStatus: "failed",
+        newsStatus: "skipped",
+        errorMessage: message
+      });
       throw error;
     }
   }
@@ -175,12 +236,13 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
   }
 
   if (job.jobType === JOB_TYPES.FOCUS_DECISION) {
-    const payload = job.payload as { scheduledFor?: string } | null;
+    const payload = job.payload as { scheduledFor?: string; runId?: string } | null;
     const decision = await generateAndStoreFocusDecision({
       userId: job.userId,
       forceRefresh: true,
       source: "scheduled",
-      scheduledFor: payload?.scheduledFor ?? null
+      scheduledFor: payload?.scheduledFor ?? null,
+      runId: payload?.runId ?? null
     });
     const resultId = "decisionId" in decision ? String(decision.decisionId) : "focus_decision";
     return { resultId, skippedCached: false };
@@ -313,6 +375,10 @@ async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string
 
 function truncate(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function isFallbackOutput(value: unknown) {
+  return Boolean(value && typeof value === "object" && "isFallback" in value && (value as { isFallback?: unknown }).isFallback);
 }
 
 function numberEnv(name: string, fallback: number) {

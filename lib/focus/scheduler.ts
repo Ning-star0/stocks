@@ -1,4 +1,5 @@
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
+import { createAnalysisRun } from "@/lib/analysis/runRecords";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNews, scoreNewsCatalyst } from "@/lib/news/relevance";
 import { upsertNewsItem } from "@/lib/news/store";
@@ -37,13 +38,19 @@ export async function checkFocusSchedules() {
 
       // AI 分析时间点：入队分析任务
       if (group.analysisTimes.includes(timeStr) && !sameTick(group.lastAnalysis, now)) {
+        const run = await createAnalysisRun({
+          userId: group.userId,
+          runType: "scheduled",
+          totalSymbols: symbols.length,
+          nextRunAt: nextScheduledTime(group.analysisTimes, now)
+        });
         for (const symbol of symbols) {
           await enqueueJob({
             userId: group.userId,
             symbol,
             jobType: JOB_TYPES.STOCK_ANALYSIS,
             priority: JOB_PRIORITY.SCHEDULED_REFRESH,
-            payload: { reason: `关注板块定时分析 ${timeStr}` }
+            payload: { reason: `关注板块定时分析 ${timeStr}`, runId: run.id }
           }).catch(() => {});
         }
         await enqueueJob({
@@ -51,7 +58,7 @@ export async function checkFocusSchedules() {
           jobType: JOB_TYPES.FOCUS_DECISION,
           priority: JOB_PRIORITY.FOCUS_DECISION,
           inputHash: `focus_decision:${group.id}:${formatDateKey(now)}:${timeStr}`,
-          payload: { reason: `关注板块定时买入决策 ${timeStr}`, scheduledFor: now.toISOString() }
+          payload: { reason: `关注板块定时买入决策 ${timeStr}`, scheduledFor: now.toISOString(), runId: run.id }
         }).catch(() => {});
         await prisma.focusGroup.update({
           where: { id: group.id },
@@ -151,6 +158,23 @@ function sameTick(a: Date | null, b: Date) {
   if (!a) return false;
   const diff = Math.abs(b.getTime() - a.getTime());
   return diff < 90_000; // 1.5 分钟内不去重
+}
+
+function nextScheduledTime(times: string[], now: Date) {
+  if (!times.length) return null;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const sorted = [...times].sort();
+  const next = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
+  const date = new Date(now);
+  const [hour = "0", minute = "0"] = next.split(":");
+  date.setHours(Number(hour), Number(minute), 0, 0);
+  if (date <= now) date.setDate(date.getDate() + 1);
+  return date;
+}
+
+function minutesOfDay(time: string) {
+  const [hour = "0", minute = "0"] = time.split(":");
+  return Number(hour) * 60 + Number(minute);
 }
 
 function formatDateKey(date: Date) {

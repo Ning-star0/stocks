@@ -33,6 +33,8 @@ model User {
   userMemory    UserMemory?
   focusGroup    FocusGroup?
   focusDecisions FocusDecision[]
+  analysisRuns  AnalysisRun[]
+  decisionHistories DecisionHistory[]
 }
 
 model Watchlist {
@@ -286,4 +288,84 @@ model FocusDecision {
 
   @@unique([userId, inputHash, source])
   @@index([userId, createdAt])
+}
+
+model AnalysisRun {
+  id              String   @id @default(cuid())
+  userId          String
+  runType         String
+  status          String   @default("running")
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  durationMs      Int?
+  totalSymbols    Int      @default(0)
+  successCount    Int      @default(0)
+  failedCount     Int      @default(0)
+  nextRunAt       DateTime?
+  fallbackUsed    Boolean  @default(false)
+  errorSummary    String?
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items           AnalysisRunItem[]
+  decisionHistories DecisionHistory[]
+
+  @@index([userId, startedAt])
+  @@index([status, startedAt])
+}
+
+model AnalysisRunItem {
+  id              String   @id @default(cuid())
+  runId           String
+  symbol          String
+  stockName       String?
+  status          String   @default("running")
+  decisionId      String?
+  aiStatus        String?
+  quoteStatus     String?
+  newsStatus      String?
+  errorMessage    String?
+  durationMs      Int?
+  aiDurationMs    Int?
+  quoteDurationMs Int?
+  newsDurationMs  Int?
+  fallbackUsed    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  run             AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([symbol, createdAt])
+}
+
+model DecisionHistory {
+  id                    String   @id @default(cuid())
+  userId                String
+  runId                 String?
+  analysisId            String?
+  symbol                String
+  stockName             String?
+  decisionTime          DateTime @default(now())
+  source                String
+  strategyDirection     String
+  action                String
+  riskLevel             String?
+  confidence            Decimal? @db.Decimal(5, 4)
+  summary               String
+  keyReasons            Json
+  entryRange            String?
+  stopLoss              String?
+  takeProfit            String?
+  invalidationCondition String?
+  fallbackUsed          Boolean  @default(false)
+  rawModelName          String?
+  previousAction        String?
+  previousStrategyDirection String?
+  changeSummary         String?
+  createdAt             DateTime @default(now())
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run                   AnalysisRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([userId, decisionTime])
+  @@index([userId, symbol, decisionTime])
+  @@index([action])
+  @@index([riskLevel])
 }

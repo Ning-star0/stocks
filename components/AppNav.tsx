@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bell, Brain, Crosshair, ListChecks, Newspaper, Settings } from "lucide-react";
+import { Bell, Crosshair, ListChecks, Newspaper, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/watchlist", label: "自选股", icon: ListChecks },
-  { href: "/focus", label: "今日关注", icon: Crosshair },
-  { href: "/focus#decision", label: "AI 决策", icon: Brain, activePath: "/focus" },
+  { href: "/focus", label: "今日工作台", icon: Crosshair },
   { href: "/news", label: "新闻", icon: Newspaper },
   { href: "/alerts", label: "提醒", icon: Bell },
   { href: "/settings", label: "设置", icon: Settings }
@@ -18,11 +17,12 @@ const navItems = [
 
 export function AppNav() {
   const pathname = usePathname();
+
   return (
     <nav className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-full border border-border bg-background/65 p-1 shadow-sm backdrop-blur-xl">
       {navItems.map((item) => {
         const Icon = item.icon;
-        const active = pathname === (item.activePath ?? item.href) || (!item.activePath && item.href !== "/" && pathname.startsWith(`${item.href}/`));
+        const active = isNavItemActive(item.href, pathname);
         return (
           <NavItem key={item.label} href={item.href} active={active}>
             <Icon className="h-4 w-4 transition-transform duration-150 group-hover:-translate-y-px" />
@@ -32,6 +32,10 @@ export function AppNav() {
       })}
     </nav>
   );
+}
+
+function isNavItemActive(href: string, pathname: string) {
+  return pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
 }
 
 function NavItem({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {

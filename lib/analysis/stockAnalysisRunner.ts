@@ -41,10 +41,12 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
       reason: `${input.reason}:cache_hit`,
       promptTokens: context.estimatedTokens
     });
-    return { fromCache: true, analysisId: cached.analysisId, outputJson: cached.outputJson, inputHash, durationMs: Date.now() - startedAt };
+    return { fromCache: true, analysisId: cached.analysisId, outputJson: cached.outputJson, inputHash, durationMs: Date.now() - startedAt, timings: context.timings };
   }
 
+  const aiStartedAt = Date.now();
   const outputJson = await analyzeStock(context.aiInput);
+  const aiDurationMs = Date.now() - aiStartedAt;
   const isFallback = Boolean(outputJson.isFallback);
   const jsonSafeInput = JSON.parse(JSON.stringify({ ...context.aiInput, contextHash: inputHash, highImpactNewsIds: context.highImpactNewsIds }));
   const jsonSafeOutput = JSON.parse(JSON.stringify(outputJson)) as Prisma.InputJsonValue;
@@ -75,12 +77,14 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     promptTokens: context.estimatedTokens
   });
 
-  return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt };
+  return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt, timings: { ...context.timings, aiDurationMs } };
 }
 
 export async function buildStockAnalysisContext(userId: string, symbol: string, options: { includeWebSearch?: boolean } = {}) {
   const provider = getStockDataProvider();
+  const timings = { quoteDurationMs: 0, newsDurationMs: 0 };
   // 先试原始 symbol，失败则尝试去掉 A 股后缀重试
+  const quoteStartedAt = Date.now();
   let quoteStatus = await getQuote(symbol, { allowStale: true });
   if (!quoteStatus.raw) {
     const stripped = cleanChinaSymbol(symbol);
@@ -88,6 +92,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
       quoteStatus = await getQuote(stripped, { allowStale: true });
     }
   }
+  timings.quoteDurationMs = Date.now() - quoteStartedAt;
   if (!quoteStatus.raw) throw new AppError("DATA_PROVIDER_ERROR", quoteStatus.error ?? "行情不可用，无法构造分析上下文。");
 
   const quote = quoteStatus.raw;
@@ -108,6 +113,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const watchedSectorKeywords = [...sectorWatches.map((watch) => watch.sectorName), ...sectorWatches.flatMap((watch) => watch.keywords)];
   const stockNewsKeywords = buildStockNewsKeywords({ symbol: canonicalSymbol, name: quote.name, extraKeywords: watchedSectorKeywords });
   const sectorKeywords = buildSectorNewsKeywords({ symbol: canonicalSymbol, name: quote.name, extraKeywords: [...watchedSectorKeywords, ...stockNewsKeywords] });
+  const newsStartedAt = Date.now();
   const relevantNews = await getRelevantNewsForStock(canonicalSymbol, sectorKeywords);
   const supplementalNews = options.includeWebSearch
     ? await searchRelatedNews({
@@ -123,6 +129,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
         queries: [],
         results: []
       };
+  timings.newsDurationMs = Date.now() - newsStartedAt;
   const highImpactNewsIds = relevantNews.filter((item) => item.importance === "high" || item.analyses[0]?.impactLevel === "high").map((item) => item.id);
   const contextHash = createAnalysisContextHash({
     symbol: canonicalSymbol,
@@ -200,7 +207,8 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     highImpactNewsIds,
     contextHash,
     aiInput,
-    estimatedTokens: estimateTokens(JSON.stringify(aiInput))
+    estimatedTokens: estimateTokens(JSON.stringify(aiInput)),
+    timings
   };
 }
 
