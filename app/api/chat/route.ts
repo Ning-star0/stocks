@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 
 const MEMORY_TAG = /\[MEMORY:([\s\S]*?)\]/g;
+const MEMORY_EXTRACTION_TIMEOUT_MS = 10_000;
 
 export async function POST(request: Request) {
   try {
@@ -14,14 +15,14 @@ export async function POST(request: Request) {
     const message = String(body.message ?? "").trim();
     if (!message) throw new AppError("BAD_REQUEST", "请输入问题。");
 
+    let memoryUpdated = false;
     const explicitMemories = extractExplicitMemories(message);
-    let explicitMemorySaved = false;
     if (explicitMemories.length) {
       try {
         await addMemoryEntries(user.id, explicitMemories, "manual");
-        explicitMemorySaved = true;
+        memoryUpdated = true;
       } catch {
-        explicitMemorySaved = false;
+        memoryUpdated = false;
       }
     }
 
@@ -31,11 +32,25 @@ export async function POST(request: Request) {
       throw new AppError("DATA_PROVIDER_ERROR", "API 地址配置异常，请在设置页面检查。");
     }
 
+    const autoMemories = await extractAutoMemories({
+      message,
+      existingMemory: await getMemoryContent(user.id),
+      config
+    });
+    if (autoMemories.length) {
+      try {
+        await addMemoryEntries(user.id, autoMemories, "auto");
+        memoryUpdated = true;
+      } catch {
+        // 记忆写入失败不应该阻断聊天。
+      }
+    }
+
     const context = await buildChatContext(user.id);
     const systemPrompt = `你是一个谨慎的股票投资顾问，正在帮助用户分析他的投资组合。你可以看到用户的持仓、最近的AI分析结果和相关新闻。请基于这些上下文回答问题。不能给出确定性买卖指令，不能保证收益。使用简体中文回复。
 
-你有权写入用户的交易记忆。当你在对话中了解到用户的重要信息（如交易习惯、风险偏好、持仓策略等），可以在回复末尾用 [MEMORY:记录内容] 的格式写入。记忆会持久化，供未来的对话参考。每条记忆应简洁、具体、客观，不要写重复信息。
-如果用户本轮明确要求“记住”某个信息，系统会先主动保存这条记忆；你只需要自然确认，不要重复输出同一条 [MEMORY:...]。
+服务器会自动维护用户记忆。你只需要自然回答，不要输出 [MEMORY:...]、工具调用文本或任何隐藏标记。
+如果用户本轮明确要求“记住”某个信息，系统已经在回复前尝试保存；你可以自然确认。
 
 当前时间：${new Date().toLocaleString("zh-CN")}
 
@@ -135,7 +150,7 @@ ${context}`;
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-cache",
           "X-Content-Type-Options": "nosniff",
-          "X-Memory-Updated": explicitMemorySaved ? "true" : "false"
+          "X-Memory-Updated": memoryUpdated ? "true" : "false"
         }
       });
     } finally {
@@ -146,6 +161,95 @@ ${context}`;
       return Response.json({ error: { code: error.code, message: error.message } }, { status: codeToStatus(error.code) });
     }
     return Response.json({ error: { code: "DATA_PROVIDER_ERROR", message: "AI 服务异常" } }, { status: 502 });
+  }
+}
+
+async function extractAutoMemories(input: {
+  message: string;
+  existingMemory: string;
+  config: Awaited<ReturnType<typeof getAiConfig>>;
+}) {
+  const deterministic = extractDeterministicAutoMemories(input.message);
+  const aiMemories = shouldRunAiMemoryExtraction(input.message) ? await extractAutoMemoriesWithAi(input) : [];
+  return dedupeMemoryTexts([...deterministic, ...aiMemories]).slice(0, 5);
+}
+
+function shouldRunAiMemoryExtraction(message: string) {
+  return /我|我的|本人|以后|记住|记得|偏好|习惯|风险|喜欢|不喜欢|最多|不要|别|称呼|叫我/.test(message);
+}
+
+function extractDeterministicAutoMemories(message: string) {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized || containsQuestionLikeText(normalized)) return [];
+
+  const memories: string[] = [];
+  const patterns: Array<{ pattern: RegExp; format: (value: string) => string }> = [
+    { pattern: /(?:^|[，。,.!！\s])我(?:的)?风险偏好(?:是|偏向|属于)?([^，。,.!！?？]{2,60})/, format: (value) => `用户的风险偏好是${value}。` },
+    { pattern: /(?:^|[，。,.!！\s])我(?:比较|更|很)?(?:喜欢|偏好|倾向于)([^，。,.!！?？]{2,80})/, format: (value) => `用户偏好${value}。` },
+    { pattern: /(?:^|[，。,.!！\s])我(?:不喜欢|不想|不愿意|尽量不)([^，。,.!！?？]{2,80})/, format: (value) => `用户不喜欢${value}。` },
+    { pattern: /(?:^|[，。,.!！\s])我(?:通常|一般|习惯于|经常)([^，。,.!！?？]{2,80})/, format: (value) => `用户通常${value}。` },
+    { pattern: /(?:^|[，。,.!！\s])我(?:单只股票|单个标的|单票)(?:最多|最大|不要超过)([^，。,.!！?？]{2,80})/, format: (value) => `用户单只股票最多${value}。` }
+  ];
+
+  for (const item of patterns) {
+    const value = cleanMemoryCandidate(matchShortValue(normalized, item.pattern));
+    if (value) memories.push(item.format(value));
+  }
+  return dedupeMemoryTexts(memories);
+}
+
+async function extractAutoMemoriesWithAi(input: {
+  message: string;
+  existingMemory: string;
+  config: Awaited<ReturnType<typeof getAiConfig>>;
+}) {
+  if (input.message.length < 8) return [];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEMORY_EXTRACTION_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${input.config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: input.config.model,
+        temperature: 0,
+        max_tokens: 500,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是记忆抽取器。只从用户消息中抽取未来长期有用、稳定、客观的用户记忆，例如称呼、风险偏好、交易规则、行业偏好、资金约束。不要抽取临时问题、当日行情、一次性请求、AI 对股票的判断或投资结论。返回严格 JSON。"
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              userMessage: input.message,
+              existingMemory: input.existingMemory,
+              outputSchema: { memories: ["简洁中文记忆，每条不超过 80 字"] }
+            })
+          }
+        ],
+        stream: false,
+        thinking: { type: "disabled" }
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) return [];
+    const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const parsed = parseJsonObject(content) as { memories?: unknown };
+    if (!Array.isArray(parsed.memories)) return [];
+    return dedupeMemoryTexts(parsed.memories.map((item) => cleanMemoryCandidate(String(item))).filter(Boolean));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -233,7 +337,7 @@ function extractExplicitMemories(message: string) {
 }
 
 function extractName(value: string) {
-  return matchShortValue(value, /(?:^|[，。,.!！?？\s])我(?:的)?(?:名字)?叫([^，。,.!！?？\s]{1,24})/);
+  return matchShortValue(value, /(?:^|[，。,.!！?？\s])我(?:的)?(?:名字|姓名)?(?:叫|是)([^，。,.!！?？\s]{1,24})/);
 }
 
 function matchShortValue(value: string, pattern: RegExp) {
@@ -255,4 +359,29 @@ function cleanMemoryCandidate(value: string) {
 
 function containsQuestionLikeText(value: string) {
   return /[?？]|什么|怎么|为何|为什么|哪里|是否/.test(value);
+}
+
+function parseJsonObject(text: string) {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    return {};
+  }
+}
+
+function dedupeMemoryTexts(values: string[]) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const cleaned = cleanMemoryCandidate(value);
+    const key = cleaned.toLowerCase().replace(/[，。,.；;：:\s]/g, "");
+    if (!cleaned || seen.has(key)) continue;
+    seen.add(key);
+    output.push(cleaned);
+  }
+  return output;
 }

@@ -155,6 +155,7 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
     <div className="space-y-2">
       {items.slice(0, 5).map((item) => {
         const analysis = item.analyses?.[0];
+        const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.filter(Boolean) : [];
         return (
           <div key={item.id} className="rounded-md border border-border bg-muted/20 px-3 py-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -163,6 +164,18 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
               <span>{analysis?.sentiment ?? item.sentiment ?? "neutral"}</span>
             </div>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{toSimplifiedChinese(analysis?.aiSummary ?? "")}</p>
+            {analysis?.whyItMatters ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">影响：{toSimplifiedChinese(analysis.whyItMatters)}</p>
+            ) : null}
+            {riskNotes.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {riskNotes.slice(0, 3).map((note) => (
+                  <span key={note} className="rounded border border-border bg-background/40 px-2 py-1 text-xs text-muted-foreground">
+                    {toSimplifiedChinese(note)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -187,15 +200,20 @@ function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverv
 function buildNewsOverview(items: NewsCardData[]) {
   const high = items.filter((item) => (item.analyses?.[0]?.impactLevel ?? item.importance) === "high").length;
   const medium = items.filter((item) => (item.analyses?.[0]?.impactLevel ?? item.importance) === "medium").length;
-  const analyzed = items.filter((item) => item.analyses?.length).length;
+  const analyzedItems = items.filter((item) => item.analyses?.[0]?.aiSummary);
+  const analyzed = analyzedItems.length;
   const sentiment = countSentiment(items);
-  const topTitles = items.slice(0, 3).map((item) => shortText(toSimplifiedChinese(item.title), 42));
+  const summaryPoints = analyzedItems.slice(0, 3).map((item) => {
+    const analysis = item.analyses?.[0];
+    const text = analysis?.aiSummary || analysis?.whyItMatters || item.summary || item.title;
+    return shortText(toSimplifiedChinese(text), 60);
+  });
 
   return {
     points: [
       `共纳入 ${items.length} 条相关新闻，其中高重要性 ${high} 条、中等重要性 ${medium} 条，AI 已精读 ${analyzed} 条。`,
       `情绪分布：正面 ${sentiment.positive} 条，中性 ${sentiment.neutral} 条，负面 ${sentiment.negative} 条。`,
-      topTitles.length ? `重点新闻：${topTitles.join("；")}` : "暂未形成明确新闻主线。"
+      summaryPoints.length ? `内容要点：${summaryPoints.join("；")}` : "暂无 AI 精读摘要，暂不根据标题推断新闻主线。"
     ]
   };
 }

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { Prisma as PrismaSql } from "@prisma/client";
 
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
@@ -79,32 +78,33 @@ export async function GET() {
 }
 
 async function loadLatestAnalyses(userId: string, symbols: string[]) {
-  const output: Record<string, unknown> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
+  const output: Record<string, { id: string; createdAt: Date; outputJson: Prisma.JsonValue } | null> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
   if (!symbols.length) return output;
 
-  const rows = await prisma.$queryRaw<
-    Array<{
-      id: string;
-      symbol: string;
-      createdAt: Date;
-      outputJson: Prisma.JsonValue;
-    }>
-  >(PrismaSql.sql`
-    SELECT DISTINCT ON ("symbol") "id", "symbol", "createdAt", "outputJson"
-    FROM "AiAnalysis"
-    WHERE "userId" = ${userId}
-      AND "symbol" IN (${PrismaSql.join(symbols)})
-    ORDER BY "symbol", "createdAt" DESC
-  `);
+  const variants = [...new Set(symbols.flatMap(symbolVariants))];
+  const rows = await prisma.aiAnalysis.findMany({
+    where: { userId, symbol: { in: variants } },
+    orderBy: { createdAt: "desc" },
+    take: Math.max(20, symbols.length * 5)
+  });
 
-  for (const row of rows) {
-    output[row.symbol] = {
-      id: row.id,
-      createdAt: row.createdAt,
-      outputJson: row.outputJson
+  for (const symbol of symbols) {
+    const match = rows.find((row) => symbolVariants(symbol).includes(row.symbol));
+    if (!match) continue;
+    output[symbol] = {
+      id: match.id,
+      createdAt: match.createdAt,
+      outputJson: match.outputJson
     };
   }
   return output;
+}
+
+function symbolVariants(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  if (!/^\d{6}$/.test(base)) return [normalized];
+  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }
 
 function numberEnv(name: string, fallback: number) {

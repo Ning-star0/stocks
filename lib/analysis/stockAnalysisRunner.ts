@@ -149,6 +149,8 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     source: item.source,
     publishedAt: item.publishedAt.toISOString(),
     summary: truncateText(item.analyses[0]?.aiSummary ?? "", numberEnv("AI_NEWS_SUMMARY_MAX_CHARS", 360)),
+    whyItMatters: truncateText(item.analyses[0]?.whyItMatters ?? "", 240),
+    riskNotes: Array.isArray(item.analyses[0]?.riskNotes) ? item.analyses[0].riskNotes.slice(0, 3) : [],
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));

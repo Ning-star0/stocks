@@ -60,7 +60,9 @@ type Candidate = {
   status: string;
   note?: string | null;
   riskLevel?: string;
+  isHolding?: boolean;
   holdingPrice?: number | null;
+  positionOpenedAt?: Date | null;
   targetPrice?: number | null;
   stopLoss?: number | null;
   latestAnalysis?: {
@@ -211,6 +213,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     const item = watchlistItems.find((row) => variants.includes(row.symbol));
     const analysis = seed.latestAnalysisBySymbol.get(symbol) ?? null;
     const output = analysis?.outputJson as Candidate["latestAnalysis"] | undefined;
+    const holdingPrice = toNumber(item?.holdingPrice);
     return {
       symbol: quote?.symbol ?? symbol,
       name: quote?.name ?? null,
@@ -219,7 +222,9 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       status: quote?.status ?? "unavailable",
       note: item?.note ?? null,
       riskLevel: item?.riskLevel,
-      holdingPrice: toNumber(item?.holdingPrice),
+      isHolding: Boolean((holdingPrice && holdingPrice > 0) || item?.positionOpenedAt),
+      holdingPrice,
+      positionOpenedAt: item?.positionOpenedAt ?? null,
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss),
       latestAnalysis: output
@@ -301,11 +306,15 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 
 决策要求：
 1. 必须明确 recommendedAction 是 buy 还是 wait。
-2. 如果建议买入，orders 里最多给 2 笔 buy；必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-3. amount 是计划成交金额，不含手续费；shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。
-4. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-5. 如果没有足够确定性，宁可 recommendedAction=wait，并说明等待什么触发条件。
-6. 不要机械平均分配资金，要按趋势、置信度、风险、已有持仓计划和手续费性价比排序。
+2. 每个候选都有 isHolding。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
+3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断，若 entryAdvice 是等待、不建议入场、回避、观望，则不能买。
+4. 如果最新分析 trend=bearish、confidence 低于 0.55、行情价格不可用、或建议里出现减仓/止损/离场/回避，应 recommendedAction=wait 或在 ranking 标为回避。
+5. 如果建议买入，orders 里最多给 2 笔 buy；必须写清 symbol、amount、shares、reason、riskControl、invalidIf。reason 必须说明这是“新买入”还是“增持”。
+6. amount 是计划成交金额，不含手续费；shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。
+7. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+8. 如果没有足够确定性，宁可 recommendedAction=wait，并说明等待什么触发条件。
+9. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划和手续费性价比排序。
+10. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议或入场建议。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -365,6 +374,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
   return {
     ...value,
     recommendedAction: orders.length ? value.recommendedAction : "wait",
+    summary: orders.length || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行买入单，已改为等待。${value.summary}`,
     orders,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2)),
@@ -379,7 +389,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
 
 function buildFallbackDecision(input: { capital: number; candidates: Candidate[] }, reason: string) {
   const ranked = input.candidates
-    .filter((candidate) => candidate.price && candidate.latestAnalysis?.trend !== "bearish")
+    .filter(candidateSupportsBuy)
     .sort((a, b) => (b.latestAnalysis?.confidence ?? 0) - (a.latestAnalysis?.confidence ?? 0));
   const best = ranked[0];
   if (!best?.price || (best.latestAnalysis?.confidence ?? 0) < 0.55) {
@@ -416,7 +426,7 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
           action: "buy",
           amount: targetAmount,
           shares: sharesFromAmount(targetAmount, best.price),
-          reason: best.latestAnalysis?.summary ?? "趋势和置信度在候选中相对更高。",
+          reason: `${best.isHolding ? "已持仓，按本地规则仅视为增持候选。" : "未持仓，按本地规则视为新买入候选。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "趋势和置信度在候选中相对更高。"}`,
           riskControl: "若跌破最近分析给出的止损或关键支撑，停止加仓并复核。",
           invalidIf: "AI 服务恢复后结论相反，或价格快速偏离计划买入区间。"
         }
@@ -435,15 +445,41 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
 }
 
 function parseJsonObject(text: string) {
-  const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const cleaned = repairJsonText(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim());
   try {
     return JSON.parse(cleaned);
   } catch {
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    if (start >= 0 && end > start) return JSON.parse(repairJsonText(cleaned.slice(start, end + 1)));
     throw new Error("AI 返回内容不是可解析的 JSON 对象。");
   }
+}
+
+function repairJsonText(text: string) {
+  return text
+    .replace(/[\u201C\u201D]/g, "\"")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
+function candidateSupportsBuy(candidate: Candidate) {
+  if (!candidate.price || candidate.price <= 0) return false;
+  if (candidate.latestAnalysis?.trend === "bearish") return false;
+  if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
+
+  const advice = candidate.isHolding ? candidate.latestAnalysis?.holdAdvice : candidate.latestAnalysis?.entryAdvice;
+  const text = stringifyAdvice(advice);
+  if (/减仓|止损|离场|回避|不建议|等待|观望/.test(text)) return false;
+  if (candidate.isHolding) return /加仓|增持|逢低|提高仓位/.test(text);
+  return /买入|建仓|入场|轻仓|试探|逢低/.test(text);
+}
+
+function stringifyAdvice(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (isRecord(value)) return Object.values(value).filter((item) => typeof item === "string").join(" ");
+  return "";
 }
 
 function symbolVariants(symbol: string) {

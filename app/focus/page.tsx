@@ -74,7 +74,10 @@ export default function FocusPage() {
     ])
       .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
-        const items = (wlData.watchlists?.[0]?.items || wlData.items || []).map((item: { symbol: string; note?: string | null; quote?: { name?: string | null } | null }) => ({
+        const rawItems = Array.isArray(wlData.watchlists)
+          ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ symbol: string; note?: string | null; quote?: { name?: string | null } | null }> }) => watchlist.items ?? [])
+          : wlData.items || [];
+        const items = rawItems.map((item: { symbol: string; note?: string | null; quote?: { name?: string | null } | null }) => ({
           symbol: item.symbol,
           name: item.quote?.name ?? undefined,
           note: item.note
@@ -88,6 +91,7 @@ export default function FocusPage() {
 
   function toggleSymbol(symbol: string) {
     setDecision(null);
+    setDecisionError(null);
     setDecisionNotice(null);
     setFocus((prev) => {
       const has = prev.symbols.includes(symbol);
@@ -115,8 +119,8 @@ export default function FocusPage() {
   }
 
   function addAnalysisTime() {
-    const t = newTime.trim();
-    if (!/^\d{1,2}:\d{2}$/.test(t)) return;
+    const t = normalizeTimeInput(newTime);
+    if (!t) return;
     setFocus((prev) => {
       const next = { ...prev, analysisTimes: [...new Set([...prev.analysisTimes, t])].sort() };
       doSave(next);
@@ -269,6 +273,7 @@ export default function FocusPage() {
                 value={focus.capital ?? ""}
                 onChange={(e) => {
                   setDecision(null);
+                  setDecisionError(null);
                   setDecisionNotice(null);
                   setFocus((prev) => ({ ...prev, capital: e.target.value ? Number(e.target.value) : null }));
                 }}
@@ -584,4 +589,13 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function normalizeTimeInput(value: string) {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
