@@ -9,7 +9,15 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "股票 AI 监控",
-  description: "股票监控与 AI 辅助分析系统"
+  description: "股票监控与 AI 辅助分析系统",
+  icons: {
+    icon: [
+      { url: "/favicon.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" }
+    ],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }]
+  }
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

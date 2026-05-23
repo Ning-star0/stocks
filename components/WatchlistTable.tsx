@@ -69,7 +69,6 @@ type DashboardResponse = {
 
 type RiskBucket = "high" | "medium" | "low";
 type ActionCategory = "wait" | "watch" | "avoid" | "none";
-type SummaryFilter = "all" | "focus" | "highRisk" | "wait" | "watch";
 type SortKey = "default" | "changeDesc" | "changeAsc" | "riskFirst" | "focusFirst";
 
 type WatchlistRowModel = {
@@ -97,7 +96,6 @@ export function WatchlistTable() {
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [summaryFilter, setSummaryFilter] = useState<SummaryFilter>("all");
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<"all" | RiskBucket>("all");
   const [actionFilter, setActionFilter] = useState<"all" | ActionCategory>("all");
@@ -131,12 +129,11 @@ export function WatchlistTable() {
   const rows = useMemo(() => buildWatchlistRows(items, data), [items, data]);
   const summary = useMemo(() => buildWatchlistSummary(rows), [rows]);
   const filteredRows = useMemo(
-    () => filterAndSortRows(rows, { summaryFilter, search, riskFilter, actionFilter, holdingFilter, sortKey }),
-    [rows, summaryFilter, search, riskFilter, actionFilter, holdingFilter, sortKey]
+    () => filterAndSortRows(rows, { search, riskFilter, actionFilter, holdingFilter, sortKey }),
+    [rows, search, riskFilter, actionFilter, holdingFilter, sortKey]
   );
   const strategySummary = useMemo(() => buildStrategySummary(summary, rows.length), [summary, rows.length]);
-  const activeFilter = summaryFilterMeta.find((filter) => filter.key === summaryFilter) ?? summaryFilterMeta[0];
-  const hasAnyFilter = summaryFilter !== "all" || search.trim() || riskFilter !== "all" || actionFilter !== "all" || holdingFilter !== "all" || sortKey !== "default";
+  const hasAnyFilter = Boolean(search.trim()) || riskFilter !== "all" || actionFilter !== "all" || holdingFilter !== "all" || sortKey !== "default";
 
   async function analyze(symbol: string) {
     setAnalyzing(symbol);
@@ -175,7 +172,6 @@ export function WatchlistTable() {
   }
 
   function clearFilters() {
-    setSummaryFilter("all");
     setSearch("");
     setRiskFilter("all");
     setActionFilter("all");
@@ -203,21 +199,6 @@ export function WatchlistTable() {
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
       {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">{notice}</div> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {summaryFilterMeta.map((filter, index) => (
-          <SummaryFilterCard
-            key={filter.key}
-            active={summaryFilter === filter.key}
-            count={summary[filter.countKey]}
-            delayIndex={index}
-            hint={filter.hint}
-            label={filter.label}
-            tone={filter.tone}
-            onClick={() => setSummaryFilter(filter.key)}
-          />
-        ))}
-      </div>
-
       <details className="rounded-lg border border-border bg-card/70 p-4 text-sm" open>
         <summary className="cursor-pointer select-none font-medium text-foreground">今日策略小结</summary>
         <ul className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-3">
@@ -241,7 +222,6 @@ export function WatchlistTable() {
             <div>
               <CardTitle>
                 策略观察列表
-                {summaryFilter !== "all" ? <span className="text-muted-foreground"> · {activeFilter.label} {filteredRows.length}</span> : null}
               </CardTitle>
               <p className="mt-2 text-sm text-muted-foreground">
                 当前显示 {filteredRows.length} / {rows.length} 只标的，筛选和排序仅影响当前页面展示。
@@ -428,48 +408,6 @@ export function WatchlistTable() {
   );
 }
 
-function SummaryFilterCard({
-  active,
-  count,
-  delayIndex,
-  hint,
-  label,
-  tone,
-  onClick
-}: {
-  active: boolean;
-  count: number;
-  delayIndex: number;
-  hint: string;
-  label: string;
-  tone: "neutral" | "success" | "warning" | "danger";
-  onClick: () => void;
-}) {
-  const toneClass = {
-    neutral: "from-slate-500/[0.08] to-transparent",
-    success: "from-emerald-500/[0.10] to-transparent",
-    warning: "from-amber-500/[0.12] to-transparent",
-    danger: "from-rose-500/[0.12] to-transparent"
-  }[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "motion-card-enter motion-hover-lift rounded-lg border bg-gradient-to-br p-4 text-left shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur transition-colors",
-        toneClass,
-        active ? "border-primary/55 bg-primary/5" : "border-border/70 bg-card/80 hover:border-primary/30"
-      )}
-      style={{ animationDelay: `${Math.min(delayIndex * 40, 120)}ms` }}
-    >
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">{count}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
-    </button>
-  );
-}
-
 function ReasonTags({ tags, fallback }: { tags: string[]; fallback: string }) {
   if (!tags.length) return <span className="text-sm text-muted-foreground">{fallback}</span>;
 
@@ -524,20 +462,6 @@ function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: bo
   );
 }
 
-const summaryFilterMeta: Array<{
-  key: SummaryFilter;
-  label: string;
-  hint: string;
-  countKey: keyof ReturnType<typeof buildWatchlistSummary>;
-  tone: "neutral" | "success" | "warning" | "danger";
-}> = [
-  { key: "all", label: "全部", hint: "清除顶部筛选", countKey: "totalCount", tone: "neutral" },
-  { key: "focus", label: "今日需关注", hint: "偏空、高风险或等待回调", countKey: "focusCount", tone: "warning" },
-  { key: "highRisk", label: "高风险", hint: "风险等级或 AI 风险提示", countKey: "highRiskCount", tone: "danger" },
-  { key: "wait", label: "建议等待", hint: "等待回调或风险规避", countKey: "waitCount", tone: "warning" },
-  { key: "watch", label: "可继续观察", hint: "风险较低或动作平稳", countKey: "watchCount", tone: "success" }
-];
-
 function buildWatchlistRows(items: WatchlistItem[], data: DashboardResponse | null): WatchlistRowModel[] {
   return items.map((item, index) => {
     const quote = data?.quotes[item.symbol];
@@ -578,7 +502,6 @@ function buildWatchlistRows(items: WatchlistItem[], data: DashboardResponse | nu
 function filterAndSortRows(
   rows: WatchlistRowModel[],
   filters: {
-    summaryFilter: SummaryFilter;
     search: string;
     riskFilter: "all" | RiskBucket;
     actionFilter: "all" | ActionCategory;
@@ -588,10 +511,6 @@ function filterAndSortRows(
 ) {
   const keyword = filters.search.trim().toLowerCase();
   const filtered = rows.filter((row) => {
-    if (filters.summaryFilter === "focus" && !row.isFocus) return false;
-    if (filters.summaryFilter === "highRisk" && row.riskBucket !== "high") return false;
-    if (filters.summaryFilter === "wait" && row.actionCategory !== "wait" && row.actionCategory !== "avoid") return false;
-    if (filters.summaryFilter === "watch" && !row.isWatch) return false;
     if (keyword && !row.searchText.includes(keyword)) return false;
     if (filters.riskFilter !== "all" && row.riskBucket !== filters.riskFilter) return false;
     if (filters.actionFilter !== "all" && row.actionCategory !== filters.actionFilter) return false;

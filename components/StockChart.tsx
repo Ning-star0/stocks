@@ -416,7 +416,7 @@ function InfoPanel({
   const cursorPrice = cursor?.price ?? point.close;
   return (
     <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-      <div className="flex min-h-6 flex-nowrap items-center gap-x-5 overflow-x-auto pb-0.5">
+      <div className="grid min-h-[52px] grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
         <InfoItem label="时间" value={cursorTime} />
         <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />
         <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} />
@@ -424,21 +424,28 @@ function InfoPanel({
         <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
         <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
         <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
-        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+        <span className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap">
           <span className="text-muted-foreground">涨跌</span>
-          <span className={`tabular-nums ${up ? "text-red-500" : "text-emerald-500"}`}>
+          <span
+            key={`${change.toFixed(4)}-${changePct.toFixed(2)}`}
+            className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums", up ? "text-red-500" : "text-emerald-500")}
+            title={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+          >
             {change >= 0 ? "+" : ""}
             {formatNumber(change)}/{changePct >= 0 ? "+" : ""}
             {changePct.toFixed(2)}%
           </span>
         </span>
       </div>
-      <div className="mt-1.5 min-h-6 border-t border-border/70 pt-1.5">
+      <div className="mt-1.5 min-h-[26px] border-t border-border/70 pt-1.5">
         {showMovingAverages ? (
-          <div className="flex flex-nowrap gap-x-4 overflow-x-auto pb-0.5">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
           {maSeries.map((item) => (
-            <span key={item.key} className="shrink-0 whitespace-nowrap tabular-nums" style={{ color: item.color }}>
-              {item.label}: {formatNumber(point[item.key])}
+            <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap" style={{ color: item.color }}>
+              <span>{item.label}</span>
+              <span key={`${item.key}-${formatNumber(point[item.key])}`} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums")} title={formatNumber(point[item.key])}>
+                {formatNumber(point[item.key])}
+              </span>
             </span>
           ))}
           </div>
@@ -452,9 +459,11 @@ function InfoPanel({
 
 function InfoItem({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <span className="inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap">
+    <span className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap">
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("max-w-32 truncate tabular-nums text-foreground", strong ? "font-semibold" : "")}>{value}</span>
+      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums text-foreground", strong ? "font-semibold" : "")} title={value}>
+        {value}
+      </span>
     </span>
   );
 }

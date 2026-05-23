@@ -290,7 +290,7 @@ export default function FocusPage() {
           ) : !focus.symbols.length ? (
             <EmptyDecision message="先在下方选择今日关注标的，系统会在自动分析时间生成策略观察。" />
           ) : decision ? (
-            <FocusDecisionPanel decision={decision} />
+            <FocusDecisionPanel decision={decision} nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)} />
           ) : decisionLoading ? (
             <LoadingInsight />
           ) : (
@@ -448,9 +448,8 @@ export default function FocusPage() {
   );
 }
 
-function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
+function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecision; nextObserveAt: string }) {
   const shouldBuy = decision.recommendedAction === "buy" && decision.orders.length > 0;
-  const nextObserve = decision.scheduledFor ? formatDateTime(decision.scheduledFor) : "等待下一次自动分析";
   const actionLabel = shouldBuy ? "形成观察买入计划" : "等待 / 暂不行动";
   return (
     <div className="space-y-4">
@@ -469,7 +468,7 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
         <div className="flex flex-wrap items-center gap-2">
           <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
           <StrategyBadge tone={shouldBuy ? "watch" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
-          <Badge variant="secondary">下一次观察：{nextObserve}</Badge>
+          <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
         </div>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">核心原因：{decision.summary}</p>
       </div>
@@ -692,12 +691,49 @@ function StatusMetric({
 }
 
 function nextAnalysisLabel(times: string[]) {
-  if (!times.length) return "未设置";
+  const next = nextAnalysisDate(times);
+  return next ? formatRelativeDateTime(next) : "未设置";
+}
+
+function resolveNextObserveAt(nextRunAt: string | null | undefined, times: string[]) {
+  const fromServer = parseFutureDate(nextRunAt);
+  if (fromServer) return formatDateTime(fromServer);
+  const computed = nextAnalysisDate(times);
+  return computed ? formatDateTime(computed) : "未设置自动分析时间";
+}
+
+function parseFutureDate(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) || date <= new Date() ? null : date;
+}
+
+function nextAnalysisDate(times: string[]) {
+  if (!times.length) return null;
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const sorted = [...times].sort();
-  const nextToday = sorted.find((time) => minutesOfDay(time) > currentMinutes);
-  return nextToday ? `今天 ${nextToday}` : `明天 ${sorted[0]}`;
+  const sorted = [...new Set(times)].filter(Boolean).sort();
+  const nextTime = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
+  const [hour = "0", minute = "0"] = nextTime.split(":");
+  const date = new Date(now);
+  date.setHours(Number(hour), Number(minute), 0, 0);
+  if (date <= now) date.setDate(date.getDate() + 1);
+  return date;
+}
+
+function formatRelativeDateTime(date: Date) {
+  const now = new Date();
+  const today = startOfLocalDay(now);
+  const target = startOfLocalDay(date);
+  const dayDiff = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (dayDiff === 0) return `今天 ${time}`;
+  if (dayDiff === 1) return `明天 ${time}`;
+  return formatDateTime(date);
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function minutesOfDay(time: string) {
@@ -926,9 +962,10 @@ function makeFriendlySummary(summary?: string) {
   return summary.replace(/\s*本分析截至\s*\d{4}-\d{2}-\d{2}T\S+/g, "").trim();
 }
 
-function formatDateTime(value?: string | null) {
+function formatDateTime(value?: string | Date | null) {
   if (!value) return "尚未执行";
-  return new Date(value).toLocaleString("zh-CN", {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

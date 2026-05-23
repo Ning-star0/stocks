@@ -14,12 +14,17 @@ export async function GET(request: NextRequest) {
       orderBy: { startedAt: "desc" },
       take: limit
     });
+    const focus = await prisma.focusGroup.findUnique({
+      where: { userId: user.id },
+      select: { analysisTimes: true }
+    });
     const latest = runs[0] ?? null;
     const todayStart = startOfToday();
     const todayRuns = runs.filter((run) => run.startedAt >= todayStart);
+    const nextRunAt = resolveNextRunAt(latest?.nextRunAt ?? null, focus?.analysisTimes ?? []);
     return Response.json({
       summary: {
-        nextRunAt: latest?.nextRunAt?.toISOString() ?? null,
+        nextRunAt: nextRunAt?.toISOString() ?? null,
         todayRunCount: todayRuns.length,
         latestStatus: latest?.status ?? "idle",
         latestStartedAt: latest?.startedAt.toISOString() ?? null,
@@ -68,4 +73,27 @@ export async function GET(request: NextRequest) {
 function startOfToday() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function resolveNextRunAt(stored: Date | null, times: string[]) {
+  const now = new Date();
+  if (stored && stored.getTime() > now.getTime()) return stored;
+  return nextScheduledTime(times, now);
+}
+
+function nextScheduledTime(times: string[], now: Date) {
+  const sorted = [...new Set(times)].filter(Boolean).sort();
+  if (!sorted.length) return null;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const next = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
+  const [hour = "0", minute = "0"] = next.split(":");
+  const date = new Date(now);
+  date.setHours(Number(hour), Number(minute), 0, 0);
+  if (date <= now) date.setDate(date.getDate() + 1);
+  return date;
+}
+
+function minutesOfDay(time: string) {
+  const [hour = "0", minute = "0"] = time.split(":");
+  return Number(hour) * 60 + Number(minute);
 }
