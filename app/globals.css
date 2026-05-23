@@ -67,7 +67,8 @@
   }
 
   .soft-card {
-    @apply border-border/70 bg-card/82 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
+    @apply border-border/70 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
+    background-color: hsl(var(--card) / 0.82);
   }
 
   .motion-page-enter,
@@ -116,11 +117,58 @@
     pointer-events: none;
   }
 
-  .table-row-focus {
-    @apply relative transition-colors duration-150 hover:bg-primary/5;
+  .motion-loading-sweep {
+    position: relative;
+    overflow: hidden;
   }
 
-  .table-row-focus::before {
+  .motion-loading-sweep::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, transparent, hsl(var(--primary) / 0.08), transparent),
+      linear-gradient(180deg, hsl(var(--background) / 0.35), transparent);
+    transform: translateX(-100%);
+    animation: loading-sweep 1500ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    pointer-events: none;
+  }
+
+  .motion-soft-dots {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+  }
+
+  .motion-soft-dots::before,
+  .motion-soft-dots::after,
+  .motion-soft-dots span {
+    content: "";
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: hsl(var(--primary) / 0.55);
+    animation: soft-dot 1200ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  }
+
+  .motion-soft-dots span {
+    animation-delay: 120ms;
+  }
+
+  .motion-soft-dots::after {
+    animation-delay: 240ms;
+  }
+
+  .table-row-focus {
+    @apply transition-colors duration-150 hover:bg-primary/5;
+  }
+
+  .table-row-focus > td:first-child {
+    position: relative;
+  }
+
+  .table-row-focus > td:first-child::before {
     content: "";
     position: absolute;
     inset-block: 8px;
@@ -129,9 +177,10 @@
     border-radius: 999px;
     background: hsl(var(--primary) / 0);
     transition: background 160ms cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
   }
 
-  .table-row-focus:hover::before {
+  .table-row-focus:hover > td:first-child::before {
     background: hsl(var(--primary) / 0.45);
   }
 
@@ -215,6 +264,24 @@
   }
 }
 
+@keyframes loading-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes soft-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  45% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -248,6 +315,14 @@
   .motion-shimmer::after {
     animation: none !important;
     opacity: 0 !important;
+  }
+
+  .motion-loading-sweep::before,
+  .motion-soft-dots::before,
+  .motion-soft-dots::after,
+  .motion-soft-dots span {
+    animation: none !important;
+    transform: none !important;
   }
 }
 

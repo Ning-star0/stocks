@@ -89,7 +89,7 @@ export function AnalyzeStockButton({ symbol }: { symbol: string }) {
       </div>
       {isBusy ? (
         <div className="w-full max-w-sm">
-          <LoadingInsight text={`${thinkingMessage(elapsed)}（${formatElapsed(elapsed)}）`} />
+          <LoadingInsight text={`${thinkingMessage(elapsed)}（${formatElapsed(elapsed)}）`} activeStepIndex={thinkingStepIndex(elapsed)} />
         </div>
       ) : null}
       {status === "completed" ? (
@@ -122,6 +122,13 @@ function thinkingMessage(elapsed: number) {
   if (elapsed < 45) return "正在综合新闻情绪";
   if (elapsed < 120) return "正在生成策略观察";
   return "数据量较大，仍在稳妥处理中";
+}
+
+function thinkingStepIndex(elapsed: number) {
+  if (elapsed < 8) return 0;
+  if (elapsed < 20) return 1;
+  if (elapsed < 45) return 2;
+  return 3;
 }
 
 function formatElapsed(seconds: number) {

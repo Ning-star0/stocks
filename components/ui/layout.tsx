@@ -67,17 +67,30 @@ export function InsightCard({ children, className, delayIndex = 0 }: { children:
   return <Card className={cn("soft-card", motionClassNames.cardEnter, className)} style={{ animationDelay: `${staggerDelay(delayIndex)}ms` }}>{children}</Card>;
 }
 
-export function LoadingInsight({ text = "正在综合行情、技术指标与新闻情绪..." }: { text?: string }) {
+export function LoadingInsight({ text = "正在综合行情、技术指标与新闻情绪...", activeStepIndex = 0 }: { text?: string; activeStepIndex?: number }) {
   const steps = ["读取行情数据", "分析技术指标", "综合新闻情绪", "生成策略观察"];
+  const normalizedStep = Math.min(Math.max(activeStepIndex, 0), steps.length - 1);
   return (
-    <div className={cn("rounded-lg border border-border bg-muted/20 p-4", motionClassNames.fadeUp)}>
+    <div className={cn("rounded-lg border border-border bg-muted/20 p-4", motionClassNames.fadeUp, motionClassNames.loadingSweep)}>
       <div className="flex items-center gap-3 text-sm font-medium">
-        <span className={cn("h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_0_6px_hsl(var(--primary)/0.10)]", motionClassNames.shimmer)} />
+        <span className={motionClassNames.softDots} aria-hidden="true">
+          <span />
+        </span>
         {text}
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
         {steps.map((step, index) => (
-          <div key={step} className={cn("rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground", motionClassNames.fadeUp)} style={{ animationDelay: `${staggerDelay(index)}ms` }}>
+          <div
+            key={step}
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs transition-colors",
+              index <= normalizedStep
+                ? "border-primary/25 bg-primary/5 text-foreground"
+                : "border-border bg-background/60 text-muted-foreground",
+              motionClassNames.fadeUp
+            )}
+            style={{ animationDelay: `${staggerDelay(index)}ms` }}
+          >
             {step}
           </div>
         ))}

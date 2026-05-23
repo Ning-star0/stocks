@@ -23,7 +23,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body>
         <div className="min-h-screen bg-background terminal-grid">
-          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/82 backdrop-blur-xl">
+          <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
             <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-3 lg:px-8">
               <Link href="/watchlist" className="flex shrink-0 items-center gap-2 font-semibold">
                 <BarChart3 className="h-5 w-5 text-primary" />

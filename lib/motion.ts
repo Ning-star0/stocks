@@ -22,5 +22,8 @@ export const motionClassNames = {
   hoverLift: "motion-hover-lift",
   numberChange: "motion-number-change",
   shimmer: "motion-shimmer",
-  chartEnter: "motion-chart-enter"
+  chartEnter: "motion-chart-enter",
+  softDots: "motion-soft-dots",
+  loadingSweep: "motion-loading-sweep",
+  tableRowFocus: "table-row-focus"
 } as const;
