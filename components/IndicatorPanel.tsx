@@ -1,17 +1,31 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { IndicatorSnapshot } from "@/lib/types";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, formatPriceValue } from "@/lib/utils";
 
-export function IndicatorPanel({ indicators, price }: { indicators: IndicatorSnapshot; price?: number | null }) {
+export function IndicatorPanel({
+  indicators,
+  price,
+  support = [],
+  resistance = [],
+  currency,
+  symbol,
+  unit
+}: {
+  indicators: IndicatorSnapshot;
+  price?: number | null;
+  support?: number[];
+  resistance?: number[];
+  currency?: string;
+  symbol?: string;
+  unit?: string;
+}) {
   const rows = [
     { label: "RSI14", value: indicators.rsi14, state: rsiState(indicators.rsi14) },
     { label: "MACD", value: indicators.macd, state: macdState(indicators.macd, indicators.macdSignal) },
-    { label: "MACD 信号", value: indicators.macdSignal, state: "--" },
     { label: "SMA20", value: indicators.sma20, state: maState(price, indicators.sma20) },
     { label: "SMA50", value: indicators.sma50, state: maState(price, indicators.sma50) },
     { label: "SMA200", value: indicators.sma200, state: maState(price, indicators.sma200) },
-    { label: "EMA20", value: indicators.ema20, state: maState(price, indicators.ema20) },
     { label: "布林上轨", value: indicators.bollingerUpper, state: "压力" },
     { label: "布林中轨", value: indicators.bollingerMiddle, state: "中枢" },
     { label: "布林下轨", value: indicators.bollingerLower, state: "支撑" }
@@ -31,8 +45,27 @@ export function IndicatorPanel({ indicators, price }: { indicators: IndicatorSna
             </div>
           ))}
         </div>
+        <div className="mt-3 grid gap-3 text-sm">
+          <LevelLine title="支撑位" values={support} currency={currency} symbol={symbol} unit={unit} />
+          <LevelLine title="压力位" values={resistance} currency={currency} symbol={symbol} unit={unit} />
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function LevelLine({ title, values, currency, symbol, unit }: { title: string; values: number[]; currency?: string; symbol?: string; unit?: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{title}</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {values.length ? values.slice(0, 3).map((value) => (
+          <span key={value} className="rounded-md bg-background/70 px-2 py-1 text-xs font-medium tabular-nums">
+            {formatPriceValue(value, { currency, symbol, unit })}
+          </span>
+        )) : <span className="text-xs text-muted-foreground">--</span>}
+      </div>
+    </div>
   );
 }
 

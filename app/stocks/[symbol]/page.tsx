@@ -2,13 +2,13 @@ import Link from "next/link";
 
 import { AnalyzeStockButton } from "@/components/AnalyzeStockButton";
 import { AiAnalysisPanel } from "@/components/AiAnalysisPanel";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { IndicatorPanel } from "@/components/IndicatorPanel";
 import { NewsPanel } from "@/components/NewsPanel";
 import { PositionEditor } from "@/components/PositionEditor";
 import { RiskBadge } from "@/components/RiskBadge";
 import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { StockChart } from "@/components/StockChart";
-import { TrendBadge } from "@/components/TrendBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/layout";
 import { AppError } from "@/lib/errors";
@@ -100,7 +100,6 @@ export default async function StockDetailPage({
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-3xl font-semibold tracking-normal">{displayName}</h1>
                 <span className="text-sm text-muted-foreground">{quoteSymbol}</span>
-                <TrendBadge trend={analysis?.trend} />
                 {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
@@ -121,61 +120,67 @@ export default async function StockDetailPage({
         </CardContent>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-5">
-          <Card>
-            <CardHeader className="gap-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <CardTitle>价格走势图</CardTitle>
-                <ChartControls symbol={quoteSymbol} range={range} interval={interval} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              {candles.length ? <StockChart candles={candles} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
-            </CardContent>
-          </Card>
+      <AiAnalysisPanel
+        analysis={analysis ?? null}
+        createdAt={latestAnalysis?.createdAt ?? null}
+        fromCache={false}
+        currency={quote.currency}
+        symbol={quoteSymbol}
+        unit={isIndex ? "point" : undefined}
+        position={{
+          holdingPrice: toNumber(watchlistItem?.holdingPrice),
+          positionOpenedAt: watchlistItem?.positionOpenedAt ?? null
+        }}
+      />
 
-          <NewsPanel symbol={quoteSymbol} name={displayName} />
-          <AiAnalysisPanel
-            analysis={analysis ?? null}
-            createdAt={latestAnalysis?.createdAt ?? null}
-            fromCache={false}
-            currency={quote.currency}
-            symbol={quoteSymbol}
-            unit={isIndex ? "point" : undefined}
-            position={{
-              holdingPrice: toNumber(watchlistItem?.holdingPrice),
-              positionOpenedAt: watchlistItem?.positionOpenedAt ?? null
-            }}
-          />
-        </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Card className="soft-card">
+          <CardHeader className="gap-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle>价格走势</CardTitle>
+              <ChartControls symbol={quoteSymbol} range={range} interval={interval} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {candles.length ? <StockChart candles={candles} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
+          </CardContent>
+        </Card>
 
         <div className="space-y-5">
-          {indicators ? <IndicatorPanel indicators={indicators} price={quote.price} /> : <EmptyCard title="技术指标" text={indicatorError ?? "行情不可用，无法计算技术指标。"} />}
-          <Card>
-            <CardHeader>
-              <CardTitle>持仓计划</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {watchlistItem ? (
-                <PositionEditor
-                  itemId={watchlistItem.id}
-                  holdingPrice={toNumber(watchlistItem.holdingPrice)}
-                  targetPrice={toNumber(watchlistItem.targetPrice)}
-                  stopLoss={toNumber(watchlistItem.stopLoss)}
-                  positionOpenedAt={watchlistItem.positionOpenedAt}
-                  timeHorizon={watchlistItem.timeHorizon}
-                  riskLevel={watchlistItem.riskLevel}
-                  note={watchlistItem.note}
-                />
-              ) : (
-                <div className="text-sm text-muted-foreground">请先把该标的加入自选股，然后再记录持仓设置。</div>
-              )}
-              <p className="mt-3 text-xs text-muted-foreground">AI 分析不构成投资建议。</p>
-            </CardContent>
-          </Card>
+          {indicators ? (
+            <IndicatorPanel
+              indicators={indicators}
+              price={quote.price}
+              support={analysis?.keyLevels?.support ?? []}
+              resistance={analysis?.keyLevels?.resistance ?? []}
+              currency={quote.currency}
+              symbol={quoteSymbol}
+              unit={isIndex ? "point" : undefined}
+            />
+          ) : (
+            <EmptyCard title="技术指标" text={indicatorError ?? "行情不可用，无法计算技术指标。"} />
+          )}
+          <CollapsiblePanel title={watchlistItem ? "持仓计划 / 交易情景设置" : "交易情景设置"}>
+            {watchlistItem ? (
+              <PositionEditor
+                itemId={watchlistItem.id}
+                holdingPrice={toNumber(watchlistItem.holdingPrice)}
+                targetPrice={toNumber(watchlistItem.targetPrice)}
+                stopLoss={toNumber(watchlistItem.stopLoss)}
+                positionOpenedAt={watchlistItem.positionOpenedAt}
+                timeHorizon={watchlistItem.timeHorizon}
+                riskLevel={watchlistItem.riskLevel}
+                note={watchlistItem.note}
+              />
+            ) : (
+              <div className="text-sm text-muted-foreground">请先把该标的加入自选股，再记录持仓、止损和目标价。</div>
+            )}
+            <p className="mt-3 text-xs text-muted-foreground">AI 分析不构成投资建议。</p>
+          </CollapsiblePanel>
         </div>
       </div>
+
+      <NewsPanel symbol={quoteSymbol} name={displayName} />
     </PageContainer>
   );
 }
@@ -246,7 +251,7 @@ function ChartControls({ symbol, range, interval }: { symbol: string; range: str
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <Card>
+    <Card className="soft-card">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>

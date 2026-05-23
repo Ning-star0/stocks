@@ -29,7 +29,7 @@ export function AiAnalysisPanel({
 }) {
   if (!analysis) {
     return (
-      <Card>
+      <Card className="soft-card">
         <CardHeader>
           <CardTitle>AI 投资建议</CardTitle>
         </CardHeader>

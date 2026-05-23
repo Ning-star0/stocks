@@ -67,7 +67,7 @@
   }
 
   .soft-card {
-    @apply border-border/70 bg-card/90 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
+    @apply border-border/70 bg-card/82 shadow-[0_10px_30px_hsl(220_20%_20%/0.05)] backdrop-blur;
   }
 
   .motion-page-enter,
