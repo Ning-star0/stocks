@@ -62,6 +62,7 @@ export function StockChart({
   const isTimeSharing = interval === "1m";
   const showMovingAverages = !isTimeSharing;
   const data = useMemo(() => buildChartData(candles, isIntraday), [candles, isIntraday]);
+  const dataDateLabel = useMemo(() => formatDataDateRange(data, isIntraday), [data, isIntraday]);
   const latest = data[data.length - 1];
   const hovered = cursor ? data[cursor.nearestIndex] ?? latest : latest;
   const scale = useMemo(() => buildScale(data, showMovingAverages), [data, showMovingAverages]);
@@ -113,32 +114,38 @@ export function StockChart({
   }
 
   if (!data.length) {
-    return <div className="flex h-[620px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>;
+    return <div className="flex h-[460px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>;
   }
 
   return (
     <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        {isTimeSharing ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <span className="tabular-nums text-primary">分时线: {formatPriceValue(latest?.close, { currency, symbol, unit })}</span>
-            <span className="tabular-nums text-muted-foreground">成交量: {formatNumber(latest?.volume)}</span>
+        <div className="min-w-0 space-y-1">
+          {isTimeSharing ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              <span className="tabular-nums text-primary">分时线: {formatPriceValue(latest?.close, { currency, symbol, unit })}</span>
+              <span className="tabular-nums text-muted-foreground">成交量: {formatNumber(latest?.volume)}</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              {maSeries.map((item) => (
+                <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
+                  {item.label}: {formatNumber(latest?.[item.key])}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground">
+            {dataDateLabel}
+            {isIntraday ? "，非交易日会显示最近一个交易日的数据" : ""}
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            {maSeries.map((item) => (
-              <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
-                {item.label}: {formatNumber(latest?.[item.key])}
-              </span>
-            ))}
-          </div>
-        )}
+        </div>
         <div className="text-xs text-muted-foreground">{isTimeSharing ? "1 分钟分时线，柱状图为成交量" : "红涨绿跌，均线按当前周期 K 线计算"}</div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[200px_minmax(780px,1fr)]">
+      <div className="grid items-start gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} /> : null}
-        <div className="h-[620px] min-w-0 overflow-hidden rounded-md bg-[#0d1118]">
+        <div className="h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]">
           <svg
             className="h-full w-full"
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
@@ -156,7 +163,7 @@ export function StockChart({
               </clipPath>
             </defs>
 
-            <rect x={0} y={0} width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="#0d1118" />
+            <rect x={0} y={0} width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} className="fill-white dark:fill-[#0d1118]" />
             <Grid scale={scale} />
 
             <g clipPath="url(#price-clip)">
@@ -209,6 +216,19 @@ function buildChartData(candles: Candle[], isIntraday: boolean): ChartPoint[] {
     ma20: ma20[index],
     ma60: ma60[index]
   }));
+}
+
+function formatDataDateRange(data: ChartPoint[], isIntraday: boolean) {
+  if (!data.length) return "暂无数据";
+  const first = new Date(data[0].timestamp);
+  const last = new Date(data[data.length - 1].timestamp);
+  if (isIntraday) {
+    const date = last.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    const start = first.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    const end = last.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    return `数据日期 ${date} ${start}-${end}`;
+  }
+  return `数据范围 ${first.toLocaleDateString("zh-CN")} 至 ${last.toLocaleDateString("zh-CN")}`;
 }
 
 function buildMovingAverageSeries(values: number[], period: number) {
@@ -305,12 +325,12 @@ function Grid({ scale }: { scale: ReturnType<typeof buildScale> }) {
   return (
     <g>
       {priceTicks.map((tick) => (
-        <line key={tick} x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={scale.y(tick)} y2={scale.y(tick)} stroke="rgba(148,163,184,0.18)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+        <line key={tick} x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={scale.y(tick)} y2={scale.y(tick)} className="stroke-slate-300/80 dark:stroke-slate-400/20" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
       ))}
       {xTicks.map((x) => (
-        <line key={x} x1={x} x2={x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} stroke="rgba(148,163,184,0.12)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+        <line key={x} x1={x} x2={x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} className="stroke-slate-300/70 dark:stroke-slate-400/15" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
       ))}
-      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={VOLUME_TOP - 12} y2={VOLUME_TOP - 12} stroke="rgba(148,163,184,0.2)" vectorEffect="non-scaling-stroke" />
+      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={VOLUME_TOP - 12} y2={VOLUME_TOP - 12} className="stroke-slate-300 dark:stroke-slate-400/25" vectorEffect="non-scaling-stroke" />
     </g>
   );
 }
@@ -321,16 +341,16 @@ function Axes({ data, scale, currency, symbol, unit }: { data: ChartPoint[]; sca
   return (
     <g>
       {priceTicks.map((tick) => (
-        <text key={tick} x={CHART_LEFT + CHART_WIDTH + 8} y={scale.y(tick) + 4} fill="rgb(148,163,184)" fontSize={12}>
+        <text key={tick} x={CHART_LEFT + CHART_WIDTH + 8} y={scale.y(tick) + 4} className="fill-slate-500 dark:fill-slate-400" fontSize={12}>
           {formatAxisPrice(tick, currency, symbol, unit)}
         </text>
       ))}
       {xTickIndexes.map((index) => (
-        <text key={index} x={scale.x(index)} y={VIEWBOX_HEIGHT - CHART_BOTTOM + 20} fill="rgb(148,163,184)" fontSize={12} textAnchor="middle">
+        <text key={index} x={scale.x(index)} y={VIEWBOX_HEIGHT - CHART_BOTTOM + 20} className="fill-slate-500 dark:fill-slate-400" fontSize={12} textAnchor="middle">
           {data[index]?.date}
         </text>
       ))}
-      <text x={CHART_LEFT} y={VOLUME_TOP - 18} fill="rgb(148,163,184)" fontSize={12}>
+      <text x={CHART_LEFT} y={VOLUME_TOP - 18} className="fill-slate-500 dark:fill-slate-400" fontSize={12}>
         成交量
       </text>
     </g>
@@ -346,25 +366,25 @@ function CursorCrosshair({ cursor, currency, symbol, unit }: { cursor: CursorPoi
 
   return (
     <g pointerEvents="none">
-      <line x1={cursor.x} x2={cursor.x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} stroke="rgba(226,232,240,0.38)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={cursor.y} y2={cursor.y} stroke="rgba(226,232,240,0.3)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      <circle cx={cursor.x} cy={cursor.y} r={3.5} fill="#e2e8f0" />
+      <line x1={cursor.x} x2={cursor.x} y1={PRICE_TOP} y2={VOLUME_TOP + VOLUME_HEIGHT} className="stroke-slate-500/55 dark:stroke-slate-200/40" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      <line x1={CHART_LEFT} x2={CHART_LEFT + CHART_WIDTH} y1={cursor.y} y2={cursor.y} className="stroke-slate-500/45 dark:stroke-slate-200/30" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      <circle cx={cursor.x} cy={cursor.y} r={3.5} className="fill-slate-700 dark:fill-slate-200" />
 
-      <rect x={CHART_LEFT + CHART_WIDTH + 5} y={priceLabelY - 12} width={64} height={20} rx={4} fill="#111827" stroke="rgba(148,163,184,0.35)" />
-      <text x={CHART_LEFT + CHART_WIDTH + 37} y={priceLabelY + 3} fill="#e2e8f0" fontSize={11} textAnchor="middle">
+      <rect x={CHART_LEFT + CHART_WIDTH + 5} y={priceLabelY - 12} width={64} height={20} rx={4} className="fill-white stroke-slate-300 dark:fill-slate-900 dark:stroke-slate-400/40" />
+      <text x={CHART_LEFT + CHART_WIDTH + 37} y={priceLabelY + 3} className="fill-slate-700 dark:fill-slate-100" fontSize={11} textAnchor="middle">
         {formatAxisPrice(cursor.price, currency, symbol, unit)}
       </text>
 
-      <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx={6} fill="rgba(15,23,42,0.96)" stroke="rgba(148,163,184,0.35)" />
-      <text x={tooltipX + 10} y={tooltipY + 18} fill="#e2e8f0" fontSize={12}>
+      <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx={6} className="fill-white stroke-slate-300 dark:fill-slate-900 dark:stroke-slate-400/40" />
+      <text x={tooltipX + 10} y={tooltipY + 18} className="fill-slate-800 dark:fill-slate-100" fontSize={12}>
         {cursor.timeLabel}
       </text>
-      <text x={tooltipX + 10} y={tooltipY + 38} fill="#e2e8f0" fontSize={12}>
+      <text x={tooltipX + 10} y={tooltipY + 38} className="fill-slate-800 dark:fill-slate-100" fontSize={12}>
         {cursor.area === "volume" ? "成交量 " : "价格 "}
         {cursor.area === "volume" && cursor.volume !== null ? formatNumber(cursor.volume) : formatPriceValue(cursor.price, { currency, symbol, unit })}
       </text>
       {cursor.area === "volume" && cursor.volume !== null ? (
-        <text x={tooltipX + 10} y={tooltipY + 58} fill="#94a3b8" fontSize={11}>
+        <text x={tooltipX + 10} y={tooltipY + 58} className="fill-slate-500 dark:fill-slate-400" fontSize={11}>
           价格 {formatPriceValue(cursor.price, { currency, symbol, unit })}
         </text>
       ) : null}
@@ -379,7 +399,7 @@ function InfoPanel({ point, cursor, currency, symbol, unit }: { point: ChartPoin
   const cursorTime = cursor?.timeLabel ?? point.date;
   const cursorPrice = cursor?.price ?? point.close;
   return (
-    <div className="h-full rounded-md border border-border bg-popover/95 p-3 text-[13px] leading-6 shadow-lg backdrop-blur antialiased">
+    <div className="rounded-md border border-border bg-popover/95 p-3 text-[13px] leading-6 shadow-sm backdrop-blur antialiased xl:sticky xl:top-20">
       <div className="mb-3 min-h-[86px] rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2">
         <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-muted-foreground">
           <span>时间</span>

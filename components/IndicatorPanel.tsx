@@ -23,7 +23,7 @@ export function IndicatorPanel({ indicators, price }: { indicators: IndicatorSna
         <CardTitle>技术指标</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
           {rows.map((row) => (
             <div key={row.key} className="rounded-md border border-border bg-muted/25 p-3">
               <div className="text-xs text-muted-foreground">{row.label}</div>
@@ -45,9 +45,9 @@ export function IndicatorPanel({ indicators, price }: { indicators: IndicatorSna
 
 function StateRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <Badge variant="secondary">{value}</Badge>
+      <Badge variant="secondary" className="whitespace-normal text-right leading-5">{value}</Badge>
     </div>
   );
 }

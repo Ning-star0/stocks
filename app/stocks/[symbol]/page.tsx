@@ -29,7 +29,7 @@ const rangeOptions = [
 ];
 
 const intradayRangeOptions = [
-  { value: "1d", label: "当日" },
+  { value: "1d", label: "最近交易日" },
   { value: "5d", label: "5日" },
   { value: "1mo", label: "1月" },
   { value: "3mo", label: "3月" }
@@ -225,7 +225,7 @@ function ChartControls({ symbol, range, interval }: { symbol: string; range: str
           <Link
             key={option.value}
             href={`/stocks/${symbol}?interval=${interval}&range=${option.value}`}
-            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${range === option.value ? "border-emerald-500 bg-emerald-500/15 text-emerald-200" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
+            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${range === option.value ? "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
           >
             {option.label}
           </Link>
