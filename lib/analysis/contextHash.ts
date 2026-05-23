@@ -19,7 +19,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 3,
+    analysisPromptVersion: 5,
     symbol: input.symbol.toUpperCase(),
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),

@@ -154,7 +154,7 @@ export function ChatPanel() {
                     msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted/60"
                   }`}>
                     {msg.role === "assistant" ? (
-                      <div className="prose prose-sm prose-invert max-w-none break-words prose-headings:text-foreground prose-a:text-blue-400 prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-pre:bg-muted prose-pre:rounded-md prose-li:marker:text-muted-foreground">
+                      <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-pre:bg-muted prose-pre:rounded-md prose-li:marker:text-muted-foreground">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {msg.content || (loading ? "..." : "未收到回复")}
                         </ReactMarkdown>

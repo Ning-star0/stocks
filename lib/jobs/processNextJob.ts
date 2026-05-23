@@ -5,6 +5,7 @@ import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { getCache, setCache } from "@/lib/cache";
+import { generateAndStoreFocusDecision } from "@/lib/focus/decision";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
 import { saveNewsAnalysis } from "@/lib/news/store";
@@ -171,6 +172,18 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
       }
     });
     return { resultId: saved.id, skippedCached: false };
+  }
+
+  if (job.jobType === JOB_TYPES.FOCUS_DECISION) {
+    const payload = job.payload as { scheduledFor?: string } | null;
+    const decision = await generateAndStoreFocusDecision({
+      userId: job.userId,
+      forceRefresh: true,
+      source: "scheduled",
+      scheduledFor: payload?.scheduledFor ?? null
+    });
+    const resultId = "decisionId" in decision ? String(decision.decisionId) : "focus_decision";
+    return { resultId, skippedCached: false };
   }
 
   if (job.jobType === JOB_TYPES.ALERT_CHECK) {

@@ -28,7 +28,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: true });
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
-  const cacheKey = `ai_analysis:v3:${canonicalSymbol}:${inputHash}`;
+  const cacheKey = `ai_analysis:v5:${canonicalSymbol}:${inputHash}`;
   const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
 
   if (cached) {
@@ -139,32 +139,21 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     }
   });
 
-  const newsReferences = relevantNews.map((item) => ({
+  const aiSummarizedNews = relevantNews
+    .filter((item) => Boolean(item.analyses[0]?.aiSummary))
+    .slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
+  const newsReferences = aiSummarizedNews.map((item) => ({
     id: item.id,
     title: item.title,
     url: item.url,
     source: item.source,
     publishedAt: item.publishedAt.toISOString(),
-    summary: truncateText(item.analyses[0]?.aiSummary ?? item.summary ?? item.title, numberEnv("AI_NEWS_SUMMARY_MAX_CHARS", 420)),
+    summary: truncateText(item.analyses[0]?.aiSummary ?? "", numberEnv("AI_NEWS_SUMMARY_MAX_CHARS", 360)),
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
-  const webSearchResults = supplementalNews.results.slice(0, 6).map((item) => ({
-    title: item.title,
-    url: item.url ?? null,
-    source: item.source ?? null,
-    publishedAt: item.publishedAt ?? null,
-    summary: truncateText(item.summary ?? item.rawContent ?? item.title, numberEnv("AI_WEB_SUMMARY_MAX_CHARS", 420))
-  }));
-  const recentNews = dedupeAnalysisNews([
-    ...newsReferences,
-    ...webSearchResults.map((item) => ({
-      ...item,
-      id: item.url ?? item.title,
-      sentiment: null,
-      impactLevel: "web_search"
-    }))
-  ]).slice(0, 8);
+  const webSearchResults: Array<{ title: string; url: string | null; source: string | null; publishedAt: string | null; summary: string | null }> = [];
+  const recentNews = dedupeAnalysisNews(newsReferences).slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
   const analysisAsOf = new Date().toISOString();
   const firstHistory = history[0]?.timestamp ?? null;
   const lastHistory = history[history.length - 1]?.timestamp ?? null;
@@ -175,7 +164,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     historyFrom: firstHistory,
     historyTo: lastHistory,
     historyCandles: history.length,
-    newsWindow: "最近 7 天，已入库 high/medium 行业新闻 + 联网检索行业催化新闻",
+    newsWindow: "最近 7 天，已入库 high/medium 行业新闻；传入 AI 的仅为已精读新闻摘要",
     newsCount: recentNews.length,
     webSearchStatus: supplementalNews.status
   };

@@ -5,6 +5,7 @@ import { BarChart3, Bell, BookOpen, Code2, Crosshair, ListChecks, Newspaper, Set
 
 import { ChatPanel } from "@/components/ChatPanel";
 import { LogoutButton } from "@/components/LogoutButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
 
@@ -17,7 +18,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const session = await getSafeSession();
 
   return (
-    <html lang="zh-CN" className="dark">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         <div className="min-h-screen bg-background terminal-grid">
           <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
@@ -35,6 +39,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   <NavLink href="/focus" icon={<Crosshair className="h-4 w-4" />} label="关注" />
                   <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="设置" />
                   <NavLink href="/memory" icon={<BookOpen className="h-4 w-4" />} label="记忆" />
+                  <ThemeToggle />
                   <LogoutButton />
                 </nav>
               ) : null}
@@ -50,6 +55,21 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     </html>
   );
 }
+
+const themeScript = `
+(() => {
+  try {
+    const mode = localStorage.getItem("theme") || "system";
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = mode === "dark" || (mode === "system" && prefersDark);
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  } catch {
+    document.documentElement.classList.add("dark");
+    document.documentElement.style.colorScheme = "dark";
+  }
+})();
+`;
 
 function NavLink({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
   return (

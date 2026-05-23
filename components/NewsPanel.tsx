@@ -18,6 +18,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   const allNews = useMemo(() => [...news, ...lowNews], [news, lowNews]);
+  const analyzedNews = useMemo(() => allNews.filter((item) => item.analyses?.[0]?.aiSummary), [allNews]);
   const overview = useMemo(() => buildNewsOverview(allNews), [allNews]);
 
   const load = useCallback(async () => {
@@ -115,25 +116,57 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
           <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无匹配该股票或行业关键词的新闻。点击“抓取新闻”后会更新。</div>
         ) : (
           <>
-            <div className="space-y-2">
-              {news.slice(0, 8).map((item) => (
-                <NewsCard key={item.id} item={item} onAnalyze={item.importance === "high" ? analyze : undefined} />
-              ))}
-            </div>
-            {lowNews.length ? (
-              <details className="rounded-md border border-border bg-muted/15 p-3">
-                <summary className="cursor-pointer text-sm text-muted-foreground">低重要性新闻 {lowNews.length} 条</summary>
-                <div className="mt-3 space-y-2">
-                  {lowNews.slice(0, 10).map((item) => (
-                    <NewsCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </details>
-            ) : null}
+            <AnalyzedNewsSummaries items={analyzedNews} />
+            <details className="rounded-md border border-border bg-muted/15 p-3">
+              <summary className="cursor-pointer text-sm text-muted-foreground">展开新闻列表 {allNews.length} 条</summary>
+              <div className="mt-3 space-y-2">
+                {news.slice(0, 8).map((item) => (
+                  <NewsCard key={item.id} item={item} onAnalyze={item.importance === "high" ? analyze : undefined} />
+                ))}
+              </div>
+              {lowNews.length ? (
+                <details className="mt-3 rounded-md border border-border bg-background/30 p-3">
+                  <summary className="cursor-pointer text-sm text-muted-foreground">低重要性新闻 {lowNews.length} 条</summary>
+                  <div className="mt-3 space-y-2">
+                    {lowNews.slice(0, 10).map((item) => (
+                      <NewsCard key={item.id} item={item} />
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+            </details>
           </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
+  if (!items.length) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-background/20 p-3 text-sm text-muted-foreground">
+        暂无 AI 精读新闻摘要。高重要性新闻完成精读后会显示在这里；原始新闻已折叠在下方。
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.slice(0, 5).map((item) => {
+        const analysis = item.analyses?.[0];
+        return (
+          <div key={item.id} className="rounded-md border border-border bg-muted/20 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{shortText(toSimplifiedChinese(item.title), 48)}</span>
+              <span>{analysis?.impactLevel ?? item.importance}</span>
+              <span>{analysis?.sentiment ?? item.sentiment ?? "neutral"}</span>
+            </div>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">{toSimplifiedChinese(analysis?.aiSummary ?? "")}</p>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

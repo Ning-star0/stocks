@@ -7,9 +7,11 @@ import { Activity, BarChart3, Brain, RefreshCw, Trash2 } from "lucide-react";
 import { AddStockDialog } from "@/components/AddStockDialog";
 import { RiskBadge } from "@/components/RiskBadge";
 import { TrendBadge } from "@/components/TrendBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getPrimaryAdvice, hasUserPosition } from "@/lib/positionAdvice";
 import type { AiAnalysisResult } from "@/lib/types";
 import { formatNumber, formatPercent, formatPriceValue } from "@/lib/utils";
 
@@ -38,6 +40,8 @@ type WatchlistItem = {
   symbol: string;
   market: string;
   note?: string | null;
+  holdingPrice?: number | null;
+  positionOpenedAt?: string | null;
   timeHorizon: string;
   riskLevel: string;
 };
@@ -175,7 +179,7 @@ export function WatchlistTable() {
                   <TableHead>状态</TableHead>
                   <TableHead>趋势</TableHead>
                   <TableHead>风险</TableHead>
-                  <TableHead>备注 / AI 摘要</TableHead>
+                  <TableHead>AI 建议</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -183,6 +187,8 @@ export function WatchlistTable() {
                 {items.map((item) => {
                   const quote = data?.quotes[item.symbol];
                   const latest = data?.latestAnalyses[item.symbol];
+                  const primaryAdvice = getPrimaryAdvice(latest?.outputJson, item);
+                  const isHolding = hasUserPosition(item);
                   return (
                     <TableRow key={item.id}>
                       <TableCell>
@@ -207,9 +213,24 @@ export function WatchlistTable() {
                         <TrendBadge trend={latest?.outputJson.trend} />
                       </TableCell>
                       <TableCell>
-                        <RiskBadge risk={item.riskLevel} />
+                        <div className="flex flex-col gap-1">
+                          <RiskBadge risk={item.riskLevel} />
+                          <Badge variant={isHolding ? "success" : "secondary"}>{isHolding ? "已持仓" : "未持仓"}</Badge>
+                        </div>
                       </TableCell>
-                      <TableCell className="max-w-[360px] truncate text-muted-foreground">{latest?.outputJson.summary ?? item.note ?? "暂无 AI 分析"}</TableCell>
+                      <TableCell className="max-w-[420px]">
+                        {latest?.outputJson ? (
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">{primaryAdvice.title}</span>
+                              {primaryAdvice.action ? <Badge variant="default">{primaryAdvice.action}</Badge> : null}
+                            </div>
+                            <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">{primaryAdvice.reason}</p>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">{item.note ?? "暂无 AI 分析"}</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
                           <Button size="sm" variant="outline" onClick={() => analyze(item.symbol)} disabled={analyzing === item.symbol}>

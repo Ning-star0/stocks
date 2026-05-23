@@ -4,6 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getPrimaryAdvice, type PositionContext } from "@/lib/positionAdvice";
 import type { AiAnalysisResult } from "@/lib/types";
 import { formatPriceValue, toNumber } from "@/lib/utils";
 
@@ -13,7 +14,8 @@ export function AiAnalysisPanel({
   fromCache,
   currency,
   symbol,
-  unit
+  unit,
+  position
 }: {
   analysis?: AiAnalysisResult | null;
   createdAt?: string | Date | null;
@@ -21,6 +23,7 @@ export function AiAnalysisPanel({
   currency?: string;
   symbol?: string;
   unit?: string;
+  position?: PositionContext | null;
 }) {
   if (!analysis) {
     return (
@@ -41,6 +44,7 @@ export function AiAnalysisPanel({
   const possibleActions = Array.isArray(analysis.possibleActions) ? analysis.possibleActions : [];
   const newsReferences = Array.isArray(analysis.newsReferences) ? analysis.newsReferences : [];
   const webSearchResults = Array.isArray(analysis.webSearchResults) ? analysis.webSearchResults : [];
+  const primaryAdvice = getPrimaryAdvice(analysis, position);
 
   return (
     <Card>
@@ -82,47 +86,7 @@ export function AiAnalysisPanel({
         </Block>
 
         {analysis.holdAdvice || analysis.entryAdvice ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {analysis.holdAdvice ? (
-              <div className="rounded-lg border-2 border-blue-500/30 bg-blue-500/5 p-4">
-                <div className="mb-3 text-sm font-bold text-blue-400">如果你已持仓</div>
-                <div className="mb-3">
-                  <Badge variant="default" className="text-sm font-bold">{analysis.holdAdvice.action}</Badge>
-                </div>
-                <div className="mb-3 text-sm leading-6 text-muted-foreground">{analysis.holdAdvice.reason}</div>
-                <div className="space-y-2 text-sm">
-                  {analysis.holdAdvice.stopLoss ? <AdviceRow label="止损计划" value={analysis.holdAdvice.stopLoss} /> : null}
-                  {analysis.holdAdvice.takeProfit ? <AdviceRow label="止盈计划" value={analysis.holdAdvice.takeProfit} /> : null}
-                  {analysis.holdAdvice.positionManagement ? <AdviceRow label="仓位管理" value={analysis.holdAdvice.positionManagement} /> : null}
-                  {analysis.holdAdvice.keyMonitorPoints ? <AdviceRow label="关注重点" value={analysis.holdAdvice.keyMonitorPoints} /> : null}
-                </div>
-                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-                  失效条件：{analysis.holdAdvice.invalidIf}
-                </div>
-              </div>
-            ) : null}
-
-            {analysis.entryAdvice ? (
-              <div className="rounded-lg border-2 border-green-500/30 bg-green-500/5 p-4">
-                <div className="mb-3 text-sm font-bold text-green-400">如果你尚未持仓</div>
-                <div className="mb-3">
-                  <Badge variant="default" className="text-sm font-bold">{analysis.entryAdvice.action}</Badge>
-                </div>
-                <div className="mb-3 text-sm leading-6 text-muted-foreground">{analysis.entryAdvice.reason}</div>
-                <div className="space-y-2 text-sm">
-                  {analysis.entryAdvice.entryZone ? <AdviceRow label="入场区间" value={analysis.entryAdvice.entryZone} /> : null}
-                  {analysis.entryAdvice.timing ? <AdviceRow label="时间窗口" value={analysis.entryAdvice.timing} /> : null}
-                  {analysis.entryAdvice.triggerCondition ? <AdviceRow label="触发条件" value={analysis.entryAdvice.triggerCondition} /> : null}
-                  {analysis.entryAdvice.firstPositionSize ? <AdviceRow label="首次仓位" value={analysis.entryAdvice.firstPositionSize} /> : null}
-                  {analysis.entryAdvice.stopLoss ? <AdviceRow label="止损计划" value={analysis.entryAdvice.stopLoss} /> : null}
-                  {analysis.entryAdvice.takeProfit ? <AdviceRow label="止盈目标" value={analysis.entryAdvice.takeProfit} /> : null}
-                </div>
-                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-                  失效条件：{analysis.entryAdvice.invalidIf}
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <PrimaryAdviceCard analysis={analysis} primaryAdvice={primaryAdvice} />
         ) : (
           <Block title="可能操作计划">
             <div className="space-y-2">
@@ -173,6 +137,84 @@ export function AiAnalysisPanel({
         <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function PrimaryAdviceCard({
+  analysis,
+  primaryAdvice
+}: {
+  analysis: AiAnalysisResult;
+  primaryAdvice: ReturnType<typeof getPrimaryAdvice>;
+}) {
+  const tone = primaryAdvice.isHolding ? "blue" : "green";
+  const secondary = primaryAdvice.isHolding ? analysis.entryAdvice : analysis.holdAdvice;
+  return (
+    <div className="space-y-3">
+      <div className={tone === "blue" ? "rounded-lg border-2 border-blue-500/30 bg-blue-500/5 p-4" : "rounded-lg border-2 border-green-500/30 bg-green-500/5 p-4"}>
+        <div className={tone === "blue" ? "mb-3 flex flex-wrap items-center gap-2 text-sm font-bold text-blue-700 dark:text-blue-400" : "mb-3 flex flex-wrap items-center gap-2 text-sm font-bold text-green-700 dark:text-green-400"}>
+          <span>{primaryAdvice.title}</span>
+          <Badge variant="secondary">{primaryAdvice.statusLabel}</Badge>
+        </div>
+        {primaryAdvice.action ? (
+          <div className="mb-3">
+            <Badge variant="default" className="text-sm font-bold">{primaryAdvice.action}</Badge>
+          </div>
+        ) : null}
+        <div className="mb-3 text-sm leading-6 text-muted-foreground">{primaryAdvice.reason}</div>
+        {primaryAdvice.isHolding ? (
+          <HoldAdviceDetails advice={analysis.holdAdvice ?? null} />
+        ) : (
+          <EntryAdviceDetails advice={analysis.entryAdvice ?? null} />
+        )}
+      </div>
+      {secondary ? (
+        <details className="rounded-md border border-border bg-muted/15 p-3">
+          <summary className="cursor-pointer text-sm text-muted-foreground">查看另一种场景建议</summary>
+          <div className="mt-3 text-sm leading-6 text-muted-foreground">{secondary.reason}</div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function HoldAdviceDetails({ advice }: { advice: AiAnalysisResult["holdAdvice"] }) {
+  if (!advice) return null;
+  return (
+    <>
+      <div className="space-y-2 text-sm">
+        {advice.stopLoss ? <AdviceRow label="止损计划" value={advice.stopLoss} /> : null}
+        {advice.takeProfit ? <AdviceRow label="止盈计划" value={advice.takeProfit} /> : null}
+        {advice.positionManagement ? <AdviceRow label="仓位管理" value={advice.positionManagement} /> : null}
+        {advice.keyMonitorPoints ? <AdviceRow label="关注重点" value={advice.keyMonitorPoints} /> : null}
+      </div>
+      {advice.invalidIf ? (
+        <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          失效条件：{advice.invalidIf}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function EntryAdviceDetails({ advice }: { advice: AiAnalysisResult["entryAdvice"] }) {
+  if (!advice) return null;
+  return (
+    <>
+      <div className="space-y-2 text-sm">
+        {advice.entryZone ? <AdviceRow label="入场区间" value={advice.entryZone} /> : null}
+        {advice.timing ? <AdviceRow label="时间窗口" value={advice.timing} /> : null}
+        {advice.triggerCondition ? <AdviceRow label="触发条件" value={advice.triggerCondition} /> : null}
+        {advice.firstPositionSize ? <AdviceRow label="首次仓位" value={advice.firstPositionSize} /> : null}
+        {advice.stopLoss ? <AdviceRow label="止损计划" value={advice.stopLoss} /> : null}
+        {advice.takeProfit ? <AdviceRow label="止盈目标" value={advice.takeProfit} /> : null}
+      </div>
+      {advice.invalidIf ? (
+        <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          失效条件：{advice.invalidIf}
+        </div>
+      ) : null}
+    </>
   );
 }
 

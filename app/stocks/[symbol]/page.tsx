@@ -128,7 +128,18 @@ export default async function StockDetailPage({
           </Card>
 
           <NewsPanel symbol={quoteSymbol} name={displayName} />
-          <AiAnalysisPanel analysis={analysis ?? null} createdAt={latestAnalysis?.createdAt ?? null} fromCache={false} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} />
+          <AiAnalysisPanel
+            analysis={analysis ?? null}
+            createdAt={latestAnalysis?.createdAt ?? null}
+            fromCache={false}
+            currency={quote.currency}
+            symbol={quoteSymbol}
+            unit={isIndex ? "point" : undefined}
+            position={{
+              holdingPrice: toNumber(watchlistItem?.holdingPrice),
+              positionOpenedAt: watchlistItem?.positionOpenedAt ?? null
+            }}
+          />
         </div>
 
         <div className="space-y-5">

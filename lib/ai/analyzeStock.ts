@@ -104,21 +104,24 @@ function numberEnv(name: string, fallback: number) {
 }
 
 function buildUserPrompt(input: AnalyzeStockInput) {
-  return `请分析以下股票数据，并给出投资建议。返回严格 JSON。
+  const positionStatus = describePositionStatus(input.userContext);
+  return `请分析以下股票数据，并给出投资建议。返回必须能被 JSON.parse 解析的严格 JSON 对象。
 
 重要要求：
 1. summary 是简短摘要（80字内），概括当前局面的核心矛盾：机会是什么，风险是什么。
 2. 不能给出确定性买卖指令，不能承诺收益，必须使用「若...则考虑.../观察.../等待...」的表述方式。
-3. 新闻链接只能来自 recentNews 或 webSearchResults，不允许编造 URL。
-4. webSearchResults 是后端联网新闻检索得到的结果，不代表 AI 自己浏览网页；请把它作为外部新闻参考。
-5. 如果新闻不足或没有当日新闻，请明确说明”新闻样本有限”或”未检索到当日强相关新闻”。
-6. newsSummary 必须综合 recentNews 和 webSearchResults 的共同主线，控制在 120 字以内，不要逐条复述。
+3. 新闻链接只能来自 recentNews，不允许编造 URL。
+4. recentNews 只包含已经由新闻 AI 精读过的摘要；没有出现在 recentNews 的原始新闻不要作为结论依据。
+5. 如果 recentNews 为空，请明确说明“暂无已精读相关新闻”，不要编造新闻主线。
+6. newsSummary 必须综合 recentNews 的共同主线，控制在 120 字以内，不要逐条复述。
 7. 对 ETF、行业主题和指数基金，要优先分析行业催化：政策、采购、招标、中标、订单、投资、产业链景气度。不要把”ETF 涨跌、净值变化、成交额”当成核心催化。
 8. catalystEvents、sectorRisks、macroRisks 必须结合新闻和技术指标一起判断；如果新闻只是候选结果，要说明不确定性。
 9. 所有自然语言分析字段必须使用简体中文。新闻标题、来源和 URL 可以保留原文。
 10. holdAdvice 和 entryAdvice 是本报告的核心。holdAdvice 回答”如果已持仓，现在该怎么办”；entryAdvice 回答”如果尚未持仓，应该在什么点位、什么时机考虑入场”。每个字段都必须具体、可执行，不能写空话。必须使用”若...则考虑...”的谨慎语气。
 11. 如果用户提供了交易手续费规则，entryAdvice.firstPositionSize 必须结合手续费和最小计费金额，不要建议过小金额的交易；A 股/ETF 买入数量按 100 股/份取整。
 12. possibleActions 保留作为补充计划，沿用原有格式，至少 2 个场景。
+13. 系统会根据用户持仓信息自动展示主建议：若“系统自动持仓判断”为已持仓，holdAdvice 必须作为主建议，重点说明持有、减仓或增持条件；若为未持仓，entryAdvice 必须作为主建议，重点说明是否买入、买多少和等待条件。
+14. 输出只能使用英文双引号，不能使用中文弯引号；数组元素之间必须有逗号；不要输出注释、Markdown 或额外说明。
 
 股票代码：
 ${input.symbol}
@@ -141,6 +144,9 @@ ${JSON.stringify(input.historySummary, null, 2)}
 用户持仓和风险上下文：
 ${JSON.stringify(input.userContext, null, 2)}
 
+系统自动持仓判断：
+${positionStatus}
+
 用户的交易记忆（交易习惯、偏好、历史总结等）：
 ${input.userMemory || "暂无记录"}
 
@@ -152,107 +158,130 @@ ${input.tradingFeeRule ? JSON.stringify(input.tradingFeeRule, null, 2) : "未提
 
 
 
-已入库的高重要性相关新闻：
+已精读相关新闻摘要：
 ${JSON.stringify(input.recentNews ?? [], null, 2)}
 
-联网新闻检索结果：
-${JSON.stringify(input.webSearchResults ?? [], null, 2)}
+请只返回以下 JSON 结构，不要 Markdown，不要解释：
+${JSON.stringify(analysisResponseTemplate, null, 2)}`;
+}
 
-请只返回以下 JSON schema，不要 Markdown，不要解释：
-{
-  “trend”: “bullish | neutral | bearish”,
-  “confidence”: 0.0,
-  “analysisAsOf”: “”,
-  “dataScope”: {
-    “quoteTime”: “”,
-    “historyRange”: “”,
-    “historyInterval”: “”,
-    “historyFrom”: “”,
-    “historyTo”: “”,
-    “historyCandles”: 0,
-    “newsWindow”: “”,
-    “newsCount”: 0,
-    “webSearchStatus”: “”
+const analysisResponseTemplate = {
+  trend: "bullish | neutral | bearish",
+  confidence: 0.5,
+  analysisAsOf: "",
+  dataScope: {
+    quoteTime: "",
+    historyRange: "",
+    historyInterval: "",
+    historyFrom: "",
+    historyTo: "",
+    historyCandles: 0,
+    newsWindow: "",
+    newsCount: 0,
+    webSearchStatus: ""
   },
-  “summary”: “”,
-  “newsSummary”: “”,
-  “newsSentiment”: “positive | neutral | negative | mixed”,
-  “webSearchSummary”: “”,
-  “newsReferences”: [
+  summary: "",
+  newsSummary: "",
+  newsSentiment: "positive | neutral | negative | mixed",
+  webSearchSummary: "",
+  newsReferences: [
     {
-      “title”: “”,
-      “source”: “”,
-      “publishedAt”: “”,
-      “url”: “”,
-      “sentiment”: “positive | neutral | negative”,
-      “impactLevel”: “low | medium | high”
+      title: "",
+      source: "",
+      publishedAt: "",
+      url: "",
+      sentiment: "positive | neutral | negative",
+      impactLevel: "low | medium | high"
     }
   ],
-  “webSearchResults”: [
+  webSearchResults: [],
+  catalystEvents: [],
+  macroRisks: [],
+  sectorRisks: [],
+  keyLevels: {
+    support: [],
+    resistance: []
+  },
+  riskFactors: [],
+  holdAdvice: {
+    action: "继续持有观察 | 逢高减仓 | 逢低加仓 | 止损离场",
+    reason: "为什么给出这个建议",
+    stopLoss: "止损位和止损方式",
+    takeProfit: "止盈位和止盈方式",
+    positionManagement: "仓位管理建议",
+    keyMonitorPoints: "需要持续关注的关键点",
+    invalidIf: "什么情况下这个建议失效"
+  },
+  entryAdvice: {
+    action: "等待回调 | 可轻仓试探 | 不建议入场",
+    reason: "为什么给出这个入场建议",
+    entryZone: "入场价格区间",
+    timing: "入场时间窗口",
+    triggerCondition: "触发入场的具体条件",
+    firstPositionSize: "首次建仓仓位建议",
+    stopLoss: "入场后止损位",
+    takeProfit: "入场后止盈目标",
+    invalidIf: "什么情况下放弃入场计划"
+  },
+  possibleActions: [
     {
-      “title”: “”,
-      “source”: “”,
-      “publishedAt”: “”,
-      “url”: “”,
-      “summary”: “”
+      action: "hold | watch | reduce | consider_entry | avoid",
+      reason: "",
+      timing: "",
+      triggerCondition: "",
+      entryZone: "",
+      stopLossPlan: "",
+      takeProfitPlan: "",
+      positionSizing: "",
+      followUpCheck: "",
+      invalidIf: ""
     }
   ],
-  “catalystEvents”: [],
-  “macroRisks”: [],
-  “sectorRisks”: [],
-  “keyLevels”: {
-    “support”: [],
-    “resistance”: []
-  },
-  “riskFactors”: [],
-  “holdAdvice”: {
-    “action”: “继续持有观察 | 逢高减仓 | 逢低加仓 | 止损离场”,
-    “reason”: “为什么给出这个建议”,
-    “stopLoss”: “止损位和止损方式”,
-    “takeProfit”: “止盈位和止盈方式”,
-    “positionManagement”: “仓位管理建议”,
-    “keyMonitorPoints”: “需要持续关注的关键点”,
-    “invalidIf”: “什么情况下这个建议失效”
-  },
-  “entryAdvice”: {
-    “action”: “等待回调 | 可轻仓试探 | 不建议入场”,
-    “reason”: “为什么给出这个入场建议”,
-    “entryZone”: “入场价格区间”,
-    “timing”: “入场时间窗口”,
-    “triggerCondition”: “触发入场的具体条件”,
-    “firstPositionSize”: “首次建仓仓位建议”,
-    “stopLoss”: “入场后止损位”,
-    “takeProfit”: “入场后止盈目标”,
-    “invalidIf”: “什么情况下放弃入场计划”
-  },
-  “possibleActions”: [
-    {
-      “action”: “hold | watch | reduce | consider_entry | avoid”,
-      “reason”: “”,
-      “timing”: “”,
-      “triggerCondition”: “”,
-      “entryZone”: “”,
-      “stopLossPlan”: “”,
-      “takeProfitPlan”: “”,
-      “positionSizing”: “”,
-      “followUpCheck”: “”,
-      “invalidIf”: “”
-    }
-  ],
-  “disclaimer”: “本内容由 AI 生成，仅供研究参考，不构成投资建议。”
-}`;
+  disclaimer: "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
+};
+
+function describePositionStatus(userContext: unknown) {
+  if (!isRecord(userContext)) return "未持仓（未找到持仓价或建仓日期）。";
+  const holdingPrice = typeof userContext.holdingPrice === "number" ? userContext.holdingPrice : Number(userContext.holdingPrice);
+  const openedAt = typeof userContext.positionOpenedAt === "string" ? userContext.positionOpenedAt : "";
+  if ((Number.isFinite(holdingPrice) && holdingPrice > 0) || openedAt) {
+    return `已持仓（持仓价：${Number.isFinite(holdingPrice) && holdingPrice > 0 ? holdingPrice : "未设置"}，建仓日期：${openedAt || "未设置"}）。`;
+  }
+  return "未持仓（未找到持仓价或建仓日期）。";
 }
 
 function parseJsonObject(text: string) {
   const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error("AI 返回内容不是可解析的 JSON 对象。");
+  const candidates = [
+    cleaned,
+    extractJsonObject(cleaned),
+    normalizeJsonLikeText(cleaned),
+    normalizeJsonLikeText(extractJsonObject(cleaned))
+  ].filter(Boolean);
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error("AI 返回内容不是可解析的 JSON 对象。");
+}
+
+function extractJsonObject(text: string) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : "";
+}
+
+function normalizeJsonLikeText(text: string) {
+  return text
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1")
+    .trim();
 }
 
 function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {

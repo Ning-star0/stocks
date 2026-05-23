@@ -1,6 +1,7 @@
 export const JOB_TYPES = {
   NEWS_ANALYSIS: "news_analysis",
   STOCK_ANALYSIS: "stock_analysis",
+  FOCUS_DECISION: "focus_decision",
   DAILY_BRIEF: "daily_brief",
   ALERT_CHECK: "alert_check"
 } as const;
@@ -19,8 +20,8 @@ export const JOB_PRIORITY = {
   PRICE_MOVE: 70,
   ALERT_CHECK: 60,
   SCHEDULED_REFRESH: 30,
+  FOCUS_DECISION: 29,
   DAILY_BRIEF: 20
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
-

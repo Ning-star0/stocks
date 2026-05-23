@@ -46,6 +46,13 @@ export async function checkFocusSchedules() {
             payload: { reason: `关注板块定时分析 ${timeStr}` }
           }).catch(() => {});
         }
+        await enqueueJob({
+          userId: group.userId,
+          jobType: JOB_TYPES.FOCUS_DECISION,
+          priority: JOB_PRIORITY.FOCUS_DECISION,
+          inputHash: `focus_decision:${group.id}:${formatDateKey(now)}:${timeStr}`,
+          payload: { reason: `关注板块定时买入决策 ${timeStr}`, scheduledFor: now.toISOString() }
+        }).catch(() => {});
         await prisma.focusGroup.update({
           where: { id: group.id },
           data: { lastAnalysis: now }
@@ -144,4 +151,12 @@ function sameTick(a: Date | null, b: Date) {
   if (!a) return false;
   const diff = Math.abs(b.getTime() - a.getTime());
   return diff < 90_000; // 1.5 分钟内不去重
+}
+
+function formatDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
 }

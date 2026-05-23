@@ -32,7 +32,11 @@ type FocusDecision = {
   cashReserve: number;
   fallbackReason?: string | null;
   fromCache?: boolean;
+  stale?: boolean;
   generatedAt?: string;
+  persistedAt?: string;
+  scheduledFor?: string | null;
+  source?: string;
   orders: Array<{
     symbol: string;
     name?: string | null;
@@ -61,6 +65,7 @@ export default function FocusPage() {
   const [decision, setDecision] = useState<FocusDecision | null>(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [decisionNotice, setDecisionNotice] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -83,6 +88,7 @@ export default function FocusPage() {
 
   function toggleSymbol(symbol: string) {
     setDecision(null);
+    setDecisionNotice(null);
     setFocus((prev) => {
       const has = prev.symbols.includes(symbol);
       return { ...prev, symbols: has ? prev.symbols.filter((s) => s !== symbol) : [...prev.symbols, symbol] };
@@ -132,18 +138,24 @@ export default function FocusPage() {
   }
 
   useEffect(() => {
-    if (loading || decision || decisionLoading || decisionError) return;
+    if (loading || decision || decisionLoading || decisionError || decisionNotice) return;
     if (!focus.symbols.length || !focus.capital) return;
     void loadDecision("GET");
-  }, [decision, decisionError, decisionLoading, focus.capital, focus.symbols.length, loading]);
+  }, [decision, decisionError, decisionLoading, decisionNotice, focus.capital, focus.symbols.length, loading]);
 
   async function loadDecision(method: "GET" | "POST") {
     setDecisionLoading(true);
     setDecisionError(null);
+    setDecisionNotice(null);
     try {
       const response = await fetch("/api/focus/decision", { method });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "生成决策失败");
+      if (json.decisionUnavailable) {
+        setDecision(null);
+        setDecisionNotice(json.message ?? "等待下一个自动分析时间生成买入决策。");
+        return;
+      }
       setDecision(json);
     } catch (error) {
       setDecisionError(error instanceof Error ? error.message : "生成决策失败");
@@ -257,6 +269,7 @@ export default function FocusPage() {
                 value={focus.capital ?? ""}
                 onChange={(e) => {
                   setDecision(null);
+                  setDecisionNotice(null);
                   setFocus((prev) => ({ ...prev, capital: e.target.value ? Number(e.target.value) : null }));
                 }}
                 placeholder="例如 100000"
@@ -310,7 +323,7 @@ export default function FocusPage() {
               <Sparkles className="h-4 w-4 text-primary" />
               AI 买入决策
             </CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">打开页面自动生成/读取最新决策；按钮用于强制刷新。按最低 5 元手续费和 100 股/份整数手计算。</p>
+            <p className="mt-2 text-sm text-muted-foreground">按你设置的自动分析时间后台生成并保存；打开页面直接读取最近一次决策。按钮用于手动强制刷新。</p>
           </div>
           <Button onClick={generateDecision} disabled={decisionLoading || !focus.symbols.length || !focus.capital}>
             {decisionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <WalletCards className="h-4 w-4" />}
@@ -319,6 +332,7 @@ export default function FocusPage() {
         </CardHeader>
         <CardContent>
           {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{decisionError}</div> : null}
+          {decisionNotice ? <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
           {!focus.capital ? (
             <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">先填写总本金，AI 才能计算买入金额和手续费。</div>
           ) : decision ? (
@@ -326,10 +340,10 @@ export default function FocusPage() {
           ) : decisionLoading ? (
             <div className="flex items-center gap-2 rounded-md border border-border bg-background/20 p-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              正在自动生成买入决策
+              正在读取买入决策
             </div>
           ) : (
-            <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">这里会自动显示推荐买入计划、预计手续费、总成本和保留现金。</div>
+            <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">到达自动分析时间后，这里会显示系统后台生成的推荐买入计划、预计手续费、总成本和保留现金。</div>
           )}
         </CardContent>
       </Card>
@@ -365,7 +379,11 @@ function FocusDecisionPanel({ decision }: { decision: FocusDecision }) {
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
-        {decision.fromCache ? <Badge variant="secondary">缓存决策</Badge> : <Badge variant="success">最新决策</Badge>}
+        {decision.scheduledFor ? <span>计划时间：{formatDateTime(decision.scheduledFor)}</span> : null}
+        {decision.persistedAt ? <span>保存时间：{formatDateTime(decision.persistedAt)}</span> : null}
+        {decision.source === "scheduled" ? <Badge variant="success">定时决策</Badge> : null}
+        {decision.fromCache ? <Badge variant="secondary">已保存决策</Badge> : <Badge variant="success">最新决策</Badge>}
+        {decision.stale ? <Badge variant="secondary">配置已变化</Badge> : null}
       </div>
       <div className="grid gap-3 md:grid-cols-4">
         <Metric label="总本金" value={Math.round(decision.capital)} />
