@@ -416,19 +416,15 @@ function InfoPanel({
   const cursorPrice = cursor?.price ?? point.close;
   return (
     <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-      <div className="grid min-h-[52px] grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
-        <InfoItem label="时间" value={cursorTime} />
-        <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />
-        <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} />
-        <InfoItem label="开盘" value={formatPriceValue(point.open, { currency, symbol, unit })} />
-        <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
-        <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
-        <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
+      <div className="grid gap-1.5 md:grid-cols-[minmax(190px,1.25fr)_minmax(132px,0.9fr)_minmax(144px,1fr)_minmax(148px,1fr)]">
+        <InfoItem label="时间" value={cursorTime} size="wide" />
+        <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong size="wide" />
+        <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} size="wide" />
         <span className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap">
           <span className="text-muted-foreground">涨跌</span>
           <span
             key={`${change.toFixed(4)}-${changePct.toFixed(2)}`}
-            className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums", up ? "text-red-500" : "text-emerald-500")}
+            className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5", up ? "text-red-500" : "text-emerald-500")}
             title={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
           >
             {change >= 0 ? "+" : ""}
@@ -437,31 +433,37 @@ function InfoPanel({
           </span>
         </span>
       </div>
-      <div className="mt-1.5 min-h-[26px] border-t border-border/70 pt-1.5">
+      <div className="mt-1.5 border-t border-border/70 pt-1.5">
+        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          <InfoItem label="开盘" value={formatPriceValue(point.open, { currency, symbol, unit })} />
+          <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
+          <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
+          <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
+        </div>
         {showMovingAverages ? (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+          <div className="mt-1.5 grid gap-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {maSeries.map((item) => (
             <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap" style={{ color: item.color }}>
               <span>{item.label}</span>
-              <span key={`${item.key}-${formatNumber(point[item.key])}`} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums")} title={formatNumber(point[item.key])}>
+              <span key={`${item.key}-${formatNumber(point[item.key])}`} className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5")} title={formatNumber(point[item.key])}>
                 {formatNumber(point[item.key])}
               </span>
             </span>
           ))}
           </div>
         ) : (
-          <span className="text-muted-foreground">分时图不显示 MA 均线</span>
+          <div className="mt-1.5 border-t border-border/50 pt-1.5 text-muted-foreground">分时图不显示 MA 均线</div>
         )}
       </div>
     </div>
   );
 }
 
-function InfoItem({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function InfoItem({ label, value, strong = false, size = "normal" }: { label: string; value: string; strong?: boolean; size?: "normal" | "wide" }) {
   return (
-    <span className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap">
+    <span className={cn("grid min-w-0 items-center gap-1.5 whitespace-nowrap", size === "wide" ? "grid-cols-[52px_minmax(0,1fr)]" : "grid-cols-[42px_minmax(0,1fr)]")}>
       <span className="text-muted-foreground">{label}</span>
-      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums text-foreground", strong ? "font-semibold" : "")} title={value}>
+      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5 text-foreground", strong ? "font-semibold" : "")} title={value}>
         {value}
       </span>
     </span>
