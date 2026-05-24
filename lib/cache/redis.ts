@@ -18,12 +18,12 @@ export function getRedisClient() {
     lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
-    connectTimeout: numberEnv("REDIS_CONNECT_TIMEOUT_MS", 500),
-    commandTimeout: numberEnv("REDIS_COMMAND_TIMEOUT_MS", 800)
+    connectTimeout: numberEnv("REDIS_CONNECT_TIMEOUT_MS", 120),
+    commandTimeout: numberEnv("REDIS_COMMAND_TIMEOUT_MS", 150)
   });
 
   client.on("error", () => {
-    globalRedis.__stockAiRedisUnavailableUntil = Date.now() + REDIS_RETRY_COOLDOWN_MS;
+    markRedisUnavailable();
   });
 
   globalRedis.__stockAiRedisClient = client;
@@ -34,8 +34,13 @@ export async function ensureRedisReady(client: Redis) {
   const status = client.status as string;
   if (status === "ready") return true;
   if (status === "wait" || status === "end") {
-    await client.connect();
-    return true;
+    try {
+      await client.connect();
+      return true;
+    } catch {
+      markRedisUnavailable();
+      return false;
+    }
   }
   return status === "connect" || status === "connecting" || status === "ready";
 }
@@ -46,6 +51,11 @@ export function redisKey(key: string) {
 
 export function markRedisUnavailable() {
   globalRedis.__stockAiRedisUnavailableUntil = Date.now() + REDIS_RETRY_COOLDOWN_MS;
+  const client = globalRedis.__stockAiRedisClient;
+  globalRedis.__stockAiRedisClient = null;
+  if (client && client.status !== "end") {
+    client.disconnect();
+  }
 }
 
 function numberEnv(name: string, fallback: number) {

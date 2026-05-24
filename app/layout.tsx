@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
-import { ChatPanel } from "@/components/ChatPanel";
+import { LazyChatPanel } from "@/components/LazyChatPanel";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
 
@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           <footer className="mx-auto w-full max-w-7xl px-5 pb-6 text-xs text-muted-foreground lg:px-8">
             本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
           </footer>
-          {session ? <ChatPanel /> : null}
+          {session ? <LazyChatPanel /> : null}
         </div>
       </body>
     </html>
