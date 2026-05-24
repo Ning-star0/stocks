@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, BarChart3, Brain, Eye, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Activity, BarChart3, Brain, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, Trash2, X } from "lucide-react";
 
 import { AddStockDialog } from "@/components/AddStockDialog";
 import { RiskBadge } from "@/components/RiskBadge";
@@ -92,6 +92,7 @@ type WatchlistRowModel = {
 
 const DASHBOARD_CLIENT_CACHE_KEY = "stock-ai:dashboard:v2";
 const DASHBOARD_CLIENT_CACHE_TTL_MS = 60_000;
+const WATCHLIST_PAGE_SIZE = 6;
 
 export function WatchlistTable() {
   const hasLoadedRef = useRef(false);
@@ -106,6 +107,7 @@ export function WatchlistTable() {
   const [actionFilter, setActionFilter] = useState<"all" | ActionCategory>("all");
   const [holdingFilter, setHoldingFilter] = useState<"all" | "holding" | "watching">("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
     if (hasLoadedRef.current) setRefreshing(true);
@@ -151,7 +153,23 @@ export function WatchlistTable() {
     () => filterAndSortRows(rows, { search, riskFilter, actionFilter, holdingFilter, sortKey }),
     [rows, search, riskFilter, actionFilter, holdingFilter, sortKey]
   );
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / WATCHLIST_PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (safeCurrentPage - 1) * WATCHLIST_PAGE_SIZE;
+    return filteredRows.slice(start, start + WATCHLIST_PAGE_SIZE);
+  }, [filteredRows, safeCurrentPage]);
+  const pageStart = filteredRows.length ? (safeCurrentPage - 1) * WATCHLIST_PAGE_SIZE + 1 : 0;
+  const pageEnd = Math.min(safeCurrentPage * WATCHLIST_PAGE_SIZE, filteredRows.length);
   const hasAnyFilter = Boolean(search.trim()) || riskFilter !== "all" || actionFilter !== "all" || holdingFilter !== "all" || sortKey !== "default";
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, riskFilter, actionFilter, holdingFilter, sortKey]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   async function analyze(symbol: string) {
     setAnalyzing(symbol);
@@ -231,7 +249,7 @@ export function WatchlistTable() {
                 策略观察列表
               </CardTitle>
               <p className="mt-2 text-sm text-muted-foreground">
-                当前显示 {filteredRows.length} / {rows.length} 只标的，筛选和排序仅影响当前页面展示。
+                当前显示 {filteredRows.length} / {rows.length} 只标的，本页 {pageStart}-{pageEnd} 条。
               </p>
             </div>
             {hasAnyFilter ? (
@@ -273,6 +291,14 @@ export function WatchlistTable() {
               <option value="focusFirst">今日需关注优先</option>
             </Select>
           </div>
+          <PaginationControls
+            currentPage={safeCurrentPage}
+            totalPages={totalPages}
+            totalItems={filteredRows.length}
+            pageStart={pageStart}
+            pageEnd={pageEnd}
+            onPageChange={setCurrentPage}
+          />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -312,7 +338,7 @@ export function WatchlistTable() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredRows.map((row) => (
+                    {pagedRows.map((row) => (
                       <TableRow key={row.item.id} className="table-row-focus h-16">
                         <TableCell className="py-2.5">
                           <Link href={`/stocks/${row.symbol}`} className="font-semibold text-primary">
@@ -366,7 +392,7 @@ export function WatchlistTable() {
                 </Table>
               </div>
               <div className="space-y-3 lg:hidden">
-                {filteredRows.map((row) => (
+                {pagedRows.map((row) => (
                   <div key={row.item.id} className="motion-card-enter rounded-lg border border-border bg-background/50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -407,6 +433,15 @@ export function WatchlistTable() {
                   </div>
                 ))}
               </div>
+              <PaginationControls
+                className="mt-4 border-t border-border pt-4"
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={filteredRows.length}
+                pageStart={pageStart}
+                pageEnd={pageEnd}
+                onPageChange={setCurrentPage}
+              />
             </>
           )}
         </CardContent>
@@ -432,6 +467,57 @@ function ReasonTags({ tags, fallback }: { tags: string[]; fallback: string }) {
           +{hidden.length}
         </span>
       ) : null}
+    </div>
+  );
+}
+
+function PaginationControls({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageStart,
+  pageEnd,
+  onPageChange,
+  className
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageStart: number;
+  pageEnd: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+}) {
+  if (totalItems <= WATCHLIST_PAGE_SIZE) return null;
+
+  return (
+    <div className={cn("flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between", className)}>
+      <div className="tabular-nums">
+        第 {pageStart}-{pageEnd} 条 / 共 {totalItems} 条
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage <= 1}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          上一页
+        </Button>
+        <span className="min-w-16 text-center tabular-nums">
+          {currentPage} / {totalPages}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage >= totalPages}
+        >
+          下一页
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }
