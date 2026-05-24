@@ -10,6 +10,7 @@ import { createDecisionHistoryFromFocusDecision, refreshAnalysisRun } from "@/li
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
+import { notifyFocusDecision } from "@/lib/notifications/send";
 import { prisma } from "@/lib/prisma";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { toNumber } from "@/lib/utils";
@@ -147,6 +148,17 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     createRunItems: Boolean(options.createRunItems)
   }).catch(() => []);
   await refreshAnalysisRun(options.runId).catch(() => null);
+  await notifyFocusDecision({
+    userId: options.userId,
+    decisionId: row.id,
+    source,
+    summary: decision.summary,
+    generatedAt: new Date(),
+    orders: decision.orders,
+    cashReserve: decision.cashReserve,
+    totalBudgetToUse: decision.totalBudgetToUse,
+    totalEstimatedFee: decision.totalEstimatedFee
+  }).catch(() => null);
   return attachStoredMetadata(row, { fromCache: false, stale: false });
 }
 

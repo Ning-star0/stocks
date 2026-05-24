@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BookOpen, Brain, Check, Code2, Loader2, Server } from "lucide-react";
+import { Bell, BookOpen, Brain, Check, Code2, Loader2, Server, Send } from "lucide-react";
 
 import { LogoutButton } from "@/components/LogoutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageContainer, SectionHeader } from "@/components/ui/layout";
+import { Select } from "@/components/ui/select";
 
 export default function SettingsPage() {
   // 密钥输入框始终为空，不存掩码值——之前把 "sk-abc***xyz" 写进 DB 的 bug 就出在这
@@ -24,6 +25,13 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushProvider, setPushProvider] = useState("wecom");
+  const [pushWebhook, setPushWebhook] = useState("");
+  const [pushHasWebhook, setPushHasWebhook] = useState(false);
+  const [pushSaving, setPushSaving] = useState(false);
+  const [pushTesting, setPushTesting] = useState(false);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings/ai")
@@ -32,6 +40,14 @@ export default function SettingsPage() {
         if (data.baseUrl) setBaseUrl(data.baseUrl);
         if (data.model) setModel(data.model);
         setHasExistingKey(!!data.apiKeyMasked);
+      })
+      .catch(() => {});
+    fetch("/api/settings/notifications")
+      .then((r) => r.json())
+      .then((data) => {
+        setPushEnabled(Boolean(data.enabled));
+        if (data.provider) setPushProvider(data.provider);
+        setPushHasWebhook(Boolean(data.hasWebhook));
       })
       .catch(() => {});
   }, []);
@@ -75,6 +91,46 @@ export default function SettingsPage() {
       setTestResult(err instanceof Error ? err.message : "连接测试失败");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function savePushConfig() {
+    setPushSaving(true);
+    setPushMessage(null);
+    try {
+      const res = await fetch("/api/settings/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: pushEnabled,
+          provider: pushProvider,
+          webhookUrl: pushWebhook || undefined
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? "保存推送配置失败");
+      setPushHasWebhook(Boolean(data.hasWebhook));
+      setPushWebhook("");
+      setPushMessage("推送配置已保存");
+    } catch (err) {
+      setPushMessage(err instanceof Error ? err.message : "保存推送配置失败");
+    } finally {
+      setPushSaving(false);
+    }
+  }
+
+  async function testPush() {
+    setPushTesting(true);
+    setPushMessage(null);
+    try {
+      const res = await fetch("/api/settings/notifications", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? "测试推送失败");
+      setPushMessage("测试推送已发送");
+    } catch (err) {
+      setPushMessage(err instanceof Error ? err.message : "测试推送失败");
+    } finally {
+      setPushTesting(false);
     }
   }
 
@@ -140,6 +196,54 @@ export default function SettingsPage() {
 
           {testResult ? <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">{testResult}</div> : null}
           {error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="soft-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            策略推送
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
+            <span>
+              <span className="block text-sm font-medium">启用实时推送</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">只有 AI 决策形成策略观察计划时才推送；等待、回避、暂无计划不会推送。</span>
+            </span>
+            <input type="checkbox" checked={pushEnabled} onChange={(event) => setPushEnabled(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
+          </label>
+
+          <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+            <div className="space-y-2">
+              <span className="block text-sm font-medium">推送通道</span>
+              <Select value={pushProvider} onChange={(event) => setPushProvider(event.target.value)}>
+                <option value="wecom">企业微信机器人</option>
+                <option value="server_chan">Server 酱微信</option>
+                <option value="qq_webhook">QQ Webhook</option>
+                <option value="generic_webhook">通用 Webhook</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <span className="block text-sm font-medium">Webhook / SendKey</span>
+              <Input type="password" value={pushWebhook} onChange={(event) => setPushWebhook(event.target.value)} placeholder={pushHasWebhook ? "已配置，留空则不修改" : "粘贴企业微信 Webhook、Server 酱 SendKey 或 QQ Webhook"} autoComplete="off" />
+              <p className="text-xs leading-5 text-muted-foreground">QQ 官方机器人通常需要审核和签名服务；这里先支持 QQ/第三方 Bot 的 HTTP Webhook。</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={savePushConfig} disabled={pushSaving}>
+              {pushSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              保存推送配置
+            </Button>
+            <Button variant="outline" onClick={testPush} disabled={pushTesting || !pushEnabled || !pushHasWebhook}>
+              {pushTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              测试推送
+            </Button>
+          </div>
+
+          {pushMessage ? <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">{pushMessage}</div> : null}
         </CardContent>
       </Card>
     </PageContainer>

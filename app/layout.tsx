@@ -30,8 +30,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body>
         <div className="min-h-screen terminal-grid">
           <AppHeader signedIn={Boolean(session)} />
-          <main className="mx-auto w-full max-w-7xl px-5 py-6 lg:px-8">{children}</main>
-          <footer className="mx-auto w-full max-w-7xl px-5 pb-6 text-xs text-muted-foreground lg:px-8">
+          <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 sm:py-6 lg:px-8">{children}</main>
+          <footer className="mx-auto w-full max-w-7xl px-3 pb-6 text-xs text-muted-foreground sm:px-5 lg:px-8">
             本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
           </footer>
           {session ? <LazyChatPanel /> : null}

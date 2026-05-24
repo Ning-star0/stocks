@@ -69,7 +69,7 @@ export function AppHeader({ signedIn }: { signedIn: boolean }) {
           : `transform ${motionDurations.page}ms ${motionEase}, opacity 240ms ${motionEase}, background-color 240ms ${motionEase}, border-color 240ms ${motionEase}`
       }}
     >
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-5 py-3 lg:px-8">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-3 py-2 sm:px-5 sm:py-3 lg:px-8">
         {signedIn ? (
           <AppNav />
         ) : (

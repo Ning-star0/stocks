@@ -488,14 +488,14 @@ function ReasonTags({ tags, fallback }: { tags: string[]; fallback: string }) {
   const visible = tags.slice(0, 2);
   const hidden = tags.slice(2);
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1 sm:gap-1.5">
       {visible.map((tag) => (
-        <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        <span key={tag} className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground sm:px-2 sm:text-xs">
           {tag}
         </span>
       ))}
       {hidden.length ? (
-        <span title={hidden.join("、")} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        <span title={hidden.join("、")} className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground sm:px-2 sm:text-xs">
           +{hidden.length}
         </span>
       ) : null}

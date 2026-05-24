@@ -66,7 +66,7 @@ export function AppNav() {
   }, [activeIndex]);
 
   return (
-    <nav className="liquid-glass relative flex w-max max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full p-1">
+    <nav className="liquid-glass relative flex w-full max-w-[calc(100vw-1rem)] items-center justify-between gap-1 overflow-x-auto rounded-full p-1 sm:w-max sm:max-w-[calc(100vw-2rem)]">
       {activeIndex >= 0 ? (
         <span
           aria-hidden="true"
@@ -97,7 +97,7 @@ export function AppNav() {
             }}
           >
             <Icon className="h-4 w-4 transition-transform duration-150 group-hover:-translate-y-px" />
-            <span className="whitespace-nowrap">{item.label}</span>
+            <span className="hidden whitespace-nowrap min-[420px]:inline">{item.label}</span>
           </NavItem>
         );
       })}
@@ -126,7 +126,7 @@ function NavItem({
       ref={refCallback}
       href={href}
       className={cn(
-        "group relative z-10 inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-[color,transform] duration-150 hover:text-foreground active:scale-[0.98]",
+        "group relative z-10 inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full px-2.5 text-sm font-medium transition-[color,transform] duration-150 hover:text-foreground active:scale-[0.98] min-[420px]:px-3",
         active ? "text-primary dark:text-foreground" : "text-muted-foreground"
       )}
     >
