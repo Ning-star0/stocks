@@ -283,7 +283,7 @@ export default function FocusPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{decisionError}</div> : null}
+          {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{decisionError}</div> : null}
           {decisionNotice ? <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
           {!focus.capital ? (
             <EmptyDecision message="先填写总本金，AI 才能计算计划买入金额、保留现金和手续费。" />
@@ -454,7 +454,7 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">{decision.fallbackReason}</div>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{decision.fallbackReason}</div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
@@ -464,13 +464,13 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
         {decision.fromCache ? <Badge variant="secondary">已保存决策</Badge> : <Badge variant="success">最新决策</Badge>}
         {decision.stale ? <Badge variant="secondary">配置已变化</Badge> : null}
       </div>
-      <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/10" : "border-amber-500/25 bg-amber-500/10")}>
+      <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/12" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
         <div className="flex flex-wrap items-center gap-2">
           <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
           <StrategyBadge tone={shouldBuy ? "watch" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
           <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
         </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">核心原因：{decision.summary}</p>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-muted-foreground">核心原因：{decision.summary}</p>
       </div>
       <div className="grid gap-3 md:grid-cols-4">
         <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} />
@@ -498,7 +498,7 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
               </div>
               <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
               {order.riskControl ? <p className="mt-2 text-xs leading-5 text-muted-foreground">风控：{order.riskControl}</p> : null}
-              {order.invalidIf ? <p className="mt-1 text-xs leading-5 text-amber-300">失效：{order.invalidIf}</p> : null}
+              {order.invalidIf ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">失效：{order.invalidIf}</p> : null}
             </div>
           ))}
         </div>

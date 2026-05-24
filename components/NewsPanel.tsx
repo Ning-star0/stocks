@@ -107,8 +107,8 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       </CardHeader>
       <CardContent className="space-y-3">
         {updatedAt ? <div className="text-xs text-muted-foreground">最近加载：{updatedAt}</div> : null}
-        {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">{message}</div> : null}
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+        {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
+        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {!loading && allNews.length ? <NewsOverview overview={overview} /> : null}
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载新闻...</div>

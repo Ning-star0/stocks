@@ -88,9 +88,9 @@ export default async function StockDetailPage({
 
   return (
     <PageContainer>
-      {quote.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
+      {quote.isMock ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">当前为模拟数据，不代表真实行情。</div> : null}
       {quote.status === "error" || quote.status === "unavailable" ? (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{quote.error ?? "行情不可用。"}</div>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{quote.error ?? "行情不可用。"}</div>
       ) : null}
 
       <Card className="soft-card">

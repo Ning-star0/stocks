@@ -69,7 +69,7 @@ export function DailyMarketBriefPanel() {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载简报...</div>
         ) : !brief ? (
