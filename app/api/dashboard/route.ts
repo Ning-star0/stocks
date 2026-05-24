@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
 import { getCache, setCache } from "@/lib/cache";
@@ -10,12 +10,13 @@ import { prisma } from "@/lib/prisma";
 import { serializeAlert, serializeWatchlistItem } from "@/lib/serializers";
 import { getQuoteProviderInfo, getQuotesBatch } from "@/lib/services/quoteService";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     const cacheKey = dashboardCacheKey(user.id);
-    const cached = await getCache<unknown>(cacheKey);
-    if (cached) return NextResponse.json(cached);
+    const forceRefresh = request.headers.get("x-force-refresh") === "1";
+    const cached = forceRefresh ? null : await getCache<unknown>(cacheKey);
+    if (cached) return dashboardResponse(cached, "HIT");
 
     const watchlists = await prisma.watchlist.findMany({
       where: { userId: user.id },
@@ -79,11 +80,21 @@ export async function GET() {
       recentHighImpactNews: highImpactNews
     };
 
-    await setCache(cacheKey, payload, numberEnv("DASHBOARD_CACHE_TTL_SECONDS", 8));
-    return NextResponse.json(payload);
+    await setCache(cacheKey, payload, numberEnv("DASHBOARD_CACHE_TTL_SECONDS", 30));
+    return dashboardResponse(payload, "MISS");
   } catch (error) {
     return apiError(error);
   }
+}
+
+function dashboardResponse(payload: unknown, cacheStatus: "HIT" | "MISS") {
+  return NextResponse.json(payload, {
+    headers: {
+      "Cache-Control": `private, max-age=${numberEnv("DASHBOARD_BROWSER_CACHE_SECONDS", 15)}, stale-while-revalidate=${numberEnv("DASHBOARD_BROWSER_STALE_SECONDS", 60)}`,
+      "Vary": "Cookie",
+      "X-Data-Cache": cacheStatus
+    }
+  });
 }
 
 async function loadLatestAnalyses(userId: string, symbols: string[]) {

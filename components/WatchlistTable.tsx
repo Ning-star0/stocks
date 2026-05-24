@@ -90,6 +90,9 @@ type WatchlistRowModel = {
   index: number;
 };
 
+const DASHBOARD_CLIENT_CACHE_KEY = "stock-ai:dashboard:v2";
+const DASHBOARD_CLIENT_CACHE_TTL_MS = 60_000;
+
 export function WatchlistTable() {
   const hasLoadedRef = useRef(false);
   const [data, setData] = useState<DashboardResponse | null>(null);
@@ -104,15 +107,19 @@ export function WatchlistTable() {
   const [holdingFilter, setHoldingFilter] = useState<"all" | "holding" | "watching">("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
     if (hasLoadedRef.current) setRefreshing(true);
-    else setLoading(true);
+    else if (!options.silent) setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      const response = await fetch("/api/dashboard", {
+        cache: options.force ? "no-store" : "default",
+        headers: options.force ? { "x-force-refresh": "1" } : undefined
+      });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载自选股失败。");
       setData(json);
+      writeClientDashboardCache(json);
       hasLoadedRef.current = true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载自选股失败。");
@@ -123,7 +130,15 @@ export function WatchlistTable() {
   }, []);
 
   useEffect(() => {
-    load();
+    const cached = readClientDashboardCache();
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      hasLoadedRef.current = true;
+      void load({ silent: true });
+      return;
+    }
+    void load();
   }, [load]);
 
   const items = useMemo(() => {
@@ -152,7 +167,7 @@ export function WatchlistTable() {
       if (!response.ok) throw new Error(json.error?.message ?? "创建分析任务失败。");
       if (json.fromCache) setNotice(`${symbol} 的缓存分析仍然有效。`);
       else if (json.jobId) setNotice(`${symbol} 的分析任务已加入后台队列。`);
-      await load();
+      await load({ force: true });
     } catch (analysisError) {
       setError(analysisError instanceof Error ? analysisError.message : "创建分析任务失败。");
     } finally {
@@ -168,7 +183,7 @@ export function WatchlistTable() {
       const response = await fetch(`/api/watchlist/items/${id}`, { method: "DELETE" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "删除自选股失败。");
-      await load();
+      await load({ force: true });
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除自选股失败。");
     }
@@ -189,11 +204,11 @@ export function WatchlistTable() {
         description="快速扫读价格、风险和 AI 策略观察；详细理由保留在股票详情页。"
         action={
           <>
-            <Button size="sm" variant="outline" onClick={load} disabled={loading || refreshing}>
+            <Button size="sm" variant="outline" onClick={() => load({ force: true })} disabled={loading || refreshing}>
               <RefreshCw className="h-4 w-4" />
               {refreshing ? "刷新中" : "刷新"}
             </Button>
-            <AddStockDialog onAdded={load} />
+            <AddStockDialog onAdded={() => load({ force: true })} />
           </>
         }
       />
@@ -419,6 +434,34 @@ function ReasonTags({ tags, fallback }: { tags: string[]; fallback: string }) {
       ) : null}
     </div>
   );
+}
+
+function readClientDashboardCache(): DashboardResponse | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(DASHBOARD_CLIENT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; data?: DashboardResponse };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > DASHBOARD_CLIENT_CACHE_TTL_MS) return null;
+    return parsed.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeClientDashboardCache(data: DashboardResponse) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      DASHBOARD_CLIENT_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        data
+      })
+    );
+  } catch {
+    // Browser storage is best effort; server cache remains the source of truth.
+  }
 }
 
 function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: boolean }) {

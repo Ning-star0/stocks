@@ -58,7 +58,7 @@ export function AppHeader({ signedIn }: { signedIn: boolean }) {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 border-b border-white/35 bg-background/28 backdrop-blur-2xl dark:border-white/10",
+        "sticky top-0 z-40 border-b border-white/35 bg-background/28 backdrop-blur-lg will-change-[transform,opacity] dark:border-white/10",
         hidden && "pointer-events-none border-transparent bg-transparent"
       )}
       style={{
