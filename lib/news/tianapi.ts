@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { logApiUsage } from "@/lib/apiUsage";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
@@ -77,16 +78,26 @@ export class TianApiNewsProvider implements NewsProvider {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await waitForTianApiSlot();
       const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：HTTP ${response.status}`);
+      if (!response.ok) {
+        await logApiUsage({ provider: "tianapi", apiName: "news", status: "failed", metadata: { status: response.status } });
+        throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：HTTP ${response.status}`);
+      }
 
       const payload = (await response.json()) as TianApiResponse;
       lastPayload = payload;
-      if (payload.code === 200) return payload.result?.list ?? [];
-      if (payload.code === 250) return [];
+      if (payload.code === 200) {
+        await logApiUsage({ provider: "tianapi", apiName: "news", status: "success", metadata: { count: payload.result?.list?.length ?? 0 } });
+        return payload.result?.list ?? [];
+      }
+      if (payload.code === 250) {
+        await logApiUsage({ provider: "tianapi", apiName: "news", status: "success", metadata: { count: 0 } });
+        return [];
+      }
       if (payload.code === 130 && attempt === 0) {
         await sleep(1200);
         continue;
       }
+      await logApiUsage({ provider: "tianapi", apiName: "news", status: "failed", metadata: { code: payload.code, msg: payload.msg } });
       throw mapTianApiError(payload);
     }
 

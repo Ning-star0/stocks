@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { logApiUsage } from "@/lib/apiUsage";
 import { generateNewsSearchPlan, type NewsSearchPlan } from "@/lib/ai/generateNewsSearchQueries";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
@@ -228,8 +229,10 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
 
     const payload = (await response.json().catch(() => ({}))) as TavilyResponse & { error?: string; message?: string };
     if (!response.ok) {
+      await logApiUsage({ provider: "tavily", apiName: "web_search", status: "failed", metadata: { topic, status: response.status } });
       throw new AppError("DATA_PROVIDER_ERROR", payload.error || payload.message || `Tavily 搜索失败：HTTP ${response.status}`);
     }
+    await logApiUsage({ provider: "tavily", apiName: "web_search", status: "success", metadata: { topic, resultCount: payload.results?.length ?? 0 } });
 
     return (payload.results ?? []).map((row) => tavilyRowToNewsItem(row, input));
   });

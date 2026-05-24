@@ -36,6 +36,7 @@ model User {
   analysisRuns  AnalysisRun[]
   decisionHistories DecisionHistory[]
   notificationConfig NotificationConfig?
+  apiUsageLogs ApiUsageLog[]
 }
 
 model Watchlist {
@@ -245,6 +246,22 @@ model AiUsageLog {
 
   @@index([userId, symbol, createdAt])
   @@index([inputHash])
+}
+
+model ApiUsageLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  provider  String
+  apiName   String
+  status    String   @default("success")
+  unit      String   @default("request")
+  amount    Int      @default(1)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider, apiName, createdAt])
+  @@index([provider, apiName, createdAt])
 }
 
 model AiConfig {

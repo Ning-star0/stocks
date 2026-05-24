@@ -1,3 +1,4 @@
+import { logApiUsage } from "@/lib/apiUsage";
 import { AppError } from "@/lib/errors";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
@@ -29,9 +30,16 @@ export class FinnhubNewsProvider implements NewsProvider {
     const toDate = to.slice(0, 10);
     const url = `${this.baseUrl}/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromDate}&to=${toDate}&token=${key}`;
     const response = await fetch(url, { next: { revalidate: 300 } });
-    if (response.status === 429) throw new AppError("RATE_LIMIT", "Finnhub 新闻接口触发限流。");
-    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 新闻请求失败：${response.status}`);
+    if (response.status === 429) {
+      await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, symbol } });
+      throw new AppError("RATE_LIMIT", "Finnhub 新闻接口触发限流。");
+    }
+    if (!response.ok) {
+      await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, symbol } });
+      throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 新闻请求失败：${response.status}`);
+    }
     const rows = (await response.json()) as FinnhubCompanyNews[];
+    await logApiUsage({ provider: "finnhub", apiName: "news", status: "success", metadata: { symbol, count: rows.length } });
     return rows.map((row) => normalizeFinnhubNews(row, [symbol.toUpperCase()]));
   }
 
@@ -40,9 +48,16 @@ export class FinnhubNewsProvider implements NewsProvider {
     const category = encodeURIComponent("general");
     const url = `${this.baseUrl}/news?category=${category}&token=${key}`;
     const response = await fetch(url, { next: { revalidate: 300 } });
-    if (response.status === 429) throw new AppError("RATE_LIMIT", "Finnhub 新闻接口触发限流。");
-    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 主题新闻请求失败：${response.status}`);
+    if (response.status === 429) {
+      await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, category } });
+      throw new AppError("RATE_LIMIT", "Finnhub 新闻接口触发限流。");
+    }
+    if (!response.ok) {
+      await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, category } });
+      throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 主题新闻请求失败：${response.status}`);
+    }
     const rows = (await response.json()) as FinnhubCompanyNews[];
+    await logApiUsage({ provider: "finnhub", apiName: "news", status: "success", metadata: { category, count: rows.length } });
     const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase());
     const fromTime = new Date(from).getTime();
     const toTime = new Date(to).getTime();

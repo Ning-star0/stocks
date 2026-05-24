@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Activity, Bot, Clock3, Code2, Crosshair, Database, ListChecks, Newspaper, Server, ShieldCheck } from "lucide-react";
 
 import { ApiHealthPanel } from "@/components/ApiHealthPanel";
+import { ApiUsagePanel } from "@/components/ApiUsagePanel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -114,7 +115,10 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     title: "系统",
     icon: <Server className="h-4 w-4" />,
     description: "服务健康、数据库、关键配置和后台 worker 状态。",
-    endpoints: [{ method: "GET", path: "/api/health", description: "健康检查，不返回任何密钥。", auth: "公开", cost: "只读" }]
+    endpoints: [
+      { method: "GET", path: "/api/health", description: "健康检查，不返回任何密钥。", auth: "公开", cost: "只读" },
+      { method: "GET", path: "/api/usage", description: "读取 AI、行情、新闻和联网检索的本地用量统计与剩余额度。", cost: "只读" }
+    ]
   }
 ];
 
@@ -151,6 +155,7 @@ export default function ApiDocsPage() {
       </div>
 
       <ApiHealthPanel />
+      <ApiUsagePanel />
 
       <Card>
         <CardHeader>

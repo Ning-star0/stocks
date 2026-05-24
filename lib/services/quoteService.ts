@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { logApiUsage } from "@/lib/apiUsage";
 import { getCache, setCache } from "@/lib/cache";
 import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { getStockDataProvider } from "@/lib/stock-data";
@@ -46,9 +47,21 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
 
   try {
     const quote = await getStockDataProvider().getQuote(normalized);
+    await logApiUsage({
+      provider: getQuoteProviderInfo().quoteProvider,
+      apiName: "quote",
+      status: "success",
+      metadata: { symbol: normalized }
+    });
     await writeQuoteCache(cacheKey, quote);
     return toQuoteWithStatus(quote, "normal");
   } catch (error) {
+    await logApiUsage({
+      provider: getQuoteProviderInfo().quoteProvider,
+      apiName: "quote",
+      status: "failed",
+      metadata: { symbol: normalized, error: errorMessage(error) }
+    });
     if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale", errorMessage(error));
     if (options.allowStale) {
       const snapshot = await readLatestSnapshot(normalized);
