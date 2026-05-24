@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser, getDefaultWatchlist } from "@/lib/currentUser";
+import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
       // worker 没开或队列异常时也不影响添加操作
     }
 
+    await invalidateDashboardCache(user.id);
     return NextResponse.json({ item: serializeWatchlistItem(item) }, { status: 201 });
   } catch (error) {
     return apiError(error);

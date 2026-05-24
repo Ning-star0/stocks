@@ -6,6 +6,7 @@ import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { getCache, setCache } from "@/lib/cache";
+import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { generateAndStoreFocusDecision } from "@/lib/focus/decision";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
@@ -155,6 +156,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         newsDurationMs: result.timings?.newsDurationMs ?? null,
         fallbackUsed: isFallbackOutput(result.outputJson)
       });
+      await invalidateDashboardCache(job.userId);
       return { resultId: result.analysisId, skippedCached: result.fromCache };
     } catch (error) {
       // 行情不可用时保存 fallback 分析，避免任务失败后无任何分析记录
@@ -181,6 +183,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
           errorMessage: message,
           fallbackUsed: true
         });
+        await invalidateDashboardCache(job.userId);
         return { resultId: fallback.id, skippedCached: false };
       }
       await finishAnalysisRunItem({

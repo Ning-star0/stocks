@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, BarChart3, Brain, Eye, RefreshCw, Search, Trash2, X } from "lucide-react";
 
@@ -91,8 +91,10 @@ type WatchlistRowModel = {
 };
 
 export function WatchlistTable() {
+  const hasLoadedRef = useRef(false);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -103,17 +105,20 @@ export function WatchlistTable() {
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (hasLoadedRef.current) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error?.message ?? "加载自选股失败。");
       setData(json);
+      hasLoadedRef.current = true;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载自选股失败。");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -184,9 +189,9 @@ export function WatchlistTable() {
         description="快速扫读价格、风险和 AI 策略观察；详细理由保留在股票详情页。"
         action={
           <>
-            <Button size="sm" variant="outline" onClick={load} disabled={loading}>
+            <Button size="sm" variant="outline" onClick={load} disabled={loading || refreshing}>
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {refreshing ? "刷新中" : "刷新"}
             </Button>
             <AddStockDialog onAdded={load} />
           </>

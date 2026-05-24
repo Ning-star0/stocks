@@ -18,7 +18,6 @@ const navItems = [
 
 export function AppNav() {
   const pathname = usePathname();
-  const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const [activePill, setActivePill] = useState({ left: 4, width: 0, ready: false });
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -67,10 +66,7 @@ export function AppNav() {
   }, [activeIndex]);
 
   return (
-    <nav
-      ref={navRef}
-      className="liquid-glass relative flex w-max max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full p-1"
-    >
+    <nav className="liquid-glass relative flex w-max max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full p-1">
       {activeIndex >= 0 ? (
         <span
           aria-hidden="true"

@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { ensureRedisReady, getRedisClient, markRedisUnavailable, redisKey } from "@/lib/cache/redis";
 import { prisma } from "@/lib/prisma";
 
 type MemoryEntry = {
@@ -30,12 +31,16 @@ export async function getCache<T>(key: string): Promise<T | null> {
   }
   if (memory) deleteMemoryKey(key);
 
+  const redis = await readRedisCache<T>(key);
+  if (redis !== null) return redis;
+
   try {
     const row = await prisma.cacheEntry.findUnique({ where: { key } });
     if (!row || row.expiresAt.getTime() <= Date.now()) {
       return null;
     }
     putMemory(key, row.value, row.expiresAt.getTime());
+    void writeRedisCache(key, row.value, Math.max(1, Math.floor((row.expiresAt.getTime() - Date.now()) / 1000)));
     return row.value as T;
   } catch {
     return null;
@@ -46,20 +51,15 @@ export async function setCache<T>(key: string, value: T, ttlSeconds: number): Pr
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
   const cacheValue = stripLargeFields(value);
   putMemory(key, cacheValue, expiresAt.getTime());
+  const redisWritten = await writeRedisCache(key, cacheValue, ttlSeconds);
 
-  try {
-    await prisma.cacheEntry.upsert({
-      where: { key },
-      update: { value: cacheValue as Prisma.InputJsonValue, expiresAt },
-      create: { key, value: cacheValue as Prisma.InputJsonValue, expiresAt }
-    });
-  } catch {
-    // Memory cache fallback keeps local development usable without Redis or DB cache.
-  }
+  if (redisWritten) void writeDbCache(key, cacheValue, expiresAt);
+  else await writeDbCache(key, cacheValue, expiresAt);
 }
 
 export async function deleteCache(key: string): Promise<void> {
   deleteMemoryKey(key);
+  await deleteRedisCache(key);
 
   try {
     await prisma.cacheEntry.delete({ where: { key } });
@@ -137,6 +137,63 @@ function stripLargeFields(value: unknown): unknown {
     output[key] = stripLargeFields(nestedValue);
   }
   return output;
+}
+
+async function readRedisCache<T>(key: string): Promise<T | null> {
+  const client = getRedisClient();
+  if (!client) return null;
+
+  try {
+    if (!(await ensureRedisReady(client))) return null;
+    const namespacedKey = redisKey(key);
+    const raw = await client.get(namespacedKey);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as T;
+    const ttlMs = await client.pttl(namespacedKey);
+    putMemory(key, value, ttlMs > 0 ? Date.now() + ttlMs : Date.now() + 1000);
+    return value;
+  } catch {
+    markRedisUnavailable();
+    return null;
+  }
+}
+
+async function writeRedisCache(key: string, value: unknown, ttlSeconds: number): Promise<boolean> {
+  const client = getRedisClient();
+  if (!client) return false;
+
+  try {
+    if (!(await ensureRedisReady(client))) return false;
+    await client.set(redisKey(key), JSON.stringify(value), "EX", Math.max(1, Math.floor(ttlSeconds)));
+    return true;
+  } catch {
+    markRedisUnavailable();
+    return false;
+  }
+}
+
+async function deleteRedisCache(key: string): Promise<void> {
+  const client = getRedisClient();
+  if (!client) return;
+
+  try {
+    if (!(await ensureRedisReady(client))) return;
+    await client.del(redisKey(key));
+  } catch {
+    markRedisUnavailable();
+  }
+}
+
+async function writeDbCache(key: string, value: unknown, expiresAt: Date): Promise<void> {
+  try {
+    await prisma.cacheEntry.upsert({
+      where: { key },
+      update: { value: value as Prisma.InputJsonValue, expiresAt },
+      create: { key, value: value as Prisma.InputJsonValue, expiresAt }
+    });
+  } catch {
+    // Cache is best effort. Memory/Redis keep hot paths usable when DB cache writes fail.
+  }
 }
 
 function numberEnv(name: string, fallback: number) {

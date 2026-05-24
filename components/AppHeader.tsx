@@ -10,6 +10,7 @@ import { AppNav } from "@/components/AppNav";
 export function AppHeader({ signedIn }: { signedIn: boolean }) {
   const lastScrollY = useRef(0);
   const ticking = useRef(false);
+  const hiddenRef = useRef(false);
   const [hidden, setHidden] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
 
@@ -26,11 +27,17 @@ export function AppHeader({ signedIn }: { signedIn: boolean }) {
     function updateHeaderVisibility() {
       const currentY = window.scrollY;
       const delta = currentY - lastScrollY.current;
+      let nextHidden = hiddenRef.current;
 
       if (currentY < 24) {
-        setHidden(false);
+        nextHidden = false;
       } else if (Math.abs(delta) > 8) {
-        setHidden(delta > 0 && currentY > 96);
+        nextHidden = delta > 0 && currentY > 96;
+      }
+
+      if (nextHidden !== hiddenRef.current) {
+        hiddenRef.current = nextHidden;
+        setHidden(nextHidden);
       }
 
       lastScrollY.current = Math.max(currentY, 0);

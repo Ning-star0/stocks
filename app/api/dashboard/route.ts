@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
+import { getCache, setCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
+import { dashboardCacheKey } from "@/lib/dashboardCache";
 import { apiError } from "@/lib/errors";
 import { MARKET_INDICES } from "@/lib/marketIndices";
 import { prisma } from "@/lib/prisma";
@@ -11,6 +13,10 @@ import { getQuoteProviderInfo, getQuotesBatch } from "@/lib/services/quoteServic
 export async function GET() {
   try {
     const user = await getCurrentUser();
+    const cacheKey = dashboardCacheKey(user.id);
+    const cached = await getCache<unknown>(cacheKey);
+    if (cached) return NextResponse.json(cached);
+
     const watchlists = await prisma.watchlist.findMany({
       where: { userId: user.id },
       include: { items: { orderBy: { createdAt: "asc" } } },
@@ -50,7 +56,7 @@ export async function GET() {
     ]);
     const latestAnalyses = await loadLatestAnalyses(user.id, symbols);
 
-    return NextResponse.json({
+    const payload = {
       user: { id: user.id, email: user.email },
       watchlist: watchlists.flatMap((watchlist) => watchlist.items.map(serializeWatchlistItem)),
       quotes,
@@ -71,7 +77,10 @@ export async function GET() {
       activeAlerts: alerts.map(serializeAlert),
       highImpactNews,
       recentHighImpactNews: highImpactNews
-    });
+    };
+
+    await setCache(cacheKey, payload, numberEnv("DASHBOARD_CACHE_TTL_SECONDS", 8));
+    return NextResponse.json(payload);
   } catch (error) {
     return apiError(error);
   }
