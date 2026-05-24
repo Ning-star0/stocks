@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { BarChart3 } from "lucide-react";
 
-import { AppNav } from "@/components/AppNav";
+import { AppHeader } from "@/components/AppHeader";
 import { ChatPanel } from "@/components/ChatPanel";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
@@ -30,18 +29,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body>
         <div className="min-h-screen terminal-grid">
-          <header className="sticky top-0 z-40 border-b border-white/35 bg-background/28 backdrop-blur-2xl dark:border-white/10">
-            <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-5 py-3 lg:px-8">
-              {session ? (
-                <AppNav />
-              ) : (
-                <div className="flex shrink-0 items-center gap-2 font-semibold">
-                  <BarChart3 className="h-5 w-5 text-primary" />
-                  股票 AI 监控
-                </div>
-              )}
-            </div>
-          </header>
+          <AppHeader signedIn={Boolean(session)} />
           <main className="mx-auto w-full max-w-7xl px-5 py-6 lg:px-8">{children}</main>
           <footer className="mx-auto w-full max-w-7xl px-5 pb-6 text-xs text-muted-foreground lg:px-8">
             本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
