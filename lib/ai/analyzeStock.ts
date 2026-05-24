@@ -241,13 +241,18 @@ const analysisResponseTemplate = {
 };
 
 function describePositionStatus(userContext: unknown) {
-  if (!isRecord(userContext)) return "未持仓（未找到持仓价或建仓日期）。";
+  if (!isRecord(userContext)) return "未持仓（用户未标记已购买）。";
+  const explicitHolding = typeof userContext.isHolding === "boolean" ? userContext.isHolding : null;
   const holdingPrice = typeof userContext.holdingPrice === "number" ? userContext.holdingPrice : Number(userContext.holdingPrice);
   const openedAt = typeof userContext.positionOpenedAt === "string" ? userContext.positionOpenedAt : "";
+  if (explicitHolding === false) return "未持仓（用户明确标记为未购买）。";
+  if (explicitHolding === true) {
+    return `已持仓（用户明确标记已购买；持仓价：${Number.isFinite(holdingPrice) && holdingPrice > 0 ? holdingPrice : "未设置"}，建仓日期：${openedAt || "未设置"}）。`;
+  }
   if ((Number.isFinite(holdingPrice) && holdingPrice > 0) || openedAt) {
     return `已持仓（持仓价：${Number.isFinite(holdingPrice) && holdingPrice > 0 ? holdingPrice : "未设置"}，建仓日期：${openedAt || "未设置"}）。`;
   }
-  return "未持仓（未找到持仓价或建仓日期）。";
+  return "未持仓（用户未标记已购买）。";
 }
 
 function parseJsonObject(text: string) {

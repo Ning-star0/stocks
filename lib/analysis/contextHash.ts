@@ -8,6 +8,7 @@ export type AnalysisContextHashInput = {
   indicators: Pick<IndicatorSnapshot, "rsi14" | "macd" | "macdSignal" | "sma20" | "sma50" | "sma200">;
   importantNewsIds: string[];
   userContext: {
+    isHolding?: boolean | null;
     holdingPrice?: number | null;
     targetPrice?: number | null;
     stopLoss?: number | null;
@@ -28,6 +29,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
     movingAverageState: movingAverageState(input.quote.price, input.indicators),
     importantNewsIds: [...new Set(input.importantNewsIds)].sort(),
     userContext: {
+      isHolding: input.userContext.isHolding ?? null,
       holdingPrice: input.userContext.holdingPrice ?? null,
       targetPrice: input.userContext.targetPrice ?? null,
       stopLoss: input.userContext.stopLoss ?? null,

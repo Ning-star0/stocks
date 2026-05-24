@@ -35,9 +35,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
       indicators: analysisContext.indicators,
       importantNewsIds: analysisContext.highImpactNewsIds,
       userContext: {
+        isHolding: watchlistItem?.isHolding ?? null,
         holdingPrice: toNumber(watchlistItem?.holdingPrice),
         targetPrice: toNumber(watchlistItem?.targetPrice),
         stopLoss: toNumber(watchlistItem?.stopLoss),
+        positionOpenedAt: watchlistItem?.positionOpenedAt?.toISOString() ?? null,
         timeHorizon: watchlistItem?.timeHorizon ?? null,
         riskLevel: watchlistItem?.riskLevel ?? null
       }

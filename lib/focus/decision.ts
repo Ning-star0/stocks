@@ -207,7 +207,30 @@ async function loadDecisionSeed(userId: string) {
     orderBy: { createdAt: "desc" },
     take: Math.max(20, symbols.length * 5)
   });
+  const watchlistItems = await prisma.watchlistItem.findMany({
+    where: { watchlist: { userId }, symbol: { in: allSymbolVariants } },
+    select: {
+      symbol: true,
+      isHolding: true,
+      holdingPrice: true,
+      targetPrice: true,
+      stopLoss: true,
+      positionOpenedAt: true
+    }
+  });
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
+  const positionSignature = symbols.map((symbol) => {
+    const variants = symbolVariants(symbol);
+    const item = watchlistItems.find((row) => variants.includes(row.symbol));
+    return {
+      symbol,
+      isHolding: item?.isHolding ?? false,
+      holdingPrice: toNumber(item?.holdingPrice),
+      targetPrice: toNumber(item?.targetPrice),
+      stopLoss: toNumber(item?.stopLoss),
+      positionOpenedAt: item?.positionOpenedAt?.toISOString() ?? null
+    };
+  });
 
   return {
     userId,
@@ -217,7 +240,8 @@ async function loadDecisionSeed(userId: string) {
     focusUpdatedAt: focus.updatedAt.toISOString(),
     focusLastAnalysis: focus.lastAnalysis?.toISOString() ?? null,
     analyses,
-    latestAnalysisBySymbol
+    latestAnalysisBySymbol,
+    positionSignature
   };
 }
 
@@ -244,7 +268,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       status: quote?.status ?? "unavailable",
       note: item?.note ?? null,
       riskLevel: item?.riskLevel,
-      isHolding: Boolean((holdingPrice && holdingPrice > 0) || item?.positionOpenedAt),
+      isHolding: item?.isHolding ?? false,
       holdingPrice,
       positionOpenedAt: item?.positionOpenedAt ?? null,
       targetPrice: toNumber(item?.targetPrice),
@@ -279,6 +303,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         symbols: input.symbols,
         focusUpdatedAt: input.focusUpdatedAt,
         focusLastAnalysis: input.focusLastAnalysis,
+        positionSignature: input.positionSignature,
         latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )

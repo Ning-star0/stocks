@@ -137,6 +137,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     indicators,
     importantNewsIds: highImpactNewsIds,
     userContext: {
+      isHolding: watchlistItem?.isHolding ?? null,
       holdingPrice: toNumber(watchlistItem?.holdingPrice),
       targetPrice: toNumber(watchlistItem?.targetPrice),
       stopLoss: toNumber(watchlistItem?.stopLoss),

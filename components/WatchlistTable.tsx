@@ -43,6 +43,7 @@ type WatchlistItem = {
   symbol: string;
   market: string;
   note?: string | null;
+  isHolding?: boolean | null;
   holdingPrice?: number | null;
   positionOpenedAt?: string | null;
   timeHorizon: string;

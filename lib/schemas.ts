@@ -17,6 +17,7 @@ export const createWatchlistItemSchema = z.object({
   symbol: symbolSchema,
   market: z.string().trim().min(1).max(16).default("US").transform((value) => value.toUpperCase()),
   note: z.string().trim().max(500).optional().nullable(),
+  isHolding: z.boolean().optional(),
   holdingPrice: z.coerce.number().positive().optional().nullable(),
   targetPrice: z.coerce.number().positive().optional().nullable(),
   stopLoss: z.coerce.number().positive().optional().nullable(),
@@ -27,6 +28,7 @@ export const createWatchlistItemSchema = z.object({
 
 export const updateWatchlistItemSchema = z.object({
   note: z.string().trim().max(500).optional().nullable(),
+  isHolding: z.boolean().optional(),
   holdingPrice: z.coerce.number().positive().optional().nullable(),
   targetPrice: z.coerce.number().positive().optional().nullable(),
   stopLoss: z.coerce.number().positive().optional().nullable(),

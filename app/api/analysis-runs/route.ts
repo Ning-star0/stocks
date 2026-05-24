@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
+import { nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -78,22 +79,5 @@ function startOfToday() {
 function resolveNextRunAt(stored: Date | null, times: string[]) {
   const now = new Date();
   if (stored && stored.getTime() > now.getTime()) return stored;
-  return nextScheduledTime(times, now);
-}
-
-function nextScheduledTime(times: string[], now: Date) {
-  const sorted = [...new Set(times)].filter(Boolean).sort();
-  if (!sorted.length) return null;
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const next = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
-  const [hour = "0", minute = "0"] = next.split(":");
-  const date = new Date(now);
-  date.setHours(Number(hour), Number(minute), 0, 0);
-  if (date <= now) date.setDate(date.getDate() + 1);
-  return date;
-}
-
-function minutesOfDay(time: string) {
-  const [hour = "0", minute = "0"] = time.split(":");
-  return Number(hour) * 60 + Number(minute);
+  return nextMarketScheduledTime(times, now);
 }

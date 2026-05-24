@@ -6,6 +6,7 @@ import { upsertNewsItem } from "@/lib/news/store";
 import type { NewsItem } from "@/lib/types";
 import { getNewsProvider } from "@/lib/news";
 import { calculateNewsImportance } from "@/lib/news/importance";
+import { isMarketTradingDay, nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { searchRelatedNews } from "@/lib/news/webSearch";
@@ -14,6 +15,7 @@ export async function checkFocusSchedules() {
   try {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    if (!isMarketTradingDay(now)) return;
 
     const groups = await prisma.focusGroup.findMany({
       where: { symbols: { isEmpty: false } }
@@ -42,7 +44,7 @@ export async function checkFocusSchedules() {
           userId: group.userId,
           runType: "scheduled",
           totalSymbols: symbols.length,
-          nextRunAt: nextScheduledTime(group.analysisTimes, now)
+          nextRunAt: nextMarketScheduledTime(group.analysisTimes, now)
         });
         for (const symbol of symbols) {
           await enqueueJob({
@@ -158,23 +160,6 @@ function sameTick(a: Date | null, b: Date) {
   if (!a) return false;
   const diff = Math.abs(b.getTime() - a.getTime());
   return diff < 90_000; // 1.5 分钟内不去重
-}
-
-function nextScheduledTime(times: string[], now: Date) {
-  if (!times.length) return null;
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const sorted = [...times].sort();
-  const next = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
-  const date = new Date(now);
-  const [hour = "0", minute = "0"] = next.split(":");
-  date.setHours(Number(hour), Number(minute), 0, 0);
-  if (date <= now) date.setDate(date.getDate() + 1);
-  return date;
-}
-
-function minutesOfDay(time: string) {
-  const [hour = "0", minute = "0"] = time.split(":");
-  return Number(hour) * 60 + Number(minute);
 }
 
 function formatDateKey(date: Date) {

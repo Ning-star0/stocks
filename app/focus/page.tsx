@@ -25,7 +25,15 @@ type FocusData = {
   lastAnalysis: string | null;
 };
 
-type StockItem = { symbol: string; name?: string; note?: string | null };
+type StockItem = {
+  id: string;
+  symbol: string;
+  name?: string;
+  note?: string | null;
+  isHolding?: boolean | null;
+  holdingPrice?: number | null;
+  positionOpenedAt?: string | null;
+};
 
 type FocusDecision = {
   summary: string;
@@ -141,12 +149,16 @@ export default function FocusPage() {
       .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
         const rawItems = Array.isArray(wlData.watchlists)
-          ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ symbol: string; note?: string | null; quote?: { name?: string | null } | null }> }) => watchlist.items ?? [])
+          ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }) => watchlist.items ?? [])
           : wlData.items || [];
-        const items = rawItems.map((item: { symbol: string; note?: string | null; quote?: { name?: string | null } | null }) => ({
+        const items = rawItems.map((item: { id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }) => ({
+          id: item.id,
           symbol: item.symbol,
           name: item.quote?.name ?? undefined,
-          note: item.note
+          note: item.note,
+          isHolding: item.isHolding ?? false,
+          holdingPrice: item.holdingPrice ?? null,
+          positionOpenedAt: item.positionOpenedAt ?? null
         }));
         setWatchlist(items);
         setNames(Object.fromEntries(items.filter((item: StockItem) => item.name).map((item: StockItem) => [item.symbol, item.name as string])));
@@ -163,6 +175,27 @@ export default function FocusPage() {
       const has = prev.symbols.includes(symbol);
       return { ...prev, symbols: has ? prev.symbols.filter((s) => s !== symbol) : [...prev.symbols, symbol] };
     });
+  }
+
+  async function toggleHolding(item: StockItem, nextHolding: boolean) {
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/watchlist/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isHolding: nextHolding })
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message ?? "保存购买状态失败");
+      setWatchlist((prev) => prev.map((row) => row.id === item.id ? { ...row, isHolding: nextHolding, positionOpenedAt: json.item?.positionOpenedAt ?? item.positionOpenedAt } : row));
+      setDecision(null);
+      setDecisionError(null);
+      setDecisionNotice(null);
+      setMessage(nextHolding ? "已标记为已购买，下一次策略观察会按持仓处理。" : "已标记为未购买，下一次策略观察会按未持仓处理。");
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存购买状态失败");
+    }
   }
 
   async function doSave(data: FocusData) {
@@ -324,37 +357,46 @@ export default function FocusPage() {
                 </div>
                 <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
                   {watchlist.map((item) => (
-                    <label
+                    <div
                       key={item.symbol}
                       className={cn(
-                        "group flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 text-sm transition-all duration-150 hover:-translate-y-px",
+                        "group flex items-start gap-3 rounded-md border px-3 py-3 text-sm transition-all duration-150 hover:-translate-y-px",
                         focus.symbols.includes(item.symbol)
                           ? "border-primary/35 bg-primary/10 shadow-sm"
                           : "border-border/70 bg-background/30 hover:border-primary/30 hover:bg-muted/40"
                       )}
                     >
-                      <input
-                        type="checkbox"
-                        checked={focus.symbols.includes(item.symbol)}
-                        onChange={() => toggleSymbol(item.symbol)}
-                        className="sr-only"
-                      />
-                      <span
+                      <button
+                        type="button"
+                        onClick={() => toggleSymbol(item.symbol)}
                         className={cn(
                           "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
                           focus.symbols.includes(item.symbol) ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
                         )}
+                        aria-label={`${focus.symbols.includes(item.symbol) ? "取消关注" : "关注"} ${item.symbol}`}
                       >
                         {focus.symbols.includes(item.symbol) ? <Check className="h-3.5 w-3.5" /> : null}
-                      </span>
+                      </button>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="font-medium leading-5">{names[item.symbol] || item.symbol}</span>
                           <span className="text-xs tabular-nums text-muted-foreground">{item.symbol}</span>
+                          <button
+                            type="button"
+                            onClick={() => toggleHolding(item, !item.isHolding)}
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                              item.isHolding
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-border bg-muted/40 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                            )}
+                          >
+                            {item.isHolding ? "已购买" : "未购买"}
+                          </button>
                         </span>
                         {item.note ? <span className="mt-1 block truncate text-xs text-muted-foreground">{item.note}</span> : null}
                       </span>
-                    </label>
+                    </div>
                   ))}
                 </div>
               </>
@@ -711,14 +753,19 @@ function parseFutureDate(value?: string | null) {
 function nextAnalysisDate(times: string[]) {
   if (!times.length) return null;
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const sorted = [...new Set(times)].filter(Boolean).sort();
-  const nextTime = sorted.find((time) => minutesOfDay(time) > currentMinutes) ?? sorted[0];
-  const [hour = "0", minute = "0"] = nextTime.split(":");
-  const date = new Date(now);
-  date.setHours(Number(hour), Number(minute), 0, 0);
-  if (date <= now) date.setDate(date.getDate() + 1);
-  return date;
+  for (let offset = 0; offset <= 14; offset += 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + offset);
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+    for (const time of sorted) {
+      const [hour = "0", minute = "0"] = time.split(":");
+      const candidate = new Date(date);
+      candidate.setHours(Number(hour), Number(minute), 0, 0);
+      if (candidate > now) return candidate;
+    }
+  }
+  return null;
 }
 
 function formatRelativeDateTime(date: Date) {
@@ -734,11 +781,6 @@ function formatRelativeDateTime(date: Date) {
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function minutesOfDay(time: string) {
-  const [hour = "0", minute = "0"] = time.split(":");
-  return Number(hour) * 60 + Number(minute);
 }
 
 function normalizeRankingView(view: string) {

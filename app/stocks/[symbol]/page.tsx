@@ -128,6 +128,7 @@ export default async function StockDetailPage({
         symbol={quoteSymbol}
         unit={isIndex ? "point" : undefined}
         position={{
+          isHolding: watchlistItem?.isHolding ?? false,
           holdingPrice: toNumber(watchlistItem?.holdingPrice),
           positionOpenedAt: watchlistItem?.positionOpenedAt ?? null
         }}
@@ -164,6 +165,7 @@ export default async function StockDetailPage({
             {watchlistItem ? (
               <PositionEditor
                 itemId={watchlistItem.id}
+                isHolding={watchlistItem.isHolding}
                 holdingPrice={toNumber(watchlistItem.holdingPrice)}
                 targetPrice={toNumber(watchlistItem.targetPrice)}
                 stopLoss={toNumber(watchlistItem.stopLoss)}

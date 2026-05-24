@@ -2,11 +2,13 @@ import type { AiAnalysisResult } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 
 export type PositionContext = {
+  isHolding?: boolean | null;
   holdingPrice?: number | string | null;
   positionOpenedAt?: string | Date | null;
 };
 
 export function hasUserPosition(context?: PositionContext | null) {
+  if (typeof context?.isHolding === "boolean") return context.isHolding;
   const holdingPrice = toNumber(context?.holdingPrice);
   return Boolean((holdingPrice && holdingPrice > 0) || context?.positionOpenedAt);
 }
@@ -20,7 +22,7 @@ export function getPrimaryAdvice(analysis: AiAnalysisResult | null | undefined, 
 
   return {
     isHolding,
-    title: isHolding ? "持仓/增持建议" : "买入建议",
+    title: isHolding ? "持仓/增持观察" : "交易情景观察",
     statusLabel: isHolding ? "已持仓" : "未持仓",
     action,
     reason,

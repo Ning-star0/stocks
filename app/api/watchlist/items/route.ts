@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       update: {
         market: body.market,
         note: body.note || null,
+        isHolding: body.isHolding ?? undefined,
         holdingPrice: body.holdingPrice ?? null,
         targetPrice: body.targetPrice ?? null,
         stopLoss: body.stopLoss ?? null,
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
         symbol,
         market: body.market,
         note: body.note || null,
+        isHolding: body.isHolding ?? false,
         holdingPrice: body.holdingPrice ?? null,
         targetPrice: body.targetPrice ?? null,
         stopLoss: body.stopLoss ?? null,

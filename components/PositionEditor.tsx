@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 type PositionEditorProps = {
   itemId: string;
+  isHolding?: boolean | null;
   holdingPrice?: number | null;
   targetPrice?: number | null;
   stopLoss?: number | null;
@@ -21,6 +22,7 @@ type PositionEditorProps = {
 
 export function PositionEditor({
   itemId,
+  isHolding,
   holdingPrice,
   targetPrice,
   stopLoss,
@@ -49,6 +51,7 @@ export function PositionEditor({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          isHolding: form.get("isHolding") === "on",
           holdingPrice: optionalNumber(form.get("holdingPrice")),
           targetPrice: optionalNumber(form.get("targetPrice")),
           stopLoss: optionalNumber(form.get("stopLoss")),
@@ -83,6 +86,19 @@ export function PositionEditor({
 
   return (
     <form className="space-y-4 text-sm" onSubmit={submit}>
+      <label className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border border-border bg-muted/15 p-3">
+        <span>
+          <span className="block font-medium">是否已购买 / 已持仓</span>
+          <span className="mt-1 block text-xs leading-5 text-muted-foreground">AI 会优先使用这个状态判断“持仓观察”或“未持仓观察”，不再只根据持仓价反推。</span>
+        </span>
+        <input
+          name="isHolding"
+          type="checkbox"
+          defaultChecked={Boolean(isHolding)}
+          className="mt-1 h-4 w-4 shrink-0 rounded border-input accent-primary"
+        />
+      </label>
+
       <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-muted/20 p-2 text-xs">
         <Metric label="持仓天数" value={holdingDays === null ? "--" : `${holdingDays} 天`} />
         <Metric label="目标空间" value={targetReturn === null ? "--" : `${targetReturn >= 0 ? "+" : ""}${targetReturn.toFixed(1)}%`} tone={targetReturn && targetReturn > 0 ? "up" : "neutral"} />
