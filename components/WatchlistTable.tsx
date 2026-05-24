@@ -97,6 +97,7 @@ const WATCHLIST_PAGE_SIZE = 6;
 
 export function WatchlistTable() {
   const hasLoadedRef = useRef(false);
+  const openQuoteRefreshRef = useRef(false);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +133,24 @@ export function WatchlistTable() {
     }
   }, []);
 
+  const refreshQuotes = useCallback(async (options: { once?: boolean } = {}) => {
+    if (options.once && openQuoteRefreshRef.current) return;
+    if (options.once) openQuoteRefreshRef.current = true;
+    setRefreshing(true);
+    try {
+      const response = await fetch("/api/quotes/refresh", {
+        method: "POST",
+        cache: "no-store"
+      });
+      if (!response.ok) throw new Error("刷新行情失败。");
+      await load({ force: true, silent: true });
+    } catch {
+      await load({ force: true, silent: true });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
   useEffect(() => {
     const cached = readClientDashboardCache();
     if (cached) {
@@ -139,10 +158,11 @@ export function WatchlistTable() {
       setLoading(false);
       hasLoadedRef.current = true;
       void load({ silent: true });
+      void refreshQuotes({ once: true });
       return;
     }
-    void load();
-  }, [load]);
+    void load().then(() => refreshQuotes({ once: true }));
+  }, [load, refreshQuotes]);
 
   const items = useMemo(() => {
     const watchlists = Array.isArray(data?.watchlists) ? data.watchlists : [];
@@ -223,7 +243,7 @@ export function WatchlistTable() {
         description="快速扫读价格、风险和 AI 策略观察；详细理由保留在股票详情页。"
         action={
           <>
-            <Button size="sm" variant="outline" onClick={() => load({ force: true })} disabled={loading || refreshing}>
+            <Button size="sm" variant="outline" onClick={() => refreshQuotes()} disabled={loading || refreshing}>
               <RefreshCw className="h-4 w-4" />
               {refreshing ? "刷新中" : "刷新"}
             </Button>

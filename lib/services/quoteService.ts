@@ -25,12 +25,13 @@ export type QuoteWithStatus = {
 type GetQuoteOptions = {
   cacheOnly?: boolean;
   allowStale?: boolean;
+  forceRefresh?: boolean;
 };
 
 export async function getQuote(symbol: string, options: GetQuoteOptions = {}): Promise<QuoteWithStatus> {
   const normalized = symbol.toUpperCase();
   const cacheKey = `quote:${normalized}`;
-  const freshCached = await getCache<Quote>(cacheKey);
+  const freshCached = options.forceRefresh ? null : await getCache<Quote>(cacheKey);
   if (freshCached) return toQuoteWithStatus(freshCached, "cached");
 
   const cached = options.allowStale || options.cacheOnly ? await readQuoteCacheRow(cacheKey) : null;
