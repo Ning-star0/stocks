@@ -98,6 +98,7 @@ const WATCHLIST_PAGE_SIZE = 6;
 export function WatchlistTable() {
   const hasLoadedRef = useRef(false);
   const openQuoteRefreshRef = useRef(false);
+  const refreshTimerRef = useRef<number | null>(null);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,7 +113,7 @@ export function WatchlistTable() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const load = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
-    if (hasLoadedRef.current) setRefreshing(true);
+    if (hasLoadedRef.current && !options.silent) setRefreshing(true);
     else if (!options.silent) setLoading(true);
     setError(null);
     try {
@@ -129,14 +130,14 @@ export function WatchlistTable() {
       setError(loadError instanceof Error ? loadError.message : "加载自选股失败。");
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      if (!options.silent) setRefreshing(false);
     }
   }, []);
 
-  const refreshQuotes = useCallback(async (options: { once?: boolean } = {}) => {
+  const refreshQuotes = useCallback(async (options: { once?: boolean; background?: boolean } = {}) => {
     if (options.once && openQuoteRefreshRef.current) return;
     if (options.once) openQuoteRefreshRef.current = true;
-    setRefreshing(true);
+    if (!options.background) setRefreshing(true);
     try {
       const response = await fetch("/api/quotes/refresh", {
         method: "POST",
@@ -147,21 +148,31 @@ export function WatchlistTable() {
     } catch {
       await load({ force: true, silent: true });
     } finally {
-      setRefreshing(false);
+      if (!options.background) setRefreshing(false);
     }
   }, [load]);
 
   useEffect(() => {
+    function scheduleOpeningQuoteRefresh() {
+      refreshTimerRef.current = window.setTimeout(() => {
+        void refreshQuotes({ once: true, background: true });
+      }, 700);
+    }
+
     const cached = readClientDashboardCache();
     if (cached) {
       setData(cached);
       setLoading(false);
       hasLoadedRef.current = true;
-      void load({ silent: true });
-      void refreshQuotes({ once: true });
-      return;
+      scheduleOpeningQuoteRefresh();
+      return () => {
+        if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      };
     }
-    void load().then(() => refreshQuotes({ once: true }));
+    void load().then(scheduleOpeningQuoteRefresh);
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+    };
   }, [load, refreshQuotes]);
 
   const items = useMemo(() => {
@@ -256,13 +267,13 @@ export function WatchlistTable() {
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
       {notice ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">{notice}</div> : null}
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="watchlist-scroll-surface grid gap-3 md:grid-cols-3">
         {(data?.marketIndices ?? defaultMarketIndices()).map((item) => (
           <MarketIndexCard key={item.symbol} item={item} loading={loading && !data} />
         ))}
       </div>
 
-      <Card className="soft-card overflow-hidden">
+      <Card className="performance-card watchlist-scroll-surface overflow-hidden">
         <CardHeader className="gap-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -577,7 +588,7 @@ function MarketIndexCard({ item, loading }: { item: MarketIndexItem; loading: bo
 
   return (
     <Link href={href}>
-      <Card className="soft-card motion-hover-lift h-full transition-all hover:border-primary/40">
+      <Card className="performance-card motion-hover-lift h-full transition-all hover:border-primary/40">
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
           <div className="flex items-start gap-2">
             <BarChart3 className="mt-0.5 h-4 w-4 text-primary" />
