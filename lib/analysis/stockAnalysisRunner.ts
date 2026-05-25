@@ -21,6 +21,7 @@ export type StockAnalysisRunInput = {
   reason: string;
   inputHash?: string | null;
   jobId?: string;
+  forceRefresh?: boolean;
 };
 
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
@@ -30,7 +31,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
   const cacheKey = `ai_analysis:v5:${canonicalSymbol}:${inputHash}`;
-  const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
+  const cached = input.forceRefresh ? null : await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
 
   if (cached) {
     await logAiUsage({

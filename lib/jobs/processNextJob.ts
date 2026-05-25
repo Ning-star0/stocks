@@ -144,7 +144,8 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         symbol: job.symbol,
         inputHash: job.inputHash,
         jobId: job.id,
-        reason: payload?.reason ?? "job_queue"
+        reason: payload?.reason ?? "job_queue",
+        forceRefresh: payload?.reason?.includes("关注板块定时分析") ?? false
       });
       const watchlistItem = await prisma.watchlistItem.findFirst({
         where: { symbol: job.symbol, watchlist: { userId: job.userId } }

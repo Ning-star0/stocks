@@ -37,7 +37,8 @@ export async function POST() {
           userId: user.id,
           symbol,
           reason: "今日关注手动重新分析",
-          inputHash: null
+          inputHash: null,
+          forceRefresh: true
         });
         const watchlistItem = await prisma.watchlistItem.findFirst({
           where: { symbol, watchlist: { userId: user.id } }
