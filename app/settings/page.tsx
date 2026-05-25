@@ -29,9 +29,16 @@ export default function SettingsPage() {
   const [pushProvider, setPushProvider] = useState("wecom");
   const [pushWebhook, setPushWebhook] = useState("");
   const [pushHasWebhook, setPushHasWebhook] = useState(false);
+  const [pushCorpId, setPushCorpId] = useState("");
+  const [pushAgentId, setPushAgentId] = useState("");
+  const [pushAppSecret, setPushAppSecret] = useState("");
+  const [pushHasAppSecret, setPushHasAppSecret] = useState(false);
+  const [pushToUser, setPushToUser] = useState("");
   const [pushSaving, setPushSaving] = useState(false);
   const [pushTesting, setPushTesting] = useState(false);
   const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const isWecomAppProvider = pushProvider === "wecom_app";
+  const pushReady = pushEnabled && (isWecomAppProvider ? Boolean(pushCorpId && pushAgentId && pushHasAppSecret && pushToUser) : pushHasWebhook);
 
   useEffect(() => {
     fetch("/api/settings/ai")
@@ -48,6 +55,10 @@ export default function SettingsPage() {
         setPushEnabled(Boolean(data.enabled));
         if (data.provider) setPushProvider(data.provider);
         setPushHasWebhook(Boolean(data.hasWebhook));
+        if (data.corpId) setPushCorpId(data.corpId);
+        if (data.agentId) setPushAgentId(data.agentId);
+        if (data.toUser) setPushToUser(data.toUser);
+        setPushHasAppSecret(Boolean(data.hasAppSecret));
       })
       .catch(() => {});
   }, []);
@@ -104,13 +115,19 @@ export default function SettingsPage() {
         body: JSON.stringify({
           enabled: pushEnabled,
           provider: pushProvider,
-          webhookUrl: pushWebhook || undefined
+          webhookUrl: pushWebhook || undefined,
+          corpId: pushCorpId || undefined,
+          agentId: pushAgentId || undefined,
+          appSecret: pushAppSecret || undefined,
+          toUser: pushToUser || undefined
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message ?? "保存推送配置失败");
       setPushHasWebhook(Boolean(data.hasWebhook));
+      setPushHasAppSecret(Boolean(data.hasAppSecret));
       setPushWebhook("");
+      setPushAppSecret("");
       setPushMessage("推送配置已保存");
     } catch (err) {
       setPushMessage(err instanceof Error ? err.message : "保存推送配置失败");
@@ -220,16 +237,41 @@ export default function SettingsPage() {
               <span className="block text-sm font-medium">推送通道</span>
               <Select value={pushProvider} onChange={(event) => setPushProvider(event.target.value)}>
                 <option value="wecom">企业微信机器人</option>
+                <option value="wecom_app">企业微信应用消息</option>
                 <option value="server_chan">Server 酱微信</option>
                 <option value="qq_webhook">QQ Webhook</option>
                 <option value="generic_webhook">通用 Webhook</option>
               </Select>
             </div>
-            <div className="space-y-2">
-              <span className="block text-sm font-medium">Webhook / SendKey</span>
-              <Input type="password" value={pushWebhook} onChange={(event) => setPushWebhook(event.target.value)} placeholder={pushHasWebhook ? "已配置，留空则不修改" : "粘贴企业微信 Webhook、Server 酱 SendKey 或 QQ Webhook"} autoComplete="off" />
-              <p className="text-xs leading-5 text-muted-foreground">QQ 官方机器人通常需要审核和签名服务；这里先支持 QQ/第三方 Bot 的 HTTP Webhook。</p>
-            </div>
+            {isWecomAppProvider ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <span className="block text-sm font-medium">企业 ID（CorpID）</span>
+                  <Input value={pushCorpId} onChange={(event) => setPushCorpId(event.target.value)} placeholder="wwxxxxxxxxxxxxxxxx" autoComplete="off" />
+                </div>
+                <div className="space-y-2">
+                  <span className="block text-sm font-medium">应用 AgentId</span>
+                  <Input value={pushAgentId} onChange={(event) => setPushAgentId(event.target.value)} placeholder="1000002" autoComplete="off" />
+                </div>
+                <div className="space-y-2">
+                  <span className="block text-sm font-medium">应用 Secret</span>
+                  <Input type="password" value={pushAppSecret} onChange={(event) => setPushAppSecret(event.target.value)} placeholder={pushHasAppSecret ? "已配置，留空则不修改" : "自建应用 Secret"} autoComplete="off" />
+                </div>
+                <div className="space-y-2">
+                  <span className="block text-sm font-medium">接收人 UserID</span>
+                  <Input value={pushToUser} onChange={(event) => setPushToUser(event.target.value)} placeholder="zhangsan 或 zhangsan|lisi" autoComplete="off" />
+                </div>
+                <p className="sm:col-span-2 text-xs leading-5 text-muted-foreground">
+                  这是企业微信自建应用消息，会发到企业微信 App 的“应用通知”。接收人必须在应用可见范围内，UserID 不是手机号或微信昵称。
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <span className="block text-sm font-medium">Webhook / SendKey</span>
+                <Input type="password" value={pushWebhook} onChange={(event) => setPushWebhook(event.target.value)} placeholder={pushHasWebhook ? "已配置，留空则不修改" : "粘贴企业微信 Webhook、Server 酱 SendKey 或 QQ Webhook"} autoComplete="off" />
+                <p className="text-xs leading-5 text-muted-foreground">QQ 官方机器人通常需要审核和签名服务；这里先支持 QQ/第三方 Bot 的 HTTP Webhook。</p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -237,7 +279,7 @@ export default function SettingsPage() {
               {pushSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               保存推送配置
             </Button>
-            <Button variant="outline" onClick={testPush} disabled={pushTesting || !pushEnabled || !pushHasWebhook}>
+            <Button variant="outline" onClick={testPush} disabled={pushTesting || !pushReady}>
               {pushTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               测试推送
             </Button>

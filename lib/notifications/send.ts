@@ -28,21 +28,21 @@ export async function notifyFocusDecision(input: FocusDecisionNotificationInput)
   if (!orders.length) return { skipped: true, reason: "no_orders" };
 
   const config = await getNotificationConfig(input.userId);
-  if (!config.enabled || !config.webhookUrl) return { skipped: true, reason: "disabled" };
+  if (!config.enabled || !isConfigSendable(config)) return { skipped: true, reason: "disabled" };
 
   const dedupeKey = input.decisionId ? `notify:focus_decision:${input.decisionId}` : "";
   if (dedupeKey && await getCache(dedupeKey)) return { skipped: true, reason: "deduped" };
 
   const message = buildFocusDecisionMessage(input, orders);
-  await sendMessage(config.provider, config.webhookUrl, message);
+  await sendMessage(config, message);
   if (dedupeKey) await setCache(dedupeKey, { sentAt: new Date().toISOString() }, numberEnv("NOTIFICATION_DEDUPE_TTL_SECONDS", 12 * 60 * 60));
   return { skipped: false };
 }
 
 export async function sendTestNotification(input: { userId: string; title?: string }) {
   const config = await getNotificationConfig(input.userId);
-  if (!config.enabled || !config.webhookUrl) throw new Error("推送未启用或 Webhook 未配置。");
-  await sendMessage(config.provider, config.webhookUrl, {
+  if (!config.enabled || !isConfigSendable(config)) throw new Error("推送未启用或配置不完整。");
+  await sendMessage(config, {
     title: input.title ?? "股票 AI 监控测试",
     markdown: "股票 AI 监控推送测试成功。\n\n后续只有形成策略观察计划时才会推送。",
     text: "股票 AI 监控推送测试成功。"
@@ -81,16 +81,56 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
   };
 }
 
-async function sendMessage(provider: NotificationProvider, webhookUrl: string, message: { title: string; markdown: string; text: string }) {
-  const url = resolveWebhookUrl(provider, webhookUrl);
-  const body = bodyForProvider(provider, message);
+async function sendMessage(config: Awaited<ReturnType<typeof getNotificationConfig>>, message: { title: string; markdown: string; text: string }) {
+  if (config.provider === "wecom_app") {
+    return sendWecomAppMessage(config, message);
+  }
+
+  const url = resolveWebhookUrl(config.provider, config.webhookUrl);
+  const body = bodyForProvider(config.provider, message);
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": provider === "server_chan" ? "application/x-www-form-urlencoded" : "application/json" },
+    headers: { "Content-Type": config.provider === "server_chan" ? "application/x-www-form-urlencoded" : "application/json" },
     body
   });
   const text = await response.text().catch(() => "");
   if (!response.ok) throw new Error(`推送失败：HTTP ${response.status} ${text.slice(0, 160)}`);
+}
+
+async function sendWecomAppMessage(config: Awaited<ReturnType<typeof getNotificationConfig>>, message: { title: string; markdown: string; text: string }) {
+  const token = await getWecomAccessToken(config);
+  const response = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      touser: config.toUser || "@all",
+      msgtype: "markdown",
+      agentid: Number(config.agentId),
+      markdown: { content: message.markdown },
+      safe: 0
+    })
+  });
+  const payload = await response.json().catch(() => ({})) as { errcode?: number; errmsg?: string };
+  if (!response.ok || payload.errcode) {
+    throw new Error(`企业微信应用推送失败：${payload.errmsg || `HTTP ${response.status}`}`);
+  }
+}
+
+async function getWecomAccessToken(config: Awaited<ReturnType<typeof getNotificationConfig>>) {
+  const cacheKey = `wecom_app_token:${config.corpId}:${config.agentId}`;
+  const cached = await getCache<{ accessToken: string }>(cacheKey);
+  if (cached?.accessToken) return cached.accessToken;
+
+  const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
+  url.searchParams.set("corpid", config.corpId);
+  url.searchParams.set("corpsecret", config.appSecret);
+  const response = await fetch(url, { cache: "no-store" });
+  const payload = await response.json().catch(() => ({})) as { errcode?: number; errmsg?: string; access_token?: string; expires_in?: number };
+  if (!response.ok || payload.errcode || !payload.access_token) {
+    throw new Error(`企业微信 token 获取失败：${payload.errmsg || `HTTP ${response.status}`}`);
+  }
+  await setCache(cacheKey, { accessToken: payload.access_token }, Math.max(60, Math.min(payload.expires_in ?? 7200, 7000) - 120));
+  return payload.access_token;
 }
 
 function resolveWebhookUrl(provider: NotificationProvider, value: string) {
@@ -114,6 +154,13 @@ function bodyForProvider(provider: NotificationProvider, message: { title: strin
     return JSON.stringify({ title: message.title, content: message.text, markdown: message.markdown });
   }
   return JSON.stringify({ title: message.title, text: message.text, markdown: message.markdown });
+}
+
+function isConfigSendable(config: Awaited<ReturnType<typeof getNotificationConfig>>) {
+  if (config.provider === "wecom_app") {
+    return Boolean(config.corpId && config.agentId && config.appSecret && config.toUser);
+  }
+  return Boolean(config.webhookUrl);
 }
 
 function formatMoney(value?: number | null) {
