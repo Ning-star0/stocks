@@ -126,20 +126,30 @@ export function StockChart({
     <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          {isTimeSharing ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-              <span className="tabular-nums text-primary">分时线: {formatPriceValue(latest?.close, { currency, symbol, unit })}</span>
-              <span className="tabular-nums text-muted-foreground">成交量: {formatNumber(latest?.volume)}</span>
+          <div className="grid gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+              <span className="text-muted-foreground">{isTimeSharing ? "分时线" : "收盘价"}</span>
+              <span className="truncate tabular-nums text-primary" title={formatPriceValue(latest?.close, { currency, symbol, unit })}>
+                {formatPriceValue(latest?.close, { currency, symbol, unit })}
+              </span>
             </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-              {maSeries.map((item) => (
-                <span key={item.key} className="tabular-nums" style={{ color: item.color }}>
-                  {item.label}: {formatNumber(latest?.[item.key])}
+            <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+              <span className="text-muted-foreground">成交量</span>
+              <span className="truncate tabular-nums text-muted-foreground" title={formatNumber(latest?.volume)}>
+                {formatNumber(latest?.volume)}
+              </span>
+            </div>
+          </div>
+          <div className="grid gap-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            {maSeries.map((item) => (
+              <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] gap-1.5" style={{ color: item.color }}>
+                <span>{item.label}</span>
+                <span className="truncate tabular-nums" title={showMovingAverages ? formatNumber(latest?.[item.key]) : "分时图不计算均线"}>
+                  {showMovingAverages ? formatNumber(latest?.[item.key]) : "--"}
                 </span>
-              ))}
-            </div>
-          )}
+              </span>
+            ))}
+          </div>
           <div className="text-xs text-muted-foreground">
             {dataDateLabel}
             {isIntraday ? "，非交易日会显示最近一个交易日的数据" : ""}
@@ -424,7 +434,7 @@ function InfoPanel({
           <span className="text-muted-foreground">涨跌</span>
           <span
             key={`${change.toFixed(4)}-${changePct.toFixed(2)}`}
-            className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5", up ? "text-red-500" : "text-emerald-500")}
+            className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5", up ? "text-red-500" : "text-emerald-500")}
             title={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
           >
             {change >= 0 ? "+" : ""}
@@ -440,20 +450,20 @@ function InfoPanel({
           <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
           <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
         </div>
-        {showMovingAverages ? (
-          <div className="mt-1.5 grid gap-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-1.5 grid gap-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {maSeries.map((item) => (
             <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap" style={{ color: item.color }}>
               <span>{item.label}</span>
-              <span key={`${item.key}-${formatNumber(point[item.key])}`} className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5")} title={formatNumber(point[item.key])}>
-                {formatNumber(point[item.key])}
+              <span
+                key={`${item.key}-${showMovingAverages ? formatNumber(point[item.key]) : "--"}`}
+                className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5")}
+                title={showMovingAverages ? formatNumber(point[item.key]) : "分时图不计算均线"}
+              >
+                {showMovingAverages ? formatNumber(point[item.key]) : "--"}
               </span>
             </span>
           ))}
-          </div>
-        ) : (
-          <div className="mt-1.5 border-t border-border/50 pt-1.5 text-muted-foreground">分时图不显示 MA 均线</div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -463,7 +473,7 @@ function InfoItem({ label, value, strong = false, size = "normal" }: { label: st
   return (
     <span className={cn("grid min-w-0 items-center gap-1.5 whitespace-nowrap", size === "wide" ? "grid-cols-[52px_minmax(0,1fr)]" : "grid-cols-[42px_minmax(0,1fr)]")}>
       <span className="text-muted-foreground">{label}</span>
-      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 whitespace-normal break-words tabular-nums leading-5 text-foreground", strong ? "font-semibold" : "")} title={value}>
+      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5 text-foreground", strong ? "font-semibold" : "")} title={value}>
         {value}
       </span>
     </span>

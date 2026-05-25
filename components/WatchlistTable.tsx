@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, BarChart3, Brain, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, Trash2, X } from "lucide-react";
 
@@ -111,6 +111,7 @@ export function WatchlistTable() {
   const [holdingFilter, setHoldingFilter] = useState<"all" | "holding" | "watching">("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
   const [currentPage, setCurrentPage] = useState(1);
+  const deferredSearch = useDeferredValue(search);
 
   const load = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
     if (hasLoadedRef.current && !options.silent) setRefreshing(true);
@@ -182,8 +183,8 @@ export function WatchlistTable() {
 
   const rows = useMemo(() => buildWatchlistRows(items, data), [items, data]);
   const filteredRows = useMemo(
-    () => filterAndSortRows(rows, { search, riskFilter, actionFilter, holdingFilter, sortKey }),
-    [rows, search, riskFilter, actionFilter, holdingFilter, sortKey]
+    () => filterAndSortRows(rows, { search: deferredSearch, riskFilter, actionFilter, holdingFilter, sortKey }),
+    [rows, deferredSearch, riskFilter, actionFilter, holdingFilter, sortKey]
   );
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / WATCHLIST_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -334,7 +335,7 @@ export function WatchlistTable() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-8 text-sm text-muted-foreground">正在加载自选股数据...</div>
+            <WatchlistSkeleton />
           ) : rows.length === 0 ? (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-dashed text-center">
               <div className="text-sm font-medium">自选股列表为空。</div>
@@ -479,6 +480,35 @@ export function WatchlistTable() {
         </CardContent>
       </Card>
     </PageContainer>
+  );
+}
+
+function WatchlistSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="正在加载自选股数据">
+      <div className="hidden lg:block">
+        {Array.from({ length: WATCHLIST_PAGE_SIZE }, (_, index) => (
+          <div key={index} className="grid h-16 grid-cols-[18%_10%_8%_9%_18%_22%_15%] items-center gap-3 border-b border-border/60 last:border-0">
+            {Array.from({ length: 7 }, (_item, cellIndex) => (
+              <div key={cellIndex} className="h-3 rounded-full bg-muted motion-loading-sweep" />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3 lg:hidden">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="rounded-lg border border-border bg-background/50 p-3">
+            <div className="h-4 w-1/3 rounded-full bg-muted motion-loading-sweep" />
+            <div className="mt-3 h-3 w-2/3 rounded-full bg-muted motion-loading-sweep" />
+            <div className="mt-4 flex gap-2">
+              <div className="h-6 w-16 rounded-full bg-muted motion-loading-sweep" />
+              <div className="h-6 w-16 rounded-full bg-muted motion-loading-sweep" />
+              <div className="h-6 w-20 rounded-full bg-muted motion-loading-sweep" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
