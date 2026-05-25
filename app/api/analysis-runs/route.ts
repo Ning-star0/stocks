@@ -23,18 +23,29 @@ export async function GET(request: NextRequest) {
     const todayStart = startOfToday();
     const todayRuns = runs.filter((run) => run.startedAt >= todayStart);
     const nextRunAt = resolveNextRunAt(latest?.nextRunAt ?? null, focus?.analysisTimes ?? []);
+    const latestMetrics = latest ? aggregateRunMetrics(latest.items) : emptyMetrics();
     return Response.json({
       summary: {
         nextRunAt: nextRunAt?.toISOString() ?? null,
         todayRunCount: todayRuns.length,
+        runningCount: runs.filter((run) => run.status === "running").length,
+        latestRunId: latest?.id ?? null,
+        latestRunType: latest?.runType ?? null,
         latestStatus: latest?.status ?? "idle",
         latestStartedAt: latest?.startedAt.toISOString() ?? null,
         latestFinishedAt: latest?.finishedAt?.toISOString() ?? null,
+        latestDurationMs: latest?.durationMs ?? null,
         successCount: latest?.successCount ?? 0,
         failedCount: latest?.failedCount ?? 0,
-        fallbackCount: latest?.items.filter((item) => item.fallbackUsed).length ?? 0
+        totalSymbols: latest?.totalSymbols ?? 0,
+        fallbackCount: latest?.items.filter((item) => item.fallbackUsed).length ?? 0,
+        latestFallbackUsed: latest?.fallbackUsed ?? false,
+        latestErrorSummary: latest?.errorSummary ?? null,
+        latestMetrics
       },
-      runs: runs.map((run) => ({
+      runs: runs.map((run) => {
+        const metrics = aggregateRunMetrics(run.items);
+        return {
         id: run.id,
         runType: run.runType,
         status: run.status,
@@ -47,6 +58,7 @@ export async function GET(request: NextRequest) {
         nextRunAt: run.nextRunAt?.toISOString() ?? null,
         fallbackUsed: run.fallbackUsed,
         errorSummary: run.errorSummary,
+        metrics,
         items: run.items.map((item) => ({
           id: item.id,
           symbol: item.symbol,
@@ -64,11 +76,44 @@ export async function GET(request: NextRequest) {
           fallbackUsed: item.fallbackUsed,
           createdAt: item.createdAt.toISOString()
         }))
-      }))
+      };
+      })
     });
   } catch (error) {
     return apiError(error);
   }
+}
+
+function aggregateRunMetrics(items: Array<{ durationMs: number | null; aiDurationMs: number | null; quoteDurationMs: number | null; newsDurationMs: number | null; status: string }>) {
+  return {
+    totalItemDurationMs: sum(items.map((item) => item.durationMs)),
+    aiDurationMs: sum(items.map((item) => item.aiDurationMs)),
+    quoteDurationMs: sum(items.map((item) => item.quoteDurationMs)),
+    newsDurationMs: sum(items.map((item) => item.newsDurationMs)),
+    averageItemDurationMs: average(items.map((item) => item.durationMs)),
+    runningItems: items.filter((item) => item.status === "running").length
+  };
+}
+
+function emptyMetrics() {
+  return {
+    totalItemDurationMs: 0,
+    aiDurationMs: 0,
+    quoteDurationMs: 0,
+    newsDurationMs: 0,
+    averageItemDurationMs: null,
+    runningItems: 0
+  };
+}
+
+function sum(values: Array<number | null | undefined>) {
+  return values.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
+function average(values: Array<number | null | undefined>) {
+  const valid = values.filter((value): value is number => typeof value === "number");
+  if (!valid.length) return null;
+  return Math.round(sum(valid) / valid.length);
 }
 
 function startOfToday() {
