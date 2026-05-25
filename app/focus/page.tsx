@@ -50,6 +50,13 @@ type FocusDecision = {
   persistedAt?: string;
   scheduledFor?: string | null;
   source?: string;
+  notification?: {
+    skipped?: boolean;
+    reason?: string;
+    sentAt?: string;
+    provider?: string;
+    error?: string;
+  } | null;
   orders: Array<{
     symbol: string;
     name?: string | null;
@@ -541,7 +548,9 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
         {decision.source === "scheduled" ? <Badge variant="success">定时决策</Badge> : null}
         {decision.fromCache ? <Badge variant="secondary">已保存决策</Badge> : <Badge variant="success">最新决策</Badge>}
         {decision.stale ? <Badge variant="secondary">配置已变化</Badge> : null}
+        <NotificationBadge notification={decision.notification} />
       </div>
+      {decision.notification ? <NotificationStatus notification={decision.notification} /> : null}
       <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/12" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
         <div className="flex flex-wrap items-center gap-2">
           <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
@@ -582,6 +591,28 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
         </div>
       ) : null}
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+    </div>
+  );
+}
+
+function NotificationBadge({ notification }: { notification?: FocusDecision["notification"] }) {
+  if (!notification) return <Badge variant="secondary">推送状态待确认</Badge>;
+  if (!notification.skipped) return <Badge variant="success">已推送手机</Badge>;
+  return <Badge variant="secondary">未推送：{notificationReasonLabel(notification.reason)}</Badge>;
+}
+
+function NotificationStatus({ notification }: { notification: NonNullable<FocusDecision["notification"]> }) {
+  if (!notification.skipped) {
+    return (
+      <div className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+        手机推送已发送{notification.provider ? `（${notification.provider}）` : ""}：{formatDateTime(notification.sentAt)}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+      本次未推送：{notificationReasonLabel(notification.reason)}
+      {notification.error ? `。${notification.error}` : ""}
     </div>
   );
 }
@@ -913,6 +944,19 @@ function runTypeLabel(value?: string | null) {
   if (value === "scheduled") return "自动";
   if (value === "manual") return "手动";
   return value || "--";
+}
+
+function notificationReasonLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    manual_source: "手动分析不自动推送",
+    fallback_decision: "兜底决策不推送",
+    no_budget: "没有计划买入金额",
+    no_orders: "没有形成交易计划",
+    disabled: "推送未启用或配置不完整",
+    deduped: "同一分析时间已推送过",
+    send_failed: "发送失败"
+  };
+  return value ? map[value] ?? value : "未满足推送条件";
 }
 
 function historyActionTone(action: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {

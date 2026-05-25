@@ -15,7 +15,9 @@ export type FocusDecisionNotificationInput = {
   userId: string;
   decisionId?: string | null;
   source?: string | null;
+  scheduledFor?: string | Date | null;
   summary?: string | null;
+  fallbackReason?: string | null;
   generatedAt?: string | Date | null;
   orders?: DecisionOrder[];
   cashReserve?: number | null;
@@ -24,19 +26,23 @@ export type FocusDecisionNotificationInput = {
 };
 
 export async function notifyFocusDecision(input: FocusDecisionNotificationInput) {
+  if (input.source !== "scheduled") return { skipped: true, reason: "manual_source" };
+  if (input.fallbackReason) return { skipped: true, reason: "fallback_decision" };
+  if (!Number(input.totalBudgetToUse)) return { skipped: true, reason: "no_budget" };
+
   const orders = Array.isArray(input.orders) ? input.orders.filter((order) => Number(order.amount) > 0 || Number(order.shares) > 0) : [];
   if (!orders.length) return { skipped: true, reason: "no_orders" };
 
   const config = await getNotificationConfig(input.userId);
   if (!config.enabled || !isConfigSendable(config)) return { skipped: true, reason: "disabled" };
 
-  const dedupeKey = input.decisionId ? `notify:focus_decision:${input.decisionId}` : "";
+  const dedupeKey = buildFocusDecisionDedupeKey(input, orders);
   if (dedupeKey && await getCache(dedupeKey)) return { skipped: true, reason: "deduped" };
 
   const message = buildFocusDecisionMessage(input, orders);
   await sendMessage(config, message);
   if (dedupeKey) await setCache(dedupeKey, { sentAt: new Date().toISOString() }, numberEnv("NOTIFICATION_DEDUPE_TTL_SECONDS", 12 * 60 * 60));
-  return { skipped: false };
+  return { skipped: false, sentAt: new Date().toISOString(), provider: config.provider };
 }
 
 export async function sendTestNotification(input: { userId: string; title?: string }) {
@@ -79,6 +85,23 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
     markdown: lines.join("\n"),
     text: lines.map((line) => line.replace(/^#+\s*/, "")).join("\n")
   };
+}
+
+function buildFocusDecisionDedupeKey(input: FocusDecisionNotificationInput, orders: DecisionOrder[]) {
+  const scheduledKey = input.scheduledFor ? normalizeMinuteKey(input.scheduledFor) : null;
+  if (scheduledKey) return `notify:focus_decision:${input.userId}:scheduled:${scheduledKey}`;
+
+  const orderKey = orders
+    .map((order) => `${order.symbol ?? ""}:${Number(order.amount ?? 0).toFixed(2)}:${Number(order.shares ?? 0)}`)
+    .join("|");
+  if (input.decisionId) return `notify:focus_decision:${input.decisionId}:${orderKey}`;
+  return "";
+}
+
+function normalizeMinuteKey(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toISOString().slice(0, 16);
 }
 
 async function sendMessage(config: Awaited<ReturnType<typeof getNotificationConfig>>, message: { title: string; markdown: string; text: string }) {

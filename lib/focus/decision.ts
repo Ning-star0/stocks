@@ -130,7 +130,7 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     cacheHit: false
   }).catch(() => null);
   await setCache(cacheKey, decision, numberEnv("FOCUS_DECISION_CACHE_TTL_SECONDS", 900));
-  const row = await upsertStoredDecision({
+  let row = await upsertStoredDecision({
     userId: options.userId,
     inputHash,
     source,
@@ -156,17 +156,24 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     createRunItems: Boolean(options.createRunItems)
   }).catch(() => []);
   await refreshAnalysisRun(options.runId).catch(() => null);
-  await notifyFocusDecision({
+  const notification = await notifyFocusDecision({
     userId: options.userId,
     decisionId: row.id,
     source,
+    scheduledFor: row.scheduledFor,
     summary: decision.summary,
+    fallbackReason: decision.fallbackReason,
     generatedAt: new Date(),
     orders: decision.orders,
     cashReserve: decision.cashReserve,
     totalBudgetToUse: decision.totalBudgetToUse,
     totalEstimatedFee: decision.totalEstimatedFee
-  }).catch(() => null);
+  }).catch((error) => ({
+    skipped: true,
+    reason: "send_failed",
+    error: error instanceof Error ? error.message : "推送失败"
+  }));
+  row = await updateStoredDecisionJson(row.id, { ...decision, notification }).catch(() => row);
   return attachStoredMetadata(row, { fromCache: false, stale: false });
 }
 
@@ -224,6 +231,15 @@ async function upsertStoredDecision(input: {
       source: input.source,
       scheduledFor: input.scheduledFor,
       decisionJson
+    }
+  });
+}
+
+async function updateStoredDecisionJson(id: string, decision: Awaited<ReturnType<typeof generateFocusDecision>> & { notification?: unknown }) {
+  return prisma.focusDecision.update({
+    where: { id },
+    data: {
+      decisionJson: JSON.parse(JSON.stringify(decision)) as Prisma.InputJsonValue
     }
   });
 }
