@@ -25,6 +25,7 @@ export async function processNextJob() {
 
   try {
     const result = await runJob(job);
+    if (isRequeuedJobResult(result)) return result.job;
     return prisma.analysisJob.update({
       where: { id: job.id },
       data: {
@@ -49,6 +50,10 @@ export async function processNextJob() {
       }
     });
   }
+}
+
+function isRequeuedJobResult(result: Awaited<ReturnType<typeof runJob>>): result is { requeued: true; job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJob>>> } {
+  return Boolean("requeued" in result && result.requeued);
 }
 
 async function failTimedOutJobsIfDue() {
@@ -244,6 +249,8 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
 
   if (job.jobType === JOB_TYPES.FOCUS_DECISION) {
     const payload = job.payload as { scheduledFor?: string; runId?: string } | null;
+    const waitResult = await waitForFocusStockAnalyses(job.id, payload?.runId ?? null);
+    if (waitResult) return waitResult;
     const decision = await generateAndStoreFocusDecision({
       userId: job.userId,
       forceRefresh: true,
@@ -297,6 +304,44 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
   }
 
   throw new Error(`未知任务类型：${job.jobType}`);
+}
+
+async function waitForFocusStockAnalyses(jobId: string, runId?: string | null) {
+  if (!runId) return null;
+  const run = await prisma.analysisRun.findUnique({
+    where: { id: runId },
+    include: { items: true }
+  });
+  if (!run) return null;
+
+  const expectedTotal = Math.max(run.totalSymbols, 0);
+  const finishedCount = run.items.filter((item) => item.status === "success" || item.status === "failed" || item.status === "skipped").length;
+  const hasRunning = run.items.some((item) => item.status === "running");
+  const pendingStockJobs = await prisma.analysisJob.count({
+    where: {
+      userId: run.userId,
+      jobType: JOB_TYPES.STOCK_ANALYSIS,
+      status: { in: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING] },
+      payload: { path: ["runId"], equals: runId }
+    }
+  }).catch(() => 0);
+
+  if (expectedTotal > 0 && (finishedCount < expectedTotal || hasRunning || pendingStockJobs > 0)) {
+    const job = await prisma.analysisJob.update({
+      where: { id: jobId },
+      data: {
+        status: JOB_STATUS.QUEUED,
+        errorMessage: `等待本次 ${expectedTotal} 只关注标的完成分析后再生成 AI 策略观察`,
+        lockedAt: null,
+        lockedBy: null,
+        startedAt: null,
+        completedAt: null
+      }
+    });
+    return { requeued: true as const, job };
+  }
+
+  return null;
 }
 
 async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string, errorMessage: string) {
