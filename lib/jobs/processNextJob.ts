@@ -64,8 +64,19 @@ async function failTimedOutJobsIfDue() {
 }
 
 async function lockNextQueuedJob() {
+  const guarded = await lockQueuedJob({
+    NOT: {
+      jobType: JOB_TYPES.FOCUS_DECISION,
+      payload: { path: ["runId"], not: Prisma.JsonNull }
+    }
+  });
+  if (guarded) return guarded;
+  return lockQueuedJob({ jobType: JOB_TYPES.FOCUS_DECISION });
+}
+
+async function lockQueuedJob(extraWhere: Prisma.AnalysisJobWhereInput) {
   const job = await prisma.analysisJob.findFirst({
-    where: { status: JOB_STATUS.QUEUED },
+    where: { status: JOB_STATUS.QUEUED, ...extraWhere },
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }]
   });
   if (!job) return null;
