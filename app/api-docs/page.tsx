@@ -134,8 +134,8 @@ export default function ApiDocsPage() {
   const aiCount = apiGroups.flatMap((group) => group.endpoints).filter((endpoint) => endpoint.cost === "AI").length;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-border/80 bg-card/85 px-5 py-5 shadow-sm">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
+      <div className="rounded-2xl border border-border/70 bg-card/80 px-5 py-5 shadow-sm sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-primary">
@@ -154,10 +154,12 @@ export default function ApiDocsPage() {
         </div>
       </div>
 
-      <ApiHealthPanel />
-      <ApiUsagePanel />
+      <div className="grid gap-6">
+        <ApiHealthPanel />
+        <ApiUsagePanel />
+      </div>
 
-      <Card>
+      <Card className="border-border/70 bg-card/80">
         <CardHeader>
           <CardTitle>调用规则</CardTitle>
           <CardDescription>这几个规则能避免误调用、误消耗和安全泄露。</CardDescription>
@@ -173,7 +175,7 @@ export default function ApiDocsPage() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         {apiGroups.map((group) => (
-          <Card key={group.title}>
+          <Card key={group.title} className="border-border/70 bg-card/80">
             <CardHeader>
               <div className="flex items-start gap-3">
                 <div className="rounded-md bg-primary/10 p-2 text-primary">{group.icon}</div>
