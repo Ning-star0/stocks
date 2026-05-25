@@ -100,6 +100,33 @@
       0 24px 70px hsl(0 0% 0% / 0.28);
   }
 
+  .liquid-nav {
+    scrollbar-width: none;
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.58), hsl(205 55% 96% / 0.38)),
+      radial-gradient(circle at 18% 12%, hsl(0 0% 100% / 0.78), transparent 11rem),
+      linear-gradient(180deg, hsl(var(--primary) / 0.08), hsl(205 80% 70% / 0.035));
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.86),
+      inset 0 -1px 0 hsl(220 20% 20% / 0.07),
+      0 16px 44px hsl(210 34% 22% / 0.12);
+  }
+
+  .liquid-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dark .liquid-nav {
+    background:
+      linear-gradient(135deg, hsl(0 0% 100% / 0.115), hsl(210 22% 18% / 0.46)),
+      radial-gradient(circle at 18% 0%, hsl(0 0% 100% / 0.12), transparent 10rem),
+      linear-gradient(180deg, hsl(var(--primary) / 0.105), transparent 68%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.18),
+      inset 0 -1px 0 hsl(0 0% 100% / 0.045),
+      0 18px 50px hsl(0 0% 0% / 0.32);
+  }
+
   .soft-card {
     @apply rounded-2xl;
     border: 1px solid hsl(166 35% 55% / 0.24);

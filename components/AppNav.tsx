@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Bell, Brain, ListChecks, Newspaper, Settings } from "lucide-react";
 
 import { motionDurations, motionEase } from "@/lib/motion";
@@ -18,26 +18,32 @@ const navItems = [
 
 export function AppNav() {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
-  const [activePill, setActivePill] = useState({ left: 4, width: 0, ready: false });
+  const [activePill, setActivePill] = useState({ left: 6, width: 0, ready: false });
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const activeIndex = navItems.findIndex((item) => isNavItemActive(item, pathname));
 
+  const measureActivePill = useCallback(() => {
+    const nav = navRef.current;
+    const item = itemRefs.current[activeIndex];
+    if (!nav || !item || activeIndex < 0) return;
+
+    const navRect = nav.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const left = itemRect.left - navRect.left + nav.scrollLeft;
+
+    setActivePill({
+      left,
+      width: itemRect.width,
+      ready: true
+    });
+  }, [activeIndex]);
+
   useLayoutEffect(() => {
-    function updateActivePill() {
-      const item = itemRefs.current[activeIndex];
-      if (!item || activeIndex < 0) return;
-
-      setActivePill({
-        left: item.offsetLeft,
-        width: item.offsetWidth,
-        ready: true
-      });
-    }
-
-    updateActivePill();
-  }, [activeIndex, pathname]);
+    measureActivePill();
+  }, [measureActivePill, pathname]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -49,29 +55,35 @@ export function AppNav() {
   }, []);
 
   useEffect(() => {
-    function updateActivePill() {
-      const item = itemRefs.current[activeIndex];
-      if (!item || activeIndex < 0) return;
+    const nav = navRef.current;
+    if (!nav) return;
 
-      setActivePill({
-        left: item.offsetLeft,
-        width: item.offsetWidth,
-        ready: true
-      });
-    }
+    const resizeObserver = new ResizeObserver(measureActivePill);
 
-    updateActivePill();
-    window.addEventListener("resize", updateActivePill);
-    return () => window.removeEventListener("resize", updateActivePill);
-  }, [activeIndex]);
+    measureActivePill();
+    resizeObserver.observe(nav);
+    itemRefs.current.forEach((item) => {
+      if (item) resizeObserver.observe(item);
+    });
+    nav.addEventListener("scroll", measureActivePill, { passive: true });
+    window.addEventListener("resize", measureActivePill);
+    return () => {
+      resizeObserver.disconnect();
+      nav.removeEventListener("scroll", measureActivePill);
+      window.removeEventListener("resize", measureActivePill);
+    };
+  }, [measureActivePill]);
 
   return (
-    <nav className="liquid-glass relative flex w-full max-w-[calc(100vw-1rem)] items-center justify-between gap-1 overflow-x-auto rounded-full p-1 sm:w-max sm:max-w-[calc(100vw-2rem)]">
+    <nav
+      ref={navRef}
+      className="liquid-nav liquid-glass relative flex h-12 w-max max-w-[calc(100vw-1rem)] items-center gap-1.5 overflow-x-auto rounded-full p-1.5 sm:max-w-[calc(100vw-2rem)]"
+    >
       {activeIndex >= 0 ? (
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute bottom-1 top-1 rounded-full bg-white/76 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.82),0_8px_26px_hsl(166_42%_28%/0.14)] ring-1 ring-white/68 dark:bg-white/12 dark:ring-white/10",
+            "pointer-events-none absolute bottom-1.5 top-1.5 rounded-full bg-white/72 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.90),inset_0_-10px_22px_hsl(210_28%_72%/0.16),0_10px_28px_hsl(166_42%_28%/0.14)] ring-1 ring-white/75 dark:bg-white/13 dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.22),inset_0_-10px_24px_hsl(0_0%_100%/0.05),0_12px_30px_hsl(0_0%_0%/0.24)] dark:ring-white/16",
             activePill.ready ? "opacity-100" : "opacity-0"
           )}
           style={{
@@ -126,7 +138,7 @@ function NavItem({
       ref={refCallback}
       href={href}
       className={cn(
-        "group relative z-10 inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full px-2.5 text-sm font-medium transition-[color,transform] duration-150 hover:text-foreground active:scale-[0.98] min-[420px]:px-3",
+        "group relative z-10 inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold tracking-normal transition-[color,transform] duration-150 hover:text-foreground active:scale-[0.98] min-[420px]:px-4",
         active ? "text-primary dark:text-foreground" : "text-muted-foreground"
       )}
     >
