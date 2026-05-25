@@ -6,6 +6,7 @@ import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { DecisionChange } from "@/lib/decision/change";
 import { getPrimaryAdvice, type PositionContext } from "@/lib/positionAdvice";
 import type { AiAnalysisResult } from "@/lib/types";
 import { formatPriceValue, toNumber } from "@/lib/utils";
@@ -17,7 +18,8 @@ export function AiAnalysisPanel({
   currency,
   symbol,
   unit,
-  position
+  position,
+  decisionChange
 }: {
   analysis?: AiAnalysisResult | null;
   createdAt?: string | Date | null;
@@ -26,6 +28,7 @@ export function AiAnalysisPanel({
   symbol?: string;
   unit?: string;
   position?: PositionContext | null;
+  decisionChange?: DecisionChange | null;
 }) {
   if (!analysis) {
     return (
@@ -68,6 +71,8 @@ export function AiAnalysisPanel({
             {analysis.fallbackReason}
           </div>
         ) : null}
+
+        {decisionChange ? <DecisionChangeCard change={decisionChange} /> : null}
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -149,6 +154,29 @@ export function AiAnalysisPanel({
         <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function DecisionChangeCard({ change }: { change: DecisionChange }) {
+  const variant = change.status === "changed" ? "warning" : change.status === "first" ? "secondary" : "success";
+  const title = change.status === "changed" ? "结论发生变化" : change.status === "first" ? "首次记录" : "结论延续";
+  return (
+    <div className="rounded-xl border border-border bg-background/45 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">{title}</div>
+        <Badge variant={variant}>{change.status === "changed" ? "需复核" : "稳定"}</Badge>
+      </div>
+      <div className="mt-2 text-sm leading-6 text-muted-foreground">{change.summary}</div>
+      {change.reasons.length ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {change.reasons.slice(0, 4).map((reason) => (
+            <span key={reason} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              {reason}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

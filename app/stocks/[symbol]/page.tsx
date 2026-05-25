@@ -11,6 +11,7 @@ import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
 import { StockChart } from "@/components/StockChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/layout";
+import { buildDecisionChange } from "@/lib/decision/change";
 import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/lib/currentUser";
 import { calculateIndicators } from "@/lib/indicators";
@@ -81,6 +82,28 @@ export default async function StockDetailPage({
   const indicatorCandles = quote.raw ? await getIndicatorCandles(provider, quoteSymbol, interval, candles) : [];
   const { indicators, indicatorError } = safeCalculateIndicators(quoteSymbol, indicatorCandles);
   const analysis = latestAnalysis?.outputJson as AiAnalysisResult | undefined;
+  const latestDecisionHistory = latestAnalysis
+    ? await prisma.decisionHistory.findFirst({
+        where: {
+          userId: user.id,
+          OR: [{ analysisId: latestAnalysis.id }, { symbol: { in: symbolVariants } }]
+        },
+        orderBy: { decisionTime: "desc" }
+      })
+    : null;
+  const previousDecisionHistory = latestDecisionHistory
+    ? await prisma.decisionHistory.findFirst({
+        where: {
+          userId: user.id,
+          symbol: latestDecisionHistory.symbol,
+          decisionTime: { lt: latestDecisionHistory.decisionTime }
+        },
+        orderBy: { decisionTime: "desc" }
+      })
+    : null;
+  const decisionChange = latestDecisionHistory
+    ? buildDecisionChange(toDecisionSnapshot(previousDecisionHistory), toDecisionSnapshot(latestDecisionHistory) ?? {})
+    : null;
   const displayName = quote.name ?? quoteSymbol;
   const isIndex = isIndexSymbol(quoteSymbol);
   const strategy = trendToStrategy(analysis?.trend);
@@ -127,6 +150,7 @@ export default async function StockDetailPage({
         currency={quote.currency}
         symbol={quoteSymbol}
         unit={isIndex ? "point" : undefined}
+        decisionChange={decisionChange}
         position={{
           isHolding: watchlistItem?.isHolding ?? false,
           holdingPrice: toNumber(watchlistItem?.holdingPrice),
@@ -281,6 +305,21 @@ function normalizeRange(value: string | undefined, interval: string) {
   if (value && allowed.includes(value)) return value;
   if (interval === "1m") return "1d";
   return isIntraday(interval) ? "1mo" : "6mo";
+}
+
+function toDecisionSnapshot(record?: {
+  action?: string | null;
+  strategyDirection?: string | null;
+  riskLevel?: string | null;
+  confidence?: { toString(): string } | number | null;
+} | null) {
+  if (!record) return null;
+  return {
+    action: record.action ?? null,
+    strategyDirection: record.strategyDirection ?? null,
+    riskLevel: record.riskLevel ?? null,
+    confidence: record.confidence === null || record.confidence === undefined ? null : Number(record.confidence)
+  };
 }
 
 function currentActionLabel(analysis?: AiAnalysisResult): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
 
 import { getCurrentUser } from "@/lib/currentUser";
+import { buildDecisionChange } from "@/lib/decision/change";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 
@@ -30,9 +31,21 @@ export async function GET(request: NextRequest) {
       orderBy: { decisionTime: "desc" },
       take: limit
     });
+    const previousRecords = await Promise.all(
+      records.map((record) =>
+        prisma.decisionHistory.findFirst({
+          where: {
+            userId: user.id,
+            symbol: record.symbol,
+            decisionTime: { lt: record.decisionTime }
+          },
+          orderBy: { decisionTime: "desc" }
+        })
+      )
+    );
 
     return Response.json({
-      records: records.map((record) => ({
+      records: records.map((record, index) => ({
         id: record.id,
         runId: record.runId,
         analysisId: record.analysisId,
@@ -54,10 +67,26 @@ export async function GET(request: NextRequest) {
         rawModelName: record.rawModelName,
         previousAction: record.previousAction,
         previousStrategyDirection: record.previousStrategyDirection,
-        changeSummary: record.changeSummary
+        changeSummary: record.changeSummary,
+        change: buildDecisionChange(toDecisionSnapshot(previousRecords[index]), toDecisionSnapshot(record) ?? {})
       }))
     });
   } catch (error) {
     return apiError(error);
   }
+}
+
+function toDecisionSnapshot(record?: {
+  action?: string | null;
+  strategyDirection?: string | null;
+  riskLevel?: string | null;
+  confidence?: Prisma.Decimal | number | null;
+} | null) {
+  if (!record) return null;
+  return {
+    action: record.action ?? null,
+    strategyDirection: record.strategyDirection ?? null,
+    riskLevel: record.riskLevel ?? null,
+    confidence: record.confidence === null || record.confidence === undefined ? null : Number(record.confidence)
+  };
 }

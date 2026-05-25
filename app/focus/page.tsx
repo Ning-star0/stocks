@@ -124,6 +124,15 @@ type DecisionHistoryRecord = {
   keyReasons: unknown;
   fallbackUsed: boolean;
   changeSummary: string | null;
+  change?: {
+    status: "first" | "continued" | "changed";
+    summary: string;
+    actionChange: string | null;
+    strategyChange: string | null;
+    riskChange: string | null;
+    confidenceChange: string | null;
+    reasons: string[];
+  };
 };
 
 export default function FocusPage() {
@@ -692,7 +701,16 @@ function DecisionHistoryTimeline({ records }: { records: DecisionHistoryRecord[]
                 </div>
               </div>
               <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{record.summary}</p>
-              {record.changeSummary ? <div className="mt-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">{record.changeSummary}</div> : null}
+              {record.change ? (
+                <div className={cn("mt-2 rounded-md border px-3 py-2 text-xs", decisionChangeTone(record.change.status))}>
+                  <div className="font-medium">{record.change.summary}</div>
+                  {record.change.reasons.length ? (
+                    <div className="mt-1 text-muted-foreground">{record.change.reasons.slice(0, 2).join("；")}</div>
+                  ) : null}
+                </div>
+              ) : record.changeSummary ? (
+                <div className="mt-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">{record.changeSummary}</div>
+              ) : null}
               {reasons.length ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {reasons.map((reason) => <span key={reason} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{reason}</span>)}
@@ -849,6 +867,12 @@ function riskVariant(risk?: string | null): "success" | "warning" | "danger" | "
   if (risk === "high") return "danger";
   if (risk === "medium") return "warning";
   return "secondary";
+}
+
+function decisionChangeTone(status: "first" | "continued" | "changed") {
+  if (status === "changed") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (status === "continued") return "border-primary/20 bg-primary/10 text-primary";
+  return "border-border bg-muted/20 text-muted-foreground";
 }
 
 function formatDuration(value?: number | null) {

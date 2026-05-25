@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { getAiConfig } from "@/lib/ai/config";
+import { buildDecisionChange } from "@/lib/decision/change";
 import { prisma } from "@/lib/prisma";
 
 type RunStatus = "running" | "success" | "partial_failed" | "failed";
@@ -193,7 +194,12 @@ export async function createDecisionHistoryFromAnalysis(input: {
       rawModelName: model,
       previousAction: previous?.action ?? null,
       previousStrategyDirection: previous?.strategyDirection ?? null,
-      changeSummary: buildChangeSummary(previous?.action, action, previous?.strategyDirection, strategyDirection)
+      changeSummary: buildDecisionChange(toDecisionSnapshot(previous), {
+        action,
+        strategyDirection,
+        riskLevel: input.riskLevel ?? null,
+        confidence: typeof output.confidence === "number" ? output.confidence : null
+      }).summary
     }
   });
 }
@@ -246,7 +252,12 @@ export async function createDecisionHistoryFromFocusDecision(input: {
         rawModelName: model,
         previousAction: previous?.action ?? null,
         previousStrategyDirection: previous?.strategyDirection ?? null,
-        changeSummary: buildChangeSummary(previous?.action, action, previous?.strategyDirection, strategyDirection)
+        changeSummary: buildDecisionChange(toDecisionSnapshot(previous), {
+          action,
+          strategyDirection,
+          riskLevel: candidate?.riskLevel ?? null,
+          confidence: typeof candidate?.latestAnalysis?.confidence === "number" ? candidate.latestAnalysis.confidence : null
+        }).summary
       }
     });
     created.push(history);
@@ -300,33 +311,6 @@ function splitReason(value: string) {
   return value.split(/[。；;，,\n]/).map((item) => item.trim()).filter(Boolean);
 }
 
-function buildChangeSummary(previousAction?: string | null, action?: string | null, previousTrend?: string | null, trend?: string | null) {
-  if (previousAction && action && previousAction !== action) return `结论变化：${actionLabel(previousAction)} → ${actionLabel(action)}`;
-  if (previousTrend && trend && previousTrend !== trend) return `方向变化：${trendLabel(previousTrend)} → ${trendLabel(trend)}`;
-  return null;
-}
-
-function actionLabel(value: string) {
-  const map: Record<string, string> = {
-    watch: "继续观察",
-    wait_pullback: "等待回调",
-    hold: "持有/增持观察",
-    reduce: "减仓",
-    avoid: "回避"
-  };
-  return map[value] ?? value;
-}
-
-function trendLabel(value: string) {
-  const map: Record<string, string> = {
-    bullish: "偏多",
-    bearish: "偏空",
-    neutral: "中性",
-    watch: "观察"
-  };
-  return map[value] ?? value;
-}
-
 function buildErrorSummary(messages: Array<string | null | undefined>) {
   const unique = [...new Set(messages.filter(Boolean).map((item) => item as string))];
   return unique.length ? unique.slice(0, 3).join("；") : null;
@@ -355,6 +339,21 @@ function sameSymbol(a?: string | null, b?: string | null) {
 
 function normalizeSymbol(value?: string | null) {
   return (value || "").toUpperCase().replace(/\.(SH|SZ|BJ)$/, "");
+}
+
+function toDecisionSnapshot(value?: { action?: string | null; strategyDirection?: string | null; riskLevel?: string | null; confidence?: Prisma.Decimal | number | null } | null) {
+  if (!value) return null;
+  return {
+    action: value.action ?? null,
+    strategyDirection: value.strategyDirection ?? null,
+    riskLevel: value.riskLevel ?? null,
+    confidence: decimalToNumber(value.confidence)
+  };
+}
+
+function decimalToNumber(value?: Prisma.Decimal | number | null) {
+  if (value === null || value === undefined) return null;
+  return typeof value === "number" ? value : Number(value);
 }
 
 async function getModelName() {
