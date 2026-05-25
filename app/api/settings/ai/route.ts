@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/currentUser";
-import { getAiConfig, normalizeAiApiKey, normalizeAiBaseUrl, normalizeAiModel, updateAiConfig } from "@/lib/ai/config";
+import {
+  getAiConfig,
+  normalizeAiApiKey,
+  normalizeAiBaseUrl,
+  normalizeAiModel,
+  normalizeAiProvider,
+  normalizeCostCurrency,
+  normalizeStandardAiModel,
+  normalizeTokenPrice,
+  updateAiConfig
+} from "@/lib/ai/config";
 import { AppError, apiError } from "@/lib/errors";
 
 export async function GET() {
@@ -11,6 +21,14 @@ export async function GET() {
     return NextResponse.json({
       baseUrl: config.baseUrl,
       model: config.model,
+      provider: config.provider,
+      flagshipModel: config.flagshipModel,
+      standardModel: config.standardModel,
+      flagshipInputPricePerMillion: config.flagshipInputPricePerMillion,
+      flagshipOutputPricePerMillion: config.flagshipOutputPricePerMillion,
+      standardInputPricePerMillion: config.standardInputPricePerMillion,
+      standardOutputPricePerMillion: config.standardOutputPricePerMillion,
+      costCurrency: config.costCurrency,
       apiKeyMasked: config.apiKey ? `${config.apiKey.slice(0, 8)}***${config.apiKey.slice(-4)}` : ""
     });
   } catch (error) {
@@ -26,15 +44,32 @@ export async function PUT(request: Request) {
     const newApiKey = normalizeAiApiKey(body.apiKey);
     const current = await getAiConfig();
     const baseUrl = normalizeAiBaseUrl(body.baseUrl);
+    const flagshipModel = normalizeAiModel(body.flagshipModel ?? body.model);
 
     const config = await updateAiConfig({
       apiKey: newApiKey || current.apiKey,
       baseUrl,
-      model: normalizeAiModel(body.model)
+      model: flagshipModel,
+      provider: normalizeAiProvider(body.provider ?? current.provider),
+      flagshipModel,
+      standardModel: normalizeStandardAiModel(body.standardModel ?? current.standardModel),
+      flagshipInputPricePerMillion: normalizeTokenPrice(body.flagshipInputPricePerMillion ?? current.flagshipInputPricePerMillion),
+      flagshipOutputPricePerMillion: normalizeTokenPrice(body.flagshipOutputPricePerMillion ?? current.flagshipOutputPricePerMillion),
+      standardInputPricePerMillion: normalizeTokenPrice(body.standardInputPricePerMillion ?? current.standardInputPricePerMillion),
+      standardOutputPricePerMillion: normalizeTokenPrice(body.standardOutputPricePerMillion ?? current.standardOutputPricePerMillion),
+      costCurrency: normalizeCostCurrency(body.costCurrency ?? current.costCurrency)
     });
     return NextResponse.json({
       baseUrl: config.baseUrl,
       model: config.model,
+      provider: config.provider,
+      flagshipModel: config.flagshipModel,
+      standardModel: config.standardModel,
+      flagshipInputPricePerMillion: config.flagshipInputPricePerMillion,
+      flagshipOutputPricePerMillion: config.flagshipOutputPricePerMillion,
+      standardInputPricePerMillion: config.standardInputPricePerMillion,
+      standardOutputPricePerMillion: config.standardOutputPricePerMillion,
+      costCurrency: config.costCurrency,
       apiKeyMasked: config.apiKey ? `${config.apiKey.slice(0, 8)}***${config.apiKey.slice(-4)}` : ""
     });
   } catch (error) {
@@ -50,7 +85,7 @@ export async function POST(request: Request) {
     const config = {
       apiKey: normalizeAiApiKey(body.apiKey) || current.apiKey,
       baseUrl: normalizeAiBaseUrl(body.baseUrl ?? current.baseUrl),
-      model: normalizeAiModel(body.model ?? current.model)
+      model: normalizeAiModel(body.model ?? body.flagshipModel ?? current.flagshipModel)
     };
     const startedAt = Date.now();
     const result = await testAiConnection(config);

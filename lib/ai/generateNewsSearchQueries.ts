@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
-import { getAiConfig } from "@/lib/ai/config";
+import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
 
@@ -44,7 +44,7 @@ export async function generateNewsSearchPlan(input: GenerateNewsSearchQueriesInp
       baseURL: config.baseUrl || undefined
     });
     const request: ChatCompletionCreateParamsNonStreaming = {
-      model: config.model,
+      model: selectAiModel(config, "standard"),
       response_format: { type: "json_object" },
       messages: [
         {

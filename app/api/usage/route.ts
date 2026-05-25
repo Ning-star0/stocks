@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { readQuota } from "@/lib/apiUsage";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
@@ -28,6 +29,8 @@ type ModelUsageItem = {
   promptTokensMonth: number;
   completionTokensToday: number;
   completionTokensMonth: number;
+  estimatedCostToday: number;
+  estimatedCostMonth: number;
 };
 
 export async function GET() {
@@ -37,7 +40,8 @@ export async function GET() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [aiToday, aiMonth, apiLogs] = await Promise.all([
+    const [aiConfig, aiToday, aiMonth, apiLogs] = await Promise.all([
+      getAiConfig(),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: todayStart } } }),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: monthStart } } }),
       prisma.apiUsageLog.findMany({
@@ -96,7 +100,12 @@ export async function GET() {
         monthStart: monthStart.toISOString()
       },
       items,
-      aiModels: buildAiModelItems(aiToday, aiMonth)
+      aiModels: buildAiModelItems(aiToday, aiMonth),
+      aiCost: {
+        currency: aiConfig.costCurrency,
+        today: sumEstimatedCost(aiToday),
+        month: sumEstimatedCost(aiMonth)
+      }
     });
   } catch (error) {
     return apiError(error);
@@ -174,8 +183,8 @@ function sumAmount(rows: Array<{ amount: number }>) {
 }
 
 function buildAiModelItems(
-  todayRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null }>,
-  monthRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null }>
+  todayRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; estimatedCost: unknown }>,
+  monthRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; estimatedCost: unknown }>
 ): ModelUsageItem[] {
   const byModel = new Map<string, ModelUsageItem>();
   const ensure = (model: string) => {
@@ -191,7 +200,9 @@ function buildAiModelItems(
       promptTokensToday: 0,
       promptTokensMonth: 0,
       completionTokensToday: 0,
-      completionTokensMonth: 0
+      completionTokensMonth: 0,
+      estimatedCostToday: 0,
+      estimatedCostMonth: 0
     };
     byModel.set(key, item);
     return item;
@@ -205,6 +216,7 @@ function buildAiModelItems(
     item.promptTokensMonth += prompt;
     item.completionTokensMonth += completion;
     item.usedMonth += prompt + completion;
+    item.estimatedCostMonth += decimalToNumber(row.estimatedCost);
   }
 
   for (const row of todayRows) {
@@ -215,7 +227,26 @@ function buildAiModelItems(
     item.promptTokensToday += prompt;
     item.completionTokensToday += completion;
     item.usedToday += prompt + completion;
+    item.estimatedCostToday += decimalToNumber(row.estimatedCost);
   }
 
   return Array.from(byModel.values()).sort((a, b) => b.usedMonth - a.usedMonth || b.callsMonth - a.callsMonth || a.model.localeCompare(b.model));
+}
+
+function sumEstimatedCost(rows: Array<{ estimatedCost: unknown }>) {
+  return roundCost(rows.reduce((sum, row) => sum + decimalToNumber(row.estimatedCost), 0));
+}
+
+function decimalToNumber(value: unknown) {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "object" && "toNumber" in value) {
+    const decimalLike = value as { toNumber?: () => number };
+    if (typeof decimalLike.toNumber === "function") return Number(decimalLike.toNumber());
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function roundCost(value: number) {
+  return Number(value.toFixed(6));
 }

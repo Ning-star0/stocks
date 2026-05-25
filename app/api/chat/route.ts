@@ -1,4 +1,4 @@
-import { getAiConfig } from "@/lib/ai/config";
+import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { getCurrentUser } from "@/lib/currentUser";
 import { AppError } from "@/lib/errors";
 import { addMemoryEntries, appendMemory, getMemoryContent } from "@/lib/memory";
@@ -67,7 +67,7 @@ ${context}`;
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: config.model,
+          model: selectAiModel(config, "flagship"),
           temperature: 0.5,
           messages: [
             { role: "system", content: systemPrompt },
@@ -215,7 +215,7 @@ async function extractAutoMemoriesWithAi(input: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: input.config.model,
+        model: selectAiModel(input.config, "standard"),
         temperature: 0,
         max_tokens: 500,
         response_format: { type: "json_object" },

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
-import { getAiConfig } from "@/lib/ai/config";
+import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { analyzeNews } from "@/lib/ai/analyzeNews";
 import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
@@ -222,17 +222,19 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     const saved = await saveNewsAnalysis(newsItem.id, analysis);
     await setCache(cacheKey, { analysisId: saved.id }, 24 * 60 * 60);
     const aiConfig = await getAiConfig();
+    const promptTokens = Math.ceil(JSON.stringify({ title: newsItem.title, summary: newsItem.summary }).length / 4);
+    const completionTokens = Math.ceil(JSON.stringify(analysis).length / 4);
     await prisma.aiUsageLog.create({
       data: {
         userId: job.userId,
         symbol: newsItem.symbols[0] ?? null,
         jobType: JOB_TYPES.NEWS_ANALYSIS,
         provider: aiConfig.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
-        model: aiConfig.model,
+        model: selectAiModel(aiConfig, "standard"),
         inputHash: job.inputHash,
-        promptTokens: Math.ceil(JSON.stringify({ title: newsItem.title, summary: newsItem.summary }).length / 4),
-        completionTokens: null,
-        estimatedCost: null,
+        promptTokens,
+        completionTokens,
+        estimatedCost: estimateAiCost({ config: aiConfig, tier: "standard", promptTokens, completionTokens }),
         cacheHit: false,
         reason: "high_importance_news"
       }

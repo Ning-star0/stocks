@@ -5,7 +5,7 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { z } from "zod";
 
-import { getAiConfig } from "@/lib/ai/config";
+import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createDecisionHistoryFromFocusDecision, refreshAnalysisRun } from "@/lib/analysis/runRecords";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
@@ -121,6 +121,14 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
 
   const input = await loadDecisionInput(seed);
   const decision = await generateFocusDecision(input);
+  await logFocusDecisionAiUsage({
+    userId: options.userId,
+    source,
+    inputHash,
+    input,
+    decision,
+    cacheHit: false
+  }).catch(() => null);
   await setCache(cacheKey, decision, numberEnv("FOCUS_DECISION_CACHE_TTL_SECONDS", 900));
   const row = await upsertStoredDecision({
     userId: options.userId,
@@ -160,6 +168,34 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     totalEstimatedFee: decision.totalEstimatedFee
   }).catch(() => null);
   return attachStoredMetadata(row, { fromCache: false, stale: false });
+}
+
+async function logFocusDecisionAiUsage(input: {
+  userId: string;
+  source: string;
+  inputHash: string;
+  input: { capital: number; candidates: Candidate[] };
+  decision: Awaited<ReturnType<typeof generateFocusDecision>>;
+  cacheHit: boolean;
+}) {
+  const config = await getAiConfig();
+  const promptTokens = Math.ceil(buildDecisionPrompt(input.input).length / 4);
+  const completionTokens = Math.ceil(JSON.stringify(input.decision).length / 4);
+  await prisma.aiUsageLog.create({
+    data: {
+      userId: input.userId,
+      symbol: null,
+      jobType: "focus_decision",
+      provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
+      model: selectAiModel(config, "flagship"),
+      inputHash: input.inputHash,
+      promptTokens,
+      completionTokens,
+      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: "flagship", promptTokens, completionTokens }),
+      cacheHit: input.cacheHit,
+      reason: input.source
+    }
+  });
 }
 
 async function upsertStoredDecision(input: {
@@ -329,7 +365,7 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
 
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl || undefined });
   const request: ChatCompletionCreateParamsNonStreaming = {
-    model: config.model,
+    model: selectAiModel(config, "flagship"),
     temperature: 0.2,
     max_tokens: numberEnv("AI_FOCUS_DECISION_MAX_TOKENS", 1400),
     response_format: { type: "json_object" },

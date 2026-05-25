@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
-import { getAiConfig } from "@/lib/ai/config";
+import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
@@ -61,7 +61,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: config.model,
+        model: selectAiModel(config, "flagship"),
         temperature: 0.2,
         max_tokens: numberEnv("AI_STOCK_MAX_TOKENS", 2200),
         response_format: { type: "json_object" },

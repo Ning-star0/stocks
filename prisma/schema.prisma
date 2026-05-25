@@ -265,11 +265,19 @@ model ApiUsageLog {
 }
 
 model AiConfig {
-  id        String   @id @default(cuid())
-  apiKey    String   @default("")
-  baseUrl   String   @default("https://api.deepseek.com")
-  model     String   @default("deepseek-v4-pro")
-  updatedAt DateTime @updatedAt
+  id                           String   @id @default(cuid())
+  apiKey                       String   @default("")
+  baseUrl                      String   @default("https://api.deepseek.com")
+  model                        String   @default("deepseek-v4-pro")
+  provider                     String   @default("deepseek")
+  flagshipModel                String   @default("deepseek-v4-pro")
+  standardModel                String   @default("deepseek-v4-flash")
+  flagshipInputPricePerMillion Decimal  @default(0) @db.Decimal(18, 8)
+  flagshipOutputPricePerMillion Decimal  @default(0) @db.Decimal(18, 8)
+  standardInputPricePerMillion Decimal  @default(0) @db.Decimal(18, 8)
+  standardOutputPricePerMillion Decimal @default(0) @db.Decimal(18, 8)
+  costCurrency                 String   @default("CNY")
+  updatedAt                    DateTime @updatedAt
 }
 
 model NotificationConfig {

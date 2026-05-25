@@ -360,7 +360,7 @@ function normalizeSymbol(value?: string | null) {
 async function getModelName() {
   try {
     const config = await getAiConfig();
-    return config.model || null;
+    return config.flagshipModel || config.model || null;
   } catch {
     return process.env.OPENAI_MODEL || "deepseek-v4-pro";
   }

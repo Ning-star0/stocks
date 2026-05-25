@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
-import { getAiConfig } from "@/lib/ai/config";
+import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { analyzeStock } from "@/lib/ai/analyzeStock";
 import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
@@ -75,7 +75,8 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     inputHash,
     cacheHit: false,
     reason: isFallback ? `${input.reason}:fallback` : input.reason,
-    promptTokens: context.estimatedTokens
+    promptTokens: context.estimatedTokens,
+    completionTokens: estimateTokens(JSON.stringify(outputJson))
   });
 
   return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt, timings: { ...context.timings, aiDurationMs } };
@@ -256,17 +257,19 @@ async function logAiUsage(input: {
   completionTokens?: number;
 }) {
   const config = await getAiConfig();
+  const promptTokens = input.promptTokens ?? null;
+  const completionTokens = input.completionTokens ?? null;
   await prisma.aiUsageLog.create({
     data: {
       userId: input.userId,
       symbol: input.symbol ?? null,
       jobType: input.jobType,
       provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
-      model: config.model,
+      model: selectAiModel(config, "flagship"),
       inputHash: input.inputHash ?? null,
-      promptTokens: input.promptTokens ?? null,
-      completionTokens: input.completionTokens ?? null,
-      estimatedCost: null,
+      promptTokens,
+      completionTokens,
+      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: "flagship", promptTokens, completionTokens }),
       cacheHit: input.cacheHit,
       reason: input.reason
     }

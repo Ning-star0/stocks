@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
-import { getAiConfig } from "@/lib/ai/config";
+import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { AppError } from "@/lib/errors";
 import { newsAnalysisSchema } from "@/lib/schemas";
@@ -35,7 +35,7 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: config.model,
+        model: selectAiModel(config, "standard"),
         temperature: 0.15,
         response_format: { type: "json_object" },
         messages: [

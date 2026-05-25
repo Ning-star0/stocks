@@ -20,6 +20,13 @@ export default function SettingsPage() {
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("https://api.deepseek.com");
   const [model, setModel] = useState("deepseek-v4-pro");
+  const [aiProvider, setAiProvider] = useState("deepseek");
+  const [standardModel, setStandardModel] = useState("deepseek-v4-flash");
+  const [costCurrency, setCostCurrency] = useState("CNY");
+  const [flagshipInputPrice, setFlagshipInputPrice] = useState("0");
+  const [flagshipOutputPrice, setFlagshipOutputPrice] = useState("0");
+  const [standardInputPrice, setStandardInputPrice] = useState("0");
+  const [standardOutputPrice, setStandardOutputPrice] = useState("0");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +59,14 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.baseUrl) setBaseUrl(data.baseUrl);
-        if (data.model) setModel(data.model);
+        if (data.flagshipModel || data.model) setModel(data.flagshipModel || data.model);
+        if (data.provider) setAiProvider(data.provider);
+        if (data.standardModel) setStandardModel(data.standardModel);
+        if (data.costCurrency) setCostCurrency(data.costCurrency);
+        if (data.flagshipInputPricePerMillion !== undefined) setFlagshipInputPrice(String(data.flagshipInputPricePerMillion));
+        if (data.flagshipOutputPricePerMillion !== undefined) setFlagshipOutputPrice(String(data.flagshipOutputPricePerMillion));
+        if (data.standardInputPricePerMillion !== undefined) setStandardInputPrice(String(data.standardInputPricePerMillion));
+        if (data.standardOutputPricePerMillion !== undefined) setStandardOutputPrice(String(data.standardOutputPricePerMillion));
         setHasExistingKey(!!data.apiKeyMasked);
       })
       .catch(() => {});
@@ -79,7 +93,18 @@ export default function SettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         // apiKey 为空时传 undefined，后端会保留原有密钥
-        body: JSON.stringify({ apiKey: apiKey || undefined, baseUrl, model })
+        body: JSON.stringify({
+          apiKey: apiKey || undefined,
+          baseUrl,
+          provider: aiProvider,
+          flagshipModel: model,
+          standardModel,
+          costCurrency,
+          flagshipInputPricePerMillion: flagshipInputPrice,
+          flagshipOutputPricePerMillion: flagshipOutputPrice,
+          standardInputPricePerMillion: standardInputPrice,
+          standardOutputPricePerMillion: standardOutputPrice
+        })
       });
       if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");
       setSaved(true);
@@ -202,11 +227,47 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <span className="block text-sm font-medium mb-1">模型名称</span>
-            <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-v4-pro" />
-            <p className="text-xs text-muted-foreground">例如 deepseek-v4-pro, deepseek-v4-flash, gpt-4o</p>
+            <span className="block text-sm font-medium mb-1">厂商</span>
+            <Select value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="qwen">通义千问</option>
+              <option value="zhipu">智谱</option>
+              <option value="moonshot">Moonshot</option>
+              <option value="openai-compatible">OpenAI 兼容接口</option>
+            </Select>
+            <p className="text-xs text-muted-foreground">厂商用于统计和展示；实际请求仍使用上方 API 地址。</p>
           </div>
 
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <span className="block text-sm font-medium mb-1">旗舰模型</span>
+              <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-v4-pro" />
+              <p className="text-xs text-muted-foreground">用于股票分析、AI 决策、对话主回答。</p>
+            </div>
+            <div className="space-y-2">
+              <span className="block text-sm font-medium mb-1">普通模型</span>
+              <Input value={standardModel} onChange={(e) => setStandardModel(e.target.value)} placeholder="deepseek-v4-flash" />
+              <p className="text-xs text-muted-foreground">用于新闻总结、搜索策略、每日简报和记忆抽取。</p>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-border bg-muted/15 p-3">
+            <div>
+              <div className="text-sm font-medium">Token 费用估算</div>
+              <p className="mt-1 text-xs text-muted-foreground">按每 100 万 token 单价计算。价格不固定，建议按厂商控制台最新价格填写。</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[120px_repeat(4,minmax(0,1fr))]">
+              <div className="space-y-2">
+                <span className="block text-xs font-medium text-muted-foreground">币种</span>
+                <Input value={costCurrency} onChange={(e) => setCostCurrency(e.target.value)} placeholder="CNY" />
+              </div>
+              <PriceInput label="旗舰输入" value={flagshipInputPrice} onChange={setFlagshipInputPrice} />
+              <PriceInput label="旗舰输出" value={flagshipOutputPrice} onChange={setFlagshipOutputPrice} />
+              <PriceInput label="普通输入" value={standardInputPrice} onChange={setStandardInputPrice} />
+              <PriceInput label="普通输出" value={standardOutputPrice} onChange={setStandardOutputPrice} />
+            </div>
+          </div>
           <div className="flex gap-3">
             <Button onClick={save} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -309,5 +370,14 @@ function QuickLink({ href, icon, title, text }: { href: string; icon: ReactNode;
       </div>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{text}</p>
     </Link>
+  );
+}
+
+function PriceInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-2">
+      <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+      <Input inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder="0" />
+    </div>
   );
 }

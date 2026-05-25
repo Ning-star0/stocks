@@ -24,6 +24,11 @@ type UsageResponse = {
   generatedAt: string;
   items: UsageItem[];
   aiModels?: ModelUsageItem[];
+  aiCost?: {
+    currency: string;
+    today: number;
+    month: number;
+  };
 };
 
 type ModelUsageItem = {
@@ -36,6 +41,8 @@ type ModelUsageItem = {
   promptTokensMonth: number;
   completionTokensToday: number;
   completionTokensMonth: number;
+  estimatedCostToday: number;
+  estimatedCostMonth: number;
 };
 
 export function ApiUsagePanel() {
@@ -85,6 +92,7 @@ export function ApiUsagePanel() {
           <div className="py-6 text-sm text-muted-foreground">正在读取用量...</div>
         ) : (
           <div className="space-y-4">
+            {data?.aiCost ? <AiCostSummary cost={data.aiCost} /> : null}
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {(data?.items ?? []).map((item) => (
                 <UsageCard key={item.key} item={item} />
@@ -96,6 +104,21 @@ export function ApiUsagePanel() {
         {data?.generatedAt ? <div className="mt-3 text-xs text-muted-foreground">统计时间：{new Date(data.generatedAt).toLocaleString("zh-CN")}</div> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function AiCostSummary({ cost }: { cost: { currency: string; today: number; month: number } }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="rounded-lg border border-border bg-muted/10 p-3">
+        <div className="text-xs text-muted-foreground">今日 AI 估算费用</div>
+        <div className="mt-1 text-xl font-semibold tabular-nums">{formatCost(cost.today, cost.currency)}</div>
+      </div>
+      <div className="rounded-lg border border-border bg-muted/10 p-3">
+        <div className="text-xs text-muted-foreground">本月 AI 估算费用</div>
+        <div className="mt-1 text-xl font-semibold tabular-nums">{formatCost(cost.month, cost.currency)}</div>
+      </div>
+    </div>
   );
 }
 
@@ -118,6 +141,7 @@ function AiModelUsageTable({ rows }: { rows: ModelUsageItem[] }) {
               <th className="px-3 py-2 text-right font-medium">本月 Token</th>
               <th className="px-3 py-2 text-right font-medium">今日调用</th>
               <th className="px-3 py-2 text-right font-medium">本月调用</th>
+              <th className="px-3 py-2 text-right font-medium">本月费用</th>
               <th className="pl-3 py-2 text-right font-medium">输入 / 输出</th>
             </tr>
           </thead>
@@ -129,6 +153,7 @@ function AiModelUsageTable({ rows }: { rows: ModelUsageItem[] }) {
                 <td className="px-3 py-2 text-right tabular-nums">{row.usedMonth.toLocaleString("zh-CN")}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{row.callsToday.toLocaleString("zh-CN")}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{row.callsMonth.toLocaleString("zh-CN")}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCost(row.estimatedCostMonth, "")}</td>
                 <td className="pl-3 py-2 text-right tabular-nums text-muted-foreground">
                   {row.promptTokensMonth.toLocaleString("zh-CN")} / {row.completionTokensMonth.toLocaleString("zh-CN")}
                 </td>
@@ -187,4 +212,9 @@ function statusVariant(percent: number | null) {
   if (percent >= 90) return "danger";
   if (percent >= 70) return "warning";
   return "success";
+}
+
+function formatCost(value: number, currency: string) {
+  const suffix = currency ? ` ${currency}` : "";
+  return `${Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 6 })}${suffix}`;
 }
