@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { getAiConfig } from "@/lib/ai/config";
 import { analyzeStock } from "@/lib/ai/analyzeStock";
 import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { getCache, setCache } from "@/lib/cache";
@@ -254,13 +255,14 @@ async function logAiUsage(input: {
   promptTokens?: number;
   completionTokens?: number;
 }) {
+  const config = await getAiConfig();
   await prisma.aiUsageLog.create({
     data: {
       userId: input.userId,
       symbol: input.symbol ?? null,
       jobType: input.jobType,
-      provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-      model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+      provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
+      model: config.model,
       inputHash: input.inputHash ?? null,
       promptTokens: input.promptTokens ?? null,
       completionTokens: input.completionTokens ?? null,

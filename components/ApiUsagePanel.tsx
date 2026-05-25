@@ -23,6 +23,19 @@ type UsageItem = {
 type UsageResponse = {
   generatedAt: string;
   items: UsageItem[];
+  aiModels?: ModelUsageItem[];
+};
+
+type ModelUsageItem = {
+  model: string;
+  usedToday: number;
+  usedMonth: number;
+  callsToday: number;
+  callsMonth: number;
+  promptTokensToday: number;
+  promptTokensMonth: number;
+  completionTokensToday: number;
+  completionTokensMonth: number;
 };
 
 export function ApiUsagePanel() {
@@ -71,15 +84,60 @@ export function ApiUsagePanel() {
         {loading && !data ? (
           <div className="py-6 text-sm text-muted-foreground">正在读取用量...</div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(data?.items ?? []).map((item) => (
-              <UsageCard key={item.key} item={item} />
-            ))}
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(data?.items ?? []).map((item) => (
+                <UsageCard key={item.key} item={item} />
+              ))}
+            </div>
+            <AiModelUsageTable rows={data?.aiModels ?? []} />
           </div>
         )}
         {data?.generatedAt ? <div className="mt-3 text-xs text-muted-foreground">统计时间：{new Date(data.generatedAt).toLocaleString("zh-CN")}</div> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function AiModelUsageTable({ rows }: { rows: ModelUsageItem[] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-muted/10 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">AI 模型 Token 明细</div>
+          <p className="mt-1 text-xs text-muted-foreground">按实际记录模型统计，包括 Pro / Flash 等不同模型。</p>
+        </div>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-2 pr-3 text-left font-medium">模型</th>
+              <th className="px-3 py-2 text-right font-medium">今日 Token</th>
+              <th className="px-3 py-2 text-right font-medium">本月 Token</th>
+              <th className="px-3 py-2 text-right font-medium">今日调用</th>
+              <th className="px-3 py-2 text-right font-medium">本月调用</th>
+              <th className="pl-3 py-2 text-right font-medium">输入 / 输出</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.model} className="border-b border-border/60 last:border-0">
+                <td className="py-2 pr-3 font-medium">{row.model}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{row.usedToday.toLocaleString("zh-CN")}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{row.usedMonth.toLocaleString("zh-CN")}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{row.callsToday.toLocaleString("zh-CN")}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{row.callsMonth.toLocaleString("zh-CN")}</td>
+                <td className="pl-3 py-2 text-right tabular-nums text-muted-foreground">
+                  {row.promptTokensMonth.toLocaleString("zh-CN")} / {row.completionTokensMonth.toLocaleString("zh-CN")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

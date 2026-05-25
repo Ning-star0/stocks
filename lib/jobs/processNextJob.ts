@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
+import { getAiConfig } from "@/lib/ai/config";
 import { analyzeNews } from "@/lib/ai/analyzeNews";
 import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
@@ -220,13 +221,14 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     });
     const saved = await saveNewsAnalysis(newsItem.id, analysis);
     await setCache(cacheKey, { analysisId: saved.id }, 24 * 60 * 60);
+    const aiConfig = await getAiConfig();
     await prisma.aiUsageLog.create({
       data: {
         userId: job.userId,
         symbol: newsItem.symbols[0] ?? null,
         jobType: JOB_TYPES.NEWS_ANALYSIS,
-        provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+        provider: aiConfig.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
+        model: aiConfig.model,
         inputHash: job.inputHash,
         promptTokens: Math.ceil(JSON.stringify({ title: newsItem.title, summary: newsItem.summary }).length / 4),
         completionTokens: null,

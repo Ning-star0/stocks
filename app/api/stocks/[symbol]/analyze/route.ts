@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { buildStockAnalysisContext } from "@/lib/analysis/stockAnalysisRunner";
+import { getAiConfig } from "@/lib/ai/config";
 import { shouldRunStockAnalysis } from "@/lib/analysis/shouldAnalyze";
 import { getCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
@@ -229,13 +230,14 @@ function priorityForReason(reason: string) {
 }
 
 async function logCacheHit(userId: string, symbol: string, inputHash: string, reason: string) {
+  const config = await getAiConfig();
   await prisma.aiUsageLog.create({
     data: {
       userId,
       symbol,
       jobType: JOB_TYPES.STOCK_ANALYSIS,
-      provider: process.env.OPENAI_BASE_URL ? "openai-compatible" : "openai",
-      model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
+      provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
+      model: config.model,
       inputHash,
       promptTokens: null,
       completionTokens: null,

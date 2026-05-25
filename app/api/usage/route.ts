@@ -18,6 +18,18 @@ type UsageItem = {
   remainingMonth: number | null;
 };
 
+type ModelUsageItem = {
+  model: string;
+  usedToday: number;
+  usedMonth: number;
+  callsToday: number;
+  callsMonth: number;
+  promptTokensToday: number;
+  promptTokensMonth: number;
+  completionTokensToday: number;
+  completionTokensMonth: number;
+};
+
 export async function GET() {
   try {
     const user = await getCurrentUser();
@@ -83,7 +95,8 @@ export async function GET() {
         todayStart: todayStart.toISOString(),
         monthStart: monthStart.toISOString()
       },
-      items
+      items,
+      aiModels: buildAiModelItems(aiToday, aiMonth)
     });
   } catch (error) {
     return apiError(error);
@@ -158,4 +171,51 @@ function sumTokens(rows: Array<{ promptTokens: number | null; completionTokens: 
 
 function sumAmount(rows: Array<{ amount: number }>) {
   return rows.reduce((sum, row) => sum + row.amount, 0);
+}
+
+function buildAiModelItems(
+  todayRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null }>,
+  monthRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null }>
+): ModelUsageItem[] {
+  const byModel = new Map<string, ModelUsageItem>();
+  const ensure = (model: string) => {
+    const key = model || "unknown";
+    const current = byModel.get(key);
+    if (current) return current;
+    const item: ModelUsageItem = {
+      model: key,
+      usedToday: 0,
+      usedMonth: 0,
+      callsToday: 0,
+      callsMonth: 0,
+      promptTokensToday: 0,
+      promptTokensMonth: 0,
+      completionTokensToday: 0,
+      completionTokensMonth: 0
+    };
+    byModel.set(key, item);
+    return item;
+  };
+
+  for (const row of monthRows) {
+    const item = ensure(row.model);
+    const prompt = row.promptTokens ?? 0;
+    const completion = row.completionTokens ?? 0;
+    item.callsMonth += 1;
+    item.promptTokensMonth += prompt;
+    item.completionTokensMonth += completion;
+    item.usedMonth += prompt + completion;
+  }
+
+  for (const row of todayRows) {
+    const item = ensure(row.model);
+    const prompt = row.promptTokens ?? 0;
+    const completion = row.completionTokens ?? 0;
+    item.callsToday += 1;
+    item.promptTokensToday += prompt;
+    item.completionTokensToday += completion;
+    item.usedToday += prompt + completion;
+  }
+
+  return Array.from(byModel.values()).sort((a, b) => b.usedMonth - a.usedMonth || b.callsMonth - a.callsMonth || a.model.localeCompare(b.model));
 }
