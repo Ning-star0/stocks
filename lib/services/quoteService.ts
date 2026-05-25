@@ -31,15 +31,16 @@ type GetQuoteOptions = {
 
 export async function getQuote(symbol: string, options: GetQuoteOptions = {}): Promise<QuoteWithStatus> {
   const normalized = symbol.toUpperCase();
-  const cacheKey = `quote:${normalized}`;
-  const freshCached = options.forceRefresh ? null : await getCache<Quote>(cacheKey);
+  const cacheKeys = quoteCacheKeys(normalized);
+  const cacheKey = cacheKeys[0];
+  const freshCached = options.forceRefresh ? null : await readFreshQuoteCache(cacheKeys);
   if (freshCached) return toQuoteWithStatus(freshCached, "cached");
 
-  const cached = options.allowStale || options.cacheOnly ? await readQuoteCacheRow(cacheKey) : null;
+  const cached = options.allowStale || options.cacheOnly ? await readQuoteCacheRows(cacheKeys) : null;
   if (options.cacheOnly) {
     if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale");
     if (options.allowStale) {
-      const snapshot = await readLatestSnapshot(normalized);
+      const snapshot = await readLatestSnapshotForSymbols(symbolVariants(normalized));
       if (snapshot) return snapshot;
     }
     return unavailableQuote(normalized, cached ? "stale" : "unavailable");
@@ -64,7 +65,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
     });
     if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale", errorMessage(error));
     if (options.allowStale) {
-      const snapshot = await readLatestSnapshot(normalized);
+      const snapshot = await readLatestSnapshotForSymbols(symbolVariants(normalized));
       if (snapshot) return { ...snapshot, error: errorMessage(error) };
     }
     return unavailableQuote(normalized, "error", errorMessage(error));
@@ -95,17 +96,34 @@ async function readQuoteCacheRow(key: string) {
   }
 }
 
+async function readFreshQuoteCache(keys: string[]) {
+  for (const key of keys) {
+    const quote = await getCache<Quote>(key);
+    if (quote) return quote;
+  }
+  return null;
+}
+
+async function readQuoteCacheRows(keys: string[]) {
+  for (const key of keys) {
+    const quote = await readQuoteCacheRow(key);
+    if (quote) return quote;
+  }
+  return null;
+}
+
 async function writeQuoteCache(key: string, quote: Quote) {
   await setCache(key, quote, numberEnv("QUOTE_CACHE_TTL_SECONDS", 30));
 }
 
-async function readLatestSnapshot(symbol: string): Promise<QuoteWithStatus | null> {
+async function readLatestSnapshotForSymbols(symbols: string[]): Promise<QuoteWithStatus | null> {
   try {
     const row = await prisma.priceSnapshot.findFirst({
-      where: { symbol },
+      where: { symbol: { in: symbols } },
       orderBy: { timestamp: "desc" }
     });
     if (!row) return null;
+    const symbol = row.symbol;
     const price = Number(row.price);
     const close = Number(row.close);
     const changePct = close > 0 ? Number((((price - close) / close) * 100).toFixed(2)) : null;
@@ -125,6 +143,23 @@ async function readLatestSnapshot(symbol: string): Promise<QuoteWithStatus | nul
   } catch {
     return null;
   }
+}
+
+function quoteCacheKeys(symbol: string) {
+  return symbolVariants(symbol).map((item) => `quote:${item}`);
+}
+
+function symbolVariants(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  const compact = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  const variants = [normalized];
+  if (/^\d{6}$/.test(compact)) {
+    variants.push(compact);
+    if (/^(5|6|9)/.test(compact)) variants.push(`${compact}.SH`);
+    else if (/^(0|1|2|3)/.test(compact)) variants.push(`${compact}.SZ`);
+    else variants.push(`${compact}.BJ`);
+  }
+  return [...new Set(variants)];
 }
 
 function toQuoteWithStatus(quote: Quote, status: QuoteStatus, error?: string): QuoteWithStatus {
@@ -180,7 +215,9 @@ function inferMarket(symbol: string, currency?: string): "US" | "CN" | "HK" {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "行情请求失败。";
+  const message = error instanceof Error ? error.message : "行情请求失败。";
+  if (message === "fetch failed") return "行情源连接失败，已尝试使用本地缓存。";
+  return message;
 }
 
 function numberEnv(name: string, fallback: number) {

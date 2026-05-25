@@ -62,11 +62,11 @@ export default async function StockDetailPage({
   const range = normalizeRange(query.range, interval);
   const user = await getCurrentUser();
   const provider = getStockDataProvider();
-  const quote = await getQuote(normalized);
+  const quote = await getQuote(normalized, { allowStale: true });
   const quoteSymbol = quote.raw?.symbol ?? quote.symbol;
   // A 股代码可能带 .SH/.SZ/.BJ 后缀，查询时把几种格式都覆盖
   const symbolVariants = [normalized, quoteSymbol, ...expandChinaSymbol(normalized)];
-  const candles = quote.raw ? await provider.getHistory(quoteSymbol, range, interval) : [];
+  const candles = quote.raw ? await safeGetHistory(provider, quoteSymbol, range, interval) : [];
 
   const [latestAnalysis, watchlistItem] = await Promise.all([
     prisma.aiAnalysis.findFirst({
@@ -193,6 +193,14 @@ async function getIndicatorCandles(provider: ReturnType<typeof getStockDataProvi
     return await provider.getHistory(symbol, "1y", "1d");
   } catch {
     return currentCandles;
+  }
+}
+
+async function safeGetHistory(provider: ReturnType<typeof getStockDataProvider>, symbol: string, range: string, interval: string) {
+  try {
+    return await provider.getHistory(symbol, range, interval);
+  } catch {
+    return [];
   }
 }
 
