@@ -39,6 +39,13 @@ export default function SettingsPage() {
   const [pushMessage, setPushMessage] = useState<string | null>(null);
   const isWecomAppProvider = pushProvider === "wecom_app";
   const pushReady = pushEnabled && (isWecomAppProvider ? Boolean(pushCorpId && pushAgentId && pushHasAppSecret && pushToUser) : pushHasWebhook);
+  const pushCredentialLabel = pushProvider === "pushdeer" ? "PushDeer PushKey" : "Webhook / SendKey";
+  const pushCredentialPlaceholder = pushProvider === "pushdeer"
+    ? pushHasWebhook ? "已配置，留空则不修改" : "粘贴 PushDeer PushKey"
+    : pushHasWebhook ? "已配置，留空则不修改" : "粘贴企业微信 Webhook、Server 酱 SendKey 或 QQ Webhook";
+  const pushCredentialHelp = pushProvider === "pushdeer"
+    ? "PushDeer 会推送到你 App 里已注册的设备。建议不要把 PushKey 放进代码或公开聊天记录。"
+    : "QQ 官方机器人通常需要审核和签名服务；这里先支持 QQ/第三方 Bot 的 HTTP Webhook。";
 
   useEffect(() => {
     fetch("/api/settings/ai")
@@ -239,6 +246,7 @@ export default function SettingsPage() {
                 <option value="wecom">企业微信机器人</option>
                 <option value="wecom_app">企业微信应用消息</option>
                 <option value="server_chan">Server 酱微信</option>
+                <option value="pushdeer">PushDeer</option>
                 <option value="qq_webhook">QQ Webhook</option>
                 <option value="generic_webhook">通用 Webhook</option>
               </Select>
@@ -267,9 +275,9 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                <span className="block text-sm font-medium">Webhook / SendKey</span>
-                <Input type="password" value={pushWebhook} onChange={(event) => setPushWebhook(event.target.value)} placeholder={pushHasWebhook ? "已配置，留空则不修改" : "粘贴企业微信 Webhook、Server 酱 SendKey 或 QQ Webhook"} autoComplete="off" />
-                <p className="text-xs leading-5 text-muted-foreground">QQ 官方机器人通常需要审核和签名服务；这里先支持 QQ/第三方 Bot 的 HTTP Webhook。</p>
+                <span className="block text-sm font-medium">{pushCredentialLabel}</span>
+                <Input type="password" value={pushWebhook} onChange={(event) => setPushWebhook(event.target.value)} placeholder={pushCredentialPlaceholder} autoComplete="off" />
+                <p className="text-xs leading-5 text-muted-foreground">{pushCredentialHelp}</p>
               </div>
             )}
           </div>

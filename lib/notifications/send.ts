@@ -85,6 +85,9 @@ async function sendMessage(config: Awaited<ReturnType<typeof getNotificationConf
   if (config.provider === "wecom_app") {
     return sendWecomAppMessage(config, message);
   }
+  if (config.provider === "pushdeer") {
+    return sendPushDeerMessage(config.webhookUrl, message);
+  }
 
   const url = resolveWebhookUrl(config.provider, config.webhookUrl);
   const body = bodyForProvider(config.provider, message);
@@ -95,6 +98,30 @@ async function sendMessage(config: Awaited<ReturnType<typeof getNotificationConf
   });
   const text = await response.text().catch(() => "");
   if (!response.ok) throw new Error(`推送失败：HTTP ${response.status} ${text.slice(0, 160)}`);
+}
+
+async function sendPushDeerMessage(pushKey: string, message: { title: string; markdown: string; text: string }) {
+  const params = new URLSearchParams();
+  params.set("pushkey", pushKey);
+  params.set("text", message.title);
+  params.set("desp", message.markdown);
+  params.set("type", "markdown");
+
+  const response = await fetch("https://api2.pushdeer.com/message/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  });
+  const text = await response.text().catch(() => "");
+  let payload: { code?: number; error?: string; msg?: string } | null = null;
+  try {
+    payload = text ? JSON.parse(text) as { code?: number; error?: string; msg?: string } : null;
+  } catch {
+    payload = null;
+  }
+  if (!response.ok || (payload?.code !== undefined && payload.code !== 0)) {
+    throw new Error(`PushDeer 推送失败：${payload?.error || payload?.msg || `HTTP ${response.status} ${text.slice(0, 120)}`}`);
+  }
 }
 
 async function sendWecomAppMessage(config: Awaited<ReturnType<typeof getNotificationConfig>>, message: { title: string; markdown: string; text: string }) {

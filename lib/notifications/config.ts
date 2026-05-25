@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type NotificationProvider = "wecom" | "wecom_app" | "server_chan" | "qq_webhook" | "generic_webhook";
+export type NotificationProvider = "wecom" | "wecom_app" | "server_chan" | "pushdeer" | "qq_webhook" | "generic_webhook";
 
 export type NotificationConfigData = {
   enabled: boolean;
@@ -12,7 +12,7 @@ export type NotificationConfigData = {
   toUser: string;
 };
 
-const PROVIDERS = new Set<NotificationProvider>(["wecom", "wecom_app", "server_chan", "qq_webhook", "generic_webhook"]);
+const PROVIDERS = new Set<NotificationProvider>(["wecom", "wecom_app", "server_chan", "pushdeer", "qq_webhook", "generic_webhook"]);
 
 export async function getNotificationConfig(userId: string): Promise<NotificationConfigData> {
   const row = await prisma.notificationConfig.findUnique({ where: { userId } });
