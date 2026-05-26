@@ -276,6 +276,7 @@ async function buildChatContext(userId: string) {
     return [
       `${item.symbol}${item.note ? ` (${item.note})` : ""}`,
       `持仓价: ${serialized.holdingPrice ?? "未设置"}`,
+      `持仓数量: ${serialized.holdingShares ?? "未设置"}`,
       `目标价: ${serialized.targetPrice ?? "未设置"}`,
       `止损价: ${serialized.stopLoss ?? "未设置"}`,
       `时间周期: ${serialized.timeHorizon ?? "未设置"}`,

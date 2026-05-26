@@ -64,6 +64,7 @@ type Candidate = {
   riskLevel?: string;
   isHolding?: boolean;
   holdingPrice?: number | null;
+  holdingShares?: number | null;
   positionOpenedAt?: Date | null;
   targetPrice?: number | null;
   stopLoss?: number | null;
@@ -277,6 +278,7 @@ async function loadDecisionSeed(userId: string) {
       symbol: true,
       isHolding: true,
       holdingPrice: true,
+      holdingShares: true,
       targetPrice: true,
       stopLoss: true,
       positionOpenedAt: true
@@ -290,6 +292,7 @@ async function loadDecisionSeed(userId: string) {
       symbol,
       isHolding: item?.isHolding ?? false,
       holdingPrice: toNumber(item?.holdingPrice),
+      holdingShares: toNumber(item?.holdingShares),
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss),
       positionOpenedAt: item?.positionOpenedAt?.toISOString() ?? null
@@ -334,6 +337,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       riskLevel: item?.riskLevel,
       isHolding: item?.isHolding ?? false,
       holdingPrice,
+      holdingShares: toNumber(item?.holdingShares),
       positionOpenedAt: item?.positionOpenedAt ?? null,
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss),
@@ -417,7 +421,7 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 
 决策要求：
 1. 必须明确 recommendedAction，只能是 buy 或 wait。buy 表示“形成条件触发型计划买入/增持情景”，wait 表示“今日只观察，不执行计划金额”。
-2. 每个候选都有 isHolding。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
+2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
 3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断，若 entryAdvice 是等待、不建议入场、回避、观望，则不能买。
 4. 如果最新分析 trend=bearish、confidence 低于 0.55、行情价格不可用、或建议里出现减仓/止损/离场/回避，应 recommendedAction=wait 或在 ranking 标为回避。
 5. 如果建议买入，orders 里最多给 2 笔 buy；必须写清 symbol、amount、shares、reason、riskControl、invalidIf。reason 必须说明这是“新买入”还是“增持”。

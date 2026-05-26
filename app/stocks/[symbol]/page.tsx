@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { AnalyzeStockButton } from "@/components/AnalyzeStockButton";
 import { AiAnalysisPanel } from "@/components/AiAnalysisPanel";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -8,7 +6,7 @@ import { NewsPanel } from "@/components/NewsPanel";
 import { PositionEditor } from "@/components/PositionEditor";
 import { RiskBadge } from "@/components/RiskBadge";
 import { StrategyBadge, trendToStrategy } from "@/components/StrategyBadge";
-import { StockChart } from "@/components/StockChart";
+import { StockChartPanel } from "@/components/StockChartPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/layout";
 import { buildDecisionChange } from "@/lib/decision/change";
@@ -36,17 +34,6 @@ const intradayRangeOptions = [
   { value: "5d", label: "5日" },
   { value: "1mo", label: "1月" },
   { value: "3mo", label: "3月" }
-];
-
-const intervalOptions = [
-  { value: "1m", label: "分时" },
-  { value: "5m", label: "5分" },
-  { value: "15m", label: "15分" },
-  { value: "30m", label: "30分" },
-  { value: "60m", label: "60分" },
-  { value: "1d", label: "日K" },
-  { value: "1wk", label: "周K" },
-  { value: "1mo", label: "月K" }
 ];
 
 export default async function StockDetailPage({
@@ -154,22 +141,20 @@ export default async function StockDetailPage({
         position={{
           isHolding: watchlistItem?.isHolding ?? false,
           holdingPrice: toNumber(watchlistItem?.holdingPrice),
+          holdingShares: toNumber(watchlistItem?.holdingShares),
           positionOpenedAt: watchlistItem?.positionOpenedAt ?? null
         }}
       />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="soft-card">
-          <CardHeader className="gap-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <CardTitle>价格走势</CardTitle>
-              <ChartControls symbol={quoteSymbol} range={range} interval={interval} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {candles.length ? <StockChart candles={candles} currency={quote.currency} symbol={quoteSymbol} unit={isIndex ? "point" : undefined} interval={interval} /> : <div className="text-sm text-muted-foreground">暂无可展示的 K 线数据。</div>}
-          </CardContent>
-        </Card>
+        <StockChartPanel
+          symbol={quoteSymbol}
+          initialCandles={candles}
+          initialRange={range}
+          initialInterval={interval}
+          currency={quote.currency}
+          unit={isIndex ? "point" : undefined}
+        />
 
         <div className="space-y-5">
           {indicators ? (
@@ -191,6 +176,7 @@ export default async function StockDetailPage({
                 itemId={watchlistItem.id}
                 isHolding={watchlistItem.isHolding}
                 holdingPrice={toNumber(watchlistItem.holdingPrice)}
+                holdingShares={toNumber(watchlistItem.holdingShares)}
                 targetPrice={toNumber(watchlistItem.targetPrice)}
                 stopLoss={toNumber(watchlistItem.stopLoss)}
                 positionOpenedAt={watchlistItem.positionOpenedAt}
@@ -247,40 +233,6 @@ function safeCalculateIndicators(symbol: string, candles: Candle[]): { indicator
     }
     throw error;
   }
-}
-
-function ChartControls({ symbol, range, interval }: { symbol: string; range: string; interval: string }) {
-  const ranges = isIntraday(interval) ? intradayRangeOptions : rangeOptions;
-  return (
-    <div className="rounded-lg border border-border bg-muted/10 p-2">
-      <div className="grid gap-2 lg:grid-cols-[auto_auto] lg:items-center">
-        <div className="text-[11px] font-medium text-muted-foreground">周期</div>
-        <div className="flex flex-wrap gap-1">
-        {intervalOptions.map((option) => (
-          <Link
-            key={option.value}
-            href={`/stocks/${symbol}?interval=${option.value}&range=${normalizeRange(range, option.value)}`}
-            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${interval === option.value ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
-          >
-            {option.label}
-          </Link>
-        ))}
-        </div>
-        <div className="text-[11px] font-medium text-muted-foreground">范围</div>
-        <div className="flex flex-wrap gap-1">
-        {ranges.map((option) => (
-          <Link
-            key={option.value}
-            href={`/stocks/${symbol}?interval=${interval}&range=${option.value}`}
-            className={`min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors ${range === option.value ? "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200" : "border-border bg-background/40 text-muted-foreground hover:text-foreground"}`}
-          >
-            {option.label}
-          </Link>
-        ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function EmptyCard({ title, text }: { title: string; text: string }) {

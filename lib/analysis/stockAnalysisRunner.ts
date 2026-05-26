@@ -142,6 +142,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     userContext: {
       isHolding: watchlistItem?.isHolding ?? null,
       holdingPrice: toNumber(watchlistItem?.holdingPrice),
+      holdingShares: toNumber(watchlistItem?.holdingShares),
       targetPrice: toNumber(watchlistItem?.targetPrice),
       stopLoss: toNumber(watchlistItem?.stopLoss),
       positionOpenedAt: watchlistItem?.positionOpenedAt?.toISOString() ?? null,

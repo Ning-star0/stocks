@@ -4,6 +4,7 @@ import { toNumber } from "@/lib/utils";
 export type PositionContext = {
   isHolding?: boolean | null;
   holdingPrice?: number | string | null;
+  holdingShares?: number | string | null;
   positionOpenedAt?: string | Date | null;
 };
 

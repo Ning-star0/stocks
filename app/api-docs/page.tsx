@@ -44,7 +44,7 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     description: "管理标的、持仓价、目标价、止损、周期和风险等级。",
     endpoints: [
       { method: "GET", path: "/api/watchlist", description: "读取当前用户自选股和行情。", cost: "只读" },
-      { method: "POST", path: "/api/watchlist/items", description: "添加自选股，重复 symbol 会复用或更新。", body: "{ symbol, note?, holdingPrice?, targetPrice?, stopLoss? }", cost: "写库" },
+      { method: "POST", path: "/api/watchlist/items", description: "添加自选股，重复 symbol 会复用或更新。", body: "{ symbol, note?, holdingPrice?, holdingShares?, targetPrice?, stopLoss? }", cost: "写库" },
       { method: "PATCH", path: "/api/watchlist/items/[id]", description: "编辑备注、持仓、目标价、止损价、周期、风险等级。", cost: "写库" },
       { method: "DELETE", path: "/api/watchlist/items/[id]", description: "删除自选股。", cost: "写库" }
     ]

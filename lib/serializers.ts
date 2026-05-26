@@ -6,6 +6,7 @@ export function serializeWatchlistItem(item: WatchlistItem) {
   return {
     ...item,
     holdingPrice: toNumber(item.holdingPrice),
+    holdingShares: toNumber(item.holdingShares),
     targetPrice: toNumber(item.targetPrice),
     stopLoss: toNumber(item.stopLoss),
     positionOpenedAt: item.positionOpenedAt ? item.positionOpenedAt.toISOString() : null,

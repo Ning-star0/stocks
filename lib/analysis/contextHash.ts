@@ -10,6 +10,7 @@ export type AnalysisContextHashInput = {
   userContext: {
     isHolding?: boolean | null;
     holdingPrice?: number | null;
+    holdingShares?: number | null;
     targetPrice?: number | null;
     stopLoss?: number | null;
     positionOpenedAt?: string | null;
@@ -31,6 +32,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
     userContext: {
       isHolding: input.userContext.isHolding ?? null,
       holdingPrice: input.userContext.holdingPrice ?? null,
+      holdingShares: input.userContext.holdingShares ?? null,
       targetPrice: input.userContext.targetPrice ?? null,
       stopLoss: input.userContext.stopLoss ?? null,
       positionOpenedAt: input.userContext.positionOpenedAt ?? null,

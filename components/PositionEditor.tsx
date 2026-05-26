@@ -12,6 +12,7 @@ type PositionEditorProps = {
   itemId: string;
   isHolding?: boolean | null;
   holdingPrice?: number | null;
+  holdingShares?: number | null;
   targetPrice?: number | null;
   stopLoss?: number | null;
   positionOpenedAt?: string | Date | null;
@@ -24,6 +25,7 @@ export function PositionEditor({
   itemId,
   isHolding,
   holdingPrice,
+  holdingShares,
   targetPrice,
   stopLoss,
   positionOpenedAt,
@@ -37,6 +39,7 @@ export function PositionEditor({
   const holdingDays = openedDate ? daysSince(openedDate) : null;
   const targetReturn = calcPercent(targetPrice, holdingPrice);
   const stopLossReturn = calcPercent(stopLoss, holdingPrice);
+  const positionCost = holdingPrice && holdingShares ? holdingPrice * holdingShares : null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,6 +56,7 @@ export function PositionEditor({
         body: JSON.stringify({
           isHolding: form.get("isHolding") === "on",
           holdingPrice: optionalNumber(form.get("holdingPrice")),
+          holdingShares: optionalNumber(form.get("holdingShares")),
           targetPrice: optionalNumber(form.get("targetPrice")),
           stopLoss: optionalNumber(form.get("stopLoss")),
           positionOpenedAt: optionalDateValue(form.get("positionOpenedAt")),
@@ -99,8 +103,9 @@ export function PositionEditor({
         />
       </label>
 
-      <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-muted/20 p-2 text-xs">
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/20 p-2 text-xs sm:grid-cols-4">
         <Metric label="持仓天数" value={holdingDays === null ? "--" : `${holdingDays} 天`} />
+        <Metric label="持仓数量" value={holdingShares ? `${formatQuantity(holdingShares)} 股/份` : "--"} />
         <Metric label="目标空间" value={targetReturn === null ? "--" : `${targetReturn >= 0 ? "+" : ""}${targetReturn.toFixed(1)}%`} tone={targetReturn && targetReturn > 0 ? "up" : "neutral"} />
         <Metric label="止损空间" value={stopLossReturn === null ? "--" : `${stopLossReturn.toFixed(1)}%`} tone={stopLossReturn && stopLossReturn < 0 ? "down" : "neutral"} />
       </div>
@@ -110,8 +115,17 @@ export function PositionEditor({
           <Field label="持仓成本">
             <Input name="holdingPrice" type="number" step="0.001" defaultValue={holdingPrice ?? ""} placeholder="例如 2.10" />
           </Field>
+          <Field label="持仓数量（股/份）">
+            <Input name="holdingShares" type="number" step="1" defaultValue={holdingShares ?? ""} placeholder="例如 200" />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <Field label="建仓日期">
             <Input name="positionOpenedAt" type="date" defaultValue={openedDate} />
+          </Field>
+          <Field label="持仓金额">
+            <Input value={positionCost === null ? "--" : positionCost.toFixed(2)} readOnly aria-label="持仓金额" />
           </Field>
         </div>
 
@@ -202,4 +216,8 @@ function daysSince(dateText: string) {
 function calcPercent(value?: number | null, base?: number | null) {
   if (!value || !base || base <= 0) return null;
   return ((value - base) / base) * 100;
+}
+
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? value.toLocaleString("zh-CN") : value.toLocaleString("zh-CN", { maximumFractionDigits: 4 });
 }

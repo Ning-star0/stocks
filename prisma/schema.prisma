@@ -57,6 +57,7 @@ model WatchlistItem {
   market       String      @default("US")
   note         String?
   holdingPrice Decimal?    @db.Decimal(18, 4)
+  holdingShares Decimal?   @db.Decimal(18, 4)
   isHolding    Boolean     @default(false)
   targetPrice  Decimal?    @db.Decimal(18, 4)
   stopLoss     Decimal?    @db.Decimal(18, 4)

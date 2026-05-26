@@ -24,6 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         note: body.note === undefined ? item.note : body.note || null,
         isHolding: body.isHolding === undefined ? item.isHolding : body.isHolding,
         holdingPrice: body.holdingPrice === undefined ? item.holdingPrice : body.holdingPrice ?? null,
+        holdingShares: body.holdingShares === undefined ? item.holdingShares : body.holdingShares ?? null,
         targetPrice: body.targetPrice === undefined ? item.targetPrice : body.targetPrice ?? null,
         stopLoss: body.stopLoss === undefined ? item.stopLoss : body.stopLoss ?? null,
         positionOpenedAt: body.positionOpenedAt === undefined ? item.positionOpenedAt : body.positionOpenedAt ?? null,
