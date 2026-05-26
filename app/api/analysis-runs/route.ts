@@ -41,7 +41,12 @@ export async function GET(request: NextRequest) {
         fallbackCount: latest?.items.filter((item) => item.fallbackUsed).length ?? 0,
         latestFallbackUsed: latest?.fallbackUsed ?? false,
         latestErrorSummary: latest?.errorSummary ?? null,
-        latestMetrics
+        latestMetrics,
+        concurrency: {
+          jobWorkers: clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8),
+          focusStockAnalysis: clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6),
+          quoteRequests: Math.max(1, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2))
+        }
       },
       runs: runs.map((run) => {
         const metrics = aggregateRunMetrics(run.items);
@@ -125,4 +130,13 @@ function resolveNextRunAt(stored: Date | null, times: string[]) {
   const now = new Date();
   if (stored && stored.getTime() > now.getTime()) return stored;
   return nextMarketScheduledTime(times, now);
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

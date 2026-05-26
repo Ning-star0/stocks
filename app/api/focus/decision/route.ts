@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/currentUser";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
+import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { apiError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
 import { prisma } from "@/lib/prisma";
@@ -30,56 +31,7 @@ export async function POST() {
       runType: "manual",
       totalSymbols: focus?.symbols.length ?? 0
     });
-    for (const symbol of focus?.symbols ?? []) {
-      const item = await startAnalysisRunItem({ runId: run.id, symbol }).catch(() => null);
-      try {
-        const result = await runStockAnalysis({
-          userId: user.id,
-          symbol,
-          reason: "今日关注手动重新分析",
-          inputHash: null,
-          forceRefresh: true
-        });
-        const watchlistItem = await prisma.watchlistItem.findFirst({
-          where: { symbol, watchlist: { userId: user.id } }
-        });
-        const history = await createDecisionHistoryFromAnalysis({
-          userId: user.id,
-          runId: run.id,
-          analysisId: result.analysisId,
-          symbol,
-          source: "manual",
-          riskLevel: watchlistItem?.riskLevel ?? null,
-          outputJson: result.outputJson
-        }).catch(() => null);
-        await finishAnalysisRunItem({
-          itemId: item?.id,
-          runId: run.id,
-          symbol,
-          status: result.fromCache ? "skipped" : "success",
-          decisionId: history?.id ?? null,
-          aiStatus: isFallbackOutput(result.outputJson) ? "fallback" : "success",
-          quoteStatus: "success",
-          newsStatus: "success",
-          durationMs: result.durationMs,
-          aiDurationMs: "aiDurationMs" in result.timings ? result.timings.aiDurationMs : null,
-          quoteDurationMs: result.timings?.quoteDurationMs ?? null,
-          newsDurationMs: result.timings?.newsDurationMs ?? null,
-          fallbackUsed: isFallbackOutput(result.outputJson)
-        });
-      } catch (error) {
-        await finishAnalysisRunItem({
-          itemId: item?.id,
-          runId: run.id,
-          symbol,
-          status: "failed",
-          aiStatus: "failed",
-          quoteStatus: "failed",
-          newsStatus: "skipped",
-          errorMessage: error instanceof Error ? error.message : "未知错误"
-        });
-      }
-    }
+    await mapWithConcurrency(focus?.symbols ?? [], focusAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
       forceRefresh: true,
@@ -93,6 +45,70 @@ export async function POST() {
   }
 }
 
+async function analyzeFocusSymbol(userId: string, runId: string, symbol: string) {
+  const item = await startAnalysisRunItem({ runId, symbol }).catch(() => null);
+  try {
+    const result = await runStockAnalysis({
+      userId,
+      symbol,
+      reason: "今日关注手动重新分析",
+      inputHash: null,
+      forceRefresh: true
+    });
+    const watchlistItem = await prisma.watchlistItem.findFirst({
+      where: { symbol, watchlist: { userId } }
+    });
+    const history = await createDecisionHistoryFromAnalysis({
+      userId,
+      runId,
+      analysisId: result.analysisId,
+      symbol,
+      source: "manual",
+      riskLevel: watchlistItem?.riskLevel ?? null,
+      outputJson: result.outputJson
+    }).catch(() => null);
+    await finishAnalysisRunItem({
+      itemId: item?.id,
+      runId,
+      symbol,
+      status: result.fromCache ? "skipped" : "success",
+      decisionId: history?.id ?? null,
+      aiStatus: isFallbackOutput(result.outputJson) ? "fallback" : "success",
+      quoteStatus: "success",
+      newsStatus: "success",
+      durationMs: result.durationMs,
+      aiDurationMs: "aiDurationMs" in result.timings ? result.timings.aiDurationMs : null,
+      quoteDurationMs: result.timings?.quoteDurationMs ?? null,
+      newsDurationMs: result.timings?.newsDurationMs ?? null,
+      fallbackUsed: isFallbackOutput(result.outputJson)
+    });
+  } catch (error) {
+    await finishAnalysisRunItem({
+      itemId: item?.id,
+      runId,
+      symbol,
+      status: "failed",
+      aiStatus: "failed",
+      quoteStatus: "failed",
+      newsStatus: "skipped",
+      errorMessage: error instanceof Error ? error.message : "未知错误"
+    });
+  }
+}
+
 function isFallbackOutput(output: unknown) {
   return Boolean(output && typeof output === "object" && "isFallback" in output && (output as { isFallback?: unknown }).isFallback);
+}
+
+function focusAnalysisConcurrency() {
+  return clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6);
+}
+
+function numberEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

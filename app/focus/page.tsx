@@ -92,6 +92,11 @@ type AnalysisRunResponse = {
     latestFallbackUsed: boolean;
     latestErrorSummary: string | null;
     latestMetrics: RunMetrics;
+    concurrency?: {
+      jobWorkers: number;
+      focusStockAnalysis: number;
+      quoteRequests: number;
+    };
   };
   runs: AnalysisRunItem[];
 };
@@ -177,8 +182,8 @@ export default function FocusPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/focus").then((r) => r.json()),
-      fetch("/api/watchlist").then((r) => r.json())
+      fetch("/api/focus").then((response) => readJsonResponse<Partial<FocusData>>(response)),
+      fetch("/api/watchlist").then((response) => readJsonResponse<{ watchlists?: Array<{ items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }>; items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }>(response))
     ])
       .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
@@ -197,7 +202,7 @@ export default function FocusPage() {
         setWatchlist(items);
         setNames(Object.fromEntries(items.filter((item: StockItem) => item.name).map((item: StockItem) => [item.symbol, item.name as string])));
       })
-      .catch(() => setMessage("加载失败"))
+      .catch((error) => setMessage(error instanceof Error ? error.message : "加载失败"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -219,8 +224,7 @@ export default function FocusPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isHolding: nextHolding })
       });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "保存购买状态失败");
+      const json = await readJsonResponse<{ item?: { positionOpenedAt?: string | null } }>(response);
       setWatchlist((prev) => prev.map((row) => row.id === item.id ? { ...row, isHolding: nextHolding, positionOpenedAt: json.item?.positionOpenedAt ?? item.positionOpenedAt } : row));
       setDecision(null);
       setDecisionError(null);
@@ -241,7 +245,7 @@ export default function FocusPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data)
       });
-      if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");
+      await readJsonResponse(res);
       setMessage("已保存");
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
@@ -275,12 +279,12 @@ export default function FocusPage() {
   }
 
   const refreshTrackingData = useCallback(async () => {
-    const [runsResponse, historyResponse] = await Promise.all([
-      fetch("/api/analysis-runs?limit=6", { cache: "no-store" }).then((response) => response.ok ? response.json() : null),
-      fetch("/api/decision-history?limit=5", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+    const [runsResponse, historyResponse] = await Promise.allSettled([
+      fetch("/api/analysis-runs?limit=6", { cache: "no-store" }).then((response) => readJsonResponse<AnalysisRunResponse>(response)),
+      fetch("/api/decision-history?limit=5", { cache: "no-store" }).then((response) => readJsonResponse<{ records?: DecisionHistoryRecord[] }>(response))
     ]);
-    if (runsResponse) setRuns(runsResponse);
-    if (historyResponse?.records) setHistory(historyResponse.records);
+    if (runsResponse.status === "fulfilled") setRuns(runsResponse.value);
+    if (historyResponse.status === "fulfilled" && historyResponse.value.records) setHistory(historyResponse.value.records);
   }, []);
 
   const loadDecision = useCallback(async (method: "GET" | "POST") => {
@@ -289,8 +293,7 @@ export default function FocusPage() {
     setDecisionNotice(null);
     try {
       const response = await fetch("/api/focus/decision", { method });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "生成决策失败");
+      const json = await readJsonResponse<FocusDecision & { decisionUnavailable?: boolean; message?: string }>(response);
       if (json.decisionUnavailable) {
         setDecision(null);
         setDecisionNotice(json.message ?? "等待下一个自动分析时间生成买入决策。");
@@ -643,6 +646,7 @@ function TaskStatusPanel({
   const failedCount = runs?.summary.failedCount ?? 0;
   const totalSymbols = runs?.summary.totalSymbols ?? latest?.totalSymbols ?? 0;
   const latestMetrics = runs?.summary.latestMetrics ?? latest?.metrics ?? emptyRunMetrics();
+  const concurrency = runs?.summary.concurrency;
   const latestTone = decisionError || runs?.summary.latestStatus === "failed"
     ? "danger"
     : runs?.summary.latestStatus === "partial_failed" || runs?.summary.latestFallbackUsed
@@ -666,13 +670,14 @@ function TaskStatusPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <StatusMetric label="自动任务" value={enabled ? "已启用" : "未启用"} tone={enabled ? "success" : "warning"} />
           <StatusMetric label="下一次 AI 分析" value={runs?.summary.nextRunAt ? formatDateTime(runs.summary.nextRunAt) : nextAnalysisLabel(focus.analysisTimes)} />
           <StatusMetric label="今日已执行" value={`${runs?.summary.todayRunCount ?? 0} 次`} />
           <StatusMetric label="最近状态" value={latestStatus} tone={latestTone} />
           <StatusMetric label="成功 / 失败" value={`${successCount} / ${failedCount}`} tone={failedCount > 0 ? "warning" : "success"} />
           <StatusMetric label="兜底触发" value={`${runs?.summary.fallbackCount ?? 0} 次`} tone={(runs?.summary.fallbackCount ?? 0) > 0 ? "warning" : "success"} />
+          <StatusMetric label="队列 / 手动并发" value={concurrency ? `${concurrency.jobWorkers} / ${concurrency.focusStockAnalysis}` : "--"} />
         </div>
 
         {latest ? (
@@ -1096,7 +1101,7 @@ function FocusAnalysisCard({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     fetch(`/api/stocks/${symbol}/analysis/latest`)
-      .then((r) => r.json())
+      .then((response) => readJsonResponse<{ outputJson?: typeof analysis; analysis?: { outputJson?: typeof analysis } }>(response))
       .then((data) => {
         setAnalysis(data.outputJson ?? data.analysis?.outputJson ?? null);
       })
@@ -1166,6 +1171,46 @@ function makeFriendlySummary(summary?: string) {
     return "AI 服务暂时不可用，当前结果为本地规则生成的临时分析。服务恢复后建议重新分析。";
   }
   return summary.replace(/\s*本分析截至\s*\d{4}-\d{2}-\d{2}T\S+/g, "").trim();
+}
+
+async function readJsonResponse<T = unknown>(response: Response): Promise<T> {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(`接口返回了非 JSON 响应（HTTP ${response.status}）：${summarizeNonJson(text)}`);
+  }
+
+  let payload: unknown = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`接口 JSON 解析失败（HTTP ${response.status}）：${summarizeNonJson(text)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(apiErrorMessage(payload) ?? `请求失败（HTTP ${response.status}）`);
+  }
+  return payload as T;
+}
+
+function apiErrorMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const error = (payload as { error?: unknown }).error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === "string" ? message : null;
+  }
+  return null;
+}
+
+function summarizeNonJson(text: string) {
+  const summary = text
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return summary ? summary.slice(0, 180) : "空响应";
 }
 
 function formatDateTime(value?: string | Date | null) {
