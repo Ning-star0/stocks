@@ -130,7 +130,7 @@ export default function MemoryPage() {
               <Badge variant="secondary">{state.entries.length} 条</Badge>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              AI 会在对话中自动沉淀你的偏好；你也可以手动添加明确规则。所有股票分析、聊天和买入决策都会参考这些记忆。
+              AI 会在对话中自动沉淀你的偏好；你也可以手动添加明确规则。所有股票分析、聊天和策略观察都会参考这些记忆。
             </p>
             {state.updatedAt ? <p className="mt-2 text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</p> : null}
           </div>

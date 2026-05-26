@@ -60,7 +60,7 @@ export async function checkFocusSchedules() {
           jobType: JOB_TYPES.FOCUS_DECISION,
           priority: JOB_PRIORITY.FOCUS_DECISION,
           inputHash: `focus_decision:${group.id}:${formatDateKey(now)}:${timeStr}`,
-          payload: { reason: `关注板块定时买入决策 ${timeStr}`, scheduledFor: now.toISOString(), runId: run.id }
+          payload: { reason: `关注板块定时策略观察 ${timeStr}`, scheduledFor: now.toISOString(), runId: run.id }
         }).catch(() => {});
         await prisma.focusGroup.update({
           where: { id: group.id },

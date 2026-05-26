@@ -296,7 +296,7 @@ export default function FocusPage() {
       const json = await readJsonResponse<FocusDecision & { decisionUnavailable?: boolean; message?: string }>(response);
       if (json.decisionUnavailable) {
         setDecision(null);
-        setDecisionNotice(json.message ?? "等待下一个自动分析时间生成买入决策。");
+        setDecisionNotice(json.message ?? "等待下一个自动分析时间生成策略观察。");
         return;
       }
       setDecision(json);

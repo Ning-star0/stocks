@@ -88,6 +88,7 @@ ${truncate(input.content ?? input.title, 6000)}
 3. whyItMatters 必须是简体中文。
 4. sentiment、impactLevel 等枚举值仍然使用英文。
 5. 原文标题和链接可以保留原始语言，但不要把英文原文整段复制到 summary。
+6. JSON 示例中的枚举字段只能返回一个合法值，例如 sentiment 只能返回 "positive"、"neutral" 或 "negative" 其中之一，不能返回说明文字。
 
 相关股票候选：
 ${JSON.stringify(input.candidateSymbols ?? [])}
@@ -98,8 +99,8 @@ ${JSON.stringify(input.candidateSectors ?? [])}
 请返回严格 JSON：
 {
   "summary": "",
-  "sentiment": "positive | neutral | negative",
-  "impactLevel": "low | medium | high",
+  "sentiment": "neutral",
+  "impactLevel": "medium",
   "affectedSymbols": [],
   "affectedSectors": [],
   "riskNotes": [],

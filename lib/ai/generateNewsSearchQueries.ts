@@ -70,10 +70,11 @@ export async function generateNewsSearchPlan(input: GenerateNewsSearchQueriesInp
 7. 如果是银行、保险或券商，要覆盖利率、地产信用风险、不良率、息差、监管政策、资本市场活跃度。
 8. 如果是电网、电力设备或通信，要覆盖国家电网、南方电网、特高压、配电网改造、招标采购、算力网络、运营商资本开支。
 9. searchQueries 要具体，最好 6-10 条，每条 4-10 个词，能直接用于 Tavily 或财经新闻 API 搜索。
+10. JSON 示例中的枚举字段只能返回一个合法值，例如 assetType 只能返回 "股票"、"ETF"、"指数"、"商品资源股"、"金融" 或 "其他" 其中之一。
 
 只返回严格 JSON：
 {
-  "assetType": "股票 | ETF | 指数 | 商品资源股 | 金融 | 其他",
+  "assetType": "ETF",
   "primarySector": "",
   "relatedDomains": [],
   "macroDrivers": [],

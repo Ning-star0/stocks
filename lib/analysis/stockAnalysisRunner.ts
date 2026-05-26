@@ -27,7 +27,7 @@ export type StockAnalysisRunInput = {
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const startedAt = Date.now();
   const symbol = input.symbol.toUpperCase();
-  const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: true });
+  const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: enableAnalysisWebSearch() });
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
   const cacheKey = `ai_analysis:v5:${canonicalSymbol}:${inputHash}`;
@@ -165,7 +165,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
     sentiment: item.analyses[0]?.sentiment ?? item.sentiment,
     impactLevel: item.analyses[0]?.impactLevel ?? item.importance
   }));
-  const webSearchResults: Array<{ title: string; url: string | null; source: string | null; publishedAt: string | null; summary: string | null }> = [];
+  const webSearchResults = normalizeWebSearchResults(supplementalNews.results).slice(0, numberEnv("AI_WEB_SEARCH_RESULT_LIMIT", 3));
   const recentNews = dedupeAnalysisNews(newsReferences).slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
   const analysisAsOf = new Date().toISOString();
   const firstHistory = history[0]?.timestamp ?? null;
@@ -245,6 +245,22 @@ function dedupeAnalysisNews<T extends { title: string; url?: string | null }>(it
 function truncateText(value: string, maxLength: number) {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+}
+
+function normalizeWebSearchResults(items: Array<{ title?: string; url?: string; source?: string; publishedAt?: string; summary?: string; rawContent?: string }>) {
+  return items
+    .map((item) => ({
+      title: item.title?.trim() ?? "",
+      url: item.url ?? null,
+      source: item.source ?? null,
+      publishedAt: item.publishedAt ?? null,
+      summary: truncateText(item.summary || item.rawContent || "", numberEnv("AI_WEB_SEARCH_SUMMARY_MAX_CHARS", 220))
+    }))
+    .filter((item) => item.title);
+}
+
+function enableAnalysisWebSearch() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_ANALYSIS_WEB_SEARCH ?? ""));
 }
 
 async function logAiUsage(input: {

@@ -63,7 +63,7 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
       const request: ChatCompletionCreateParamsNonStreaming = {
         model: selectAiModel(config, "flagship"),
         temperature: 0.2,
-        max_tokens: numberEnv("AI_STOCK_MAX_TOKENS", 2200),
+        max_tokens: numberEnv("AI_STOCK_MAX_TOKENS", 4000),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -122,6 +122,7 @@ function buildUserPrompt(input: AnalyzeStockInput) {
 12. possibleActions 保留作为补充计划，沿用原有格式，至少 2 个场景。
 13. 系统会根据用户持仓信息自动展示主建议：若“系统自动持仓判断”为已持仓，holdAdvice 必须作为主建议，重点说明持有、减仓或增持条件；若为未持仓，entryAdvice 必须作为主建议，重点说明是否买入、买多少和等待条件。
 14. 输出只能使用英文双引号，不能使用中文弯引号；数组元素之间必须有逗号；不要输出注释、Markdown 或额外说明。
+15. JSON 示例中的枚举字段只能返回一个合法值，例如 trend 只能返回 "bullish"、"neutral" 或 "bearish" 其中之一，不能返回 "bullish | neutral | bearish" 这种说明文字。
 
 股票代码：
 ${input.symbol}
@@ -161,12 +162,15 @@ ${input.tradingFeeRule ? JSON.stringify(input.tradingFeeRule, null, 2) : "未提
 已精读相关新闻摘要：
 ${JSON.stringify(input.recentNews ?? [], null, 2)}
 
+联网检索补充结果：
+${JSON.stringify(input.webSearchResults ?? [], null, 2)}
+
 请只返回以下 JSON 结构，不要 Markdown，不要解释：
 ${JSON.stringify(analysisResponseTemplate, null, 2)}`;
 }
 
 const analysisResponseTemplate = {
-  trend: "bullish | neutral | bearish",
+  trend: "neutral",
   confidence: 0.5,
   analysisAsOf: "",
   dataScope: {
@@ -182,7 +186,7 @@ const analysisResponseTemplate = {
   },
   summary: "",
   newsSummary: "",
-  newsSentiment: "positive | neutral | negative | mixed",
+  newsSentiment: "neutral",
   webSearchSummary: "",
   newsReferences: [
     {
@@ -190,8 +194,8 @@ const analysisResponseTemplate = {
       source: "",
       publishedAt: "",
       url: "",
-      sentiment: "positive | neutral | negative",
-      impactLevel: "low | medium | high"
+      sentiment: "neutral",
+      impactLevel: "medium"
     }
   ],
   webSearchResults: [],
@@ -204,7 +208,7 @@ const analysisResponseTemplate = {
   },
   riskFactors: [],
   holdAdvice: {
-    action: "继续持有观察 | 逢高减仓 | 逢低加仓 | 止损离场",
+    action: "继续持有观察",
     reason: "为什么给出这个建议",
     stopLoss: "止损位和止损方式",
     takeProfit: "止盈位和止盈方式",
@@ -213,7 +217,7 @@ const analysisResponseTemplate = {
     invalidIf: "什么情况下这个建议失效"
   },
   entryAdvice: {
-    action: "等待回调 | 可轻仓试探 | 不建议入场",
+    action: "等待回调",
     reason: "为什么给出这个入场建议",
     entryZone: "入场价格区间",
     timing: "入场时间窗口",
@@ -225,7 +229,7 @@ const analysisResponseTemplate = {
   },
   possibleActions: [
     {
-      action: "hold | watch | reduce | consider_entry | avoid",
+      action: "watch",
       reason: "",
       timing: "",
       triggerCondition: "",

@@ -74,14 +74,14 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     ]
   },
   {
-    title: "关注板块与买入决策",
+    title: "关注板块与策略观察",
     icon: <Crosshair className="h-4 w-4" />,
-    description: "今日关注、定时分析、定时买入决策和手动刷新。",
+    description: "今日关注、定时分析、定时策略观察和手动刷新。",
     endpoints: [
       { method: "GET", path: "/api/focus", description: "读取今日关注配置。", cost: "只读" },
       { method: "PUT", path: "/api/focus", description: "保存关注股票、总本金、新闻抓取时间、AI 分析时间。", cost: "写库" },
-      { method: "GET", path: "/api/focus/decision", description: "读取最近一次已保存的买入决策。", cost: "只读" },
-      { method: "POST", path: "/api/focus/decision", description: "手动强制生成并保存买入决策。", cost: "AI" }
+      { method: "GET", path: "/api/focus/decision", description: "读取最近一次已保存的策略观察。", cost: "只读" },
+      { method: "POST", path: "/api/focus/decision", description: "手动强制生成并保存策略观察。", cost: "AI" }
     ]
   },
   {
@@ -126,7 +126,7 @@ const principles = [
   "所有业务接口默认需要登录，依赖 HttpOnly Cookie，不需要在前端手动传 token。",
   "写库、入队、AI 类型接口可能改变数据或消耗额度；只读接口不会主动触发 AI。",
   "页面只展示脱敏状态，不展示 API key、密码、session 内容。",
-  "股票分析、新闻精读、买入决策均通过后台队列或显式按钮触发，避免打开页面就消耗 AI。"
+  "股票分析、新闻精读、策略观察均通过后台队列或显式按钮触发，避免打开页面就消耗 AI。"
 ];
 
 export default function ApiDocsPage() {

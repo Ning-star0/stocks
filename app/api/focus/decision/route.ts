@@ -13,7 +13,7 @@ export async function GET() {
     if (!decision) {
       return Response.json({
         decisionUnavailable: true,
-        message: "还没有定时生成的买入决策。到达你设置的自动分析时间后，系统会自动生成并保存。"
+        message: "还没有定时生成的策略观察。到达你设置的自动分析时间后，系统会自动生成并保存。"
       });
     }
     return Response.json(decision);

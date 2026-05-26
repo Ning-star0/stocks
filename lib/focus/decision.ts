@@ -262,7 +262,7 @@ async function loadDecisionSeed(userId: string) {
   if (!focus?.symbols.length) throw new AppError("BAD_REQUEST", "请先在今日关注中选择股票。");
 
   const capital = toNumber(focus.capital);
-  if (!capital || capital <= 0) throw new AppError("BAD_REQUEST", "请先填写总本金，AI 才能计算买入金额。");
+  if (!capital || capital <= 0) throw new AppError("BAD_REQUEST", "请先填写总本金，AI 才能计算策略观察金额。");
 
   const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
   const allSymbolVariants = symbols.flatMap(symbolVariants);
@@ -389,7 +389,7 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
       {
         role: "system",
         content:
-          "你是一个谨慎的股票组合决策助手。你必须基于给定候选股票、最新分析、价格和手续费规则，回答今天是否应该买、买哪只、花多少钱买。不能保证收益，不能编造数据。输出必须是严格 JSON，所有自然语言字段使用简体中文。"
+          "你是一个谨慎的股票组合策略观察助手。你必须基于给定候选股票、最新单股分析、价格、持仓状态和手续费规则，生成今日策略观察、候选排序和条件触发型交易情景。只有当单股分析明确支持、风险可控且手续费性价比合理时，才允许给出计划观察金额；不能保证收益，不能编造数据。输出必须是严格 JSON，所有自然语言字段使用简体中文。"
       },
       { role: "user", content: buildDecisionPrompt(input) }
     ]
@@ -408,7 +408,7 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
 }
 
 function buildDecisionPrompt(input: { capital: number; candidates: Candidate[] }) {
-  return `请从今日关注股票中给出买入决策。返回严格 JSON，不要 Markdown。
+  return `请基于今日关注股票生成“今日 AI 策略观察”。返回严格 JSON，不要 Markdown。
 
 总本金：${input.capital} 元
 
@@ -416,7 +416,7 @@ function buildDecisionPrompt(input: { capital: number; candidates: Candidate[] }
 ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 
 决策要求：
-1. 必须明确 recommendedAction 是 buy 还是 wait。
+1. 必须明确 recommendedAction，只能是 buy 或 wait。buy 表示“形成条件触发型计划买入/增持情景”，wait 表示“今日只观察，不执行计划金额”。
 2. 每个候选都有 isHolding。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
 3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断，若 entryAdvice 是等待、不建议入场、回避、观望，则不能买。
 4. 如果最新分析 trend=bearish、confidence 低于 0.55、行情价格不可用、或建议里出现减仓/止损/离场/回避，应 recommendedAction=wait 或在 ranking 标为回避。
@@ -426,6 +426,7 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 8. 如果没有足够确定性，宁可 recommendedAction=wait，并说明等待什么触发条件。
 9. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划和手续费性价比排序。
 10. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议或入场建议。
+11. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy" 或 "wait" 其中之一，不能返回 "buy | wait" 这种说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -433,13 +434,13 @@ ${JSON.stringify(input.candidates, null, 2)}
 请只返回这个 JSON 结构：
 {
   "summary": "",
-  "recommendedAction": "buy | wait",
+  "recommendedAction": "wait",
   "totalBudgetToUse": 0,
   "cashReserve": 0,
   "orders": [
     {
       "symbol": "",
-      "action": "buy | watch | avoid",
+      "action": "watch",
       "amount": 0,
       "shares": 0,
       "reason": "",
@@ -485,7 +486,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
   return {
     ...value,
     recommendedAction: orders.length ? value.recommendedAction : "wait",
-    summary: orders.length || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行买入单，已改为等待。${value.summary}`,
+    summary: orders.length || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行的交易情景，已改为等待。${value.summary}`,
     orders,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2)),
