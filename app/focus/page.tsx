@@ -93,9 +93,11 @@ type AnalysisRunResponse = {
     latestErrorSummary: string | null;
     latestMetrics: RunMetrics;
     concurrency?: {
-      jobWorkers: number;
-      focusStockAnalysis: number;
-      quoteRequests: number;
+      runningRuns: number;
+      runningItems: number;
+      jobWorkerLimit: number;
+      focusStockAnalysisLimit: number;
+      quoteRequestLimit: number;
     };
   };
   runs: AnalysisRunItem[];
@@ -647,6 +649,10 @@ function TaskStatusPanel({
   const totalSymbols = runs?.summary.totalSymbols ?? latest?.totalSymbols ?? 0;
   const latestMetrics = runs?.summary.latestMetrics ?? latest?.metrics ?? emptyRunMetrics();
   const concurrency = runs?.summary.concurrency;
+  const activeManualItems = decisionLoading
+    ? Math.min(focus.symbols.length, concurrency?.focusStockAnalysisLimit ?? 3)
+    : concurrency?.runningItems ?? latestMetrics.runningItems ?? 0;
+  const activeQueuedRuns = concurrency?.runningRuns ?? runs?.summary.runningCount ?? 0;
   const latestTone = decisionError || runs?.summary.latestStatus === "failed"
     ? "danger"
     : runs?.summary.latestStatus === "partial_failed" || runs?.summary.latestFallbackUsed
@@ -670,14 +676,15 @@ function TaskStatusPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
           <StatusMetric label="自动任务" value={enabled ? "已启用" : "未启用"} tone={enabled ? "success" : "warning"} />
           <StatusMetric label="下一次 AI 分析" value={runs?.summary.nextRunAt ? formatDateTime(runs.summary.nextRunAt) : nextAnalysisLabel(focus.analysisTimes)} />
           <StatusMetric label="今日已执行" value={`${runs?.summary.todayRunCount ?? 0} 次`} />
           <StatusMetric label="最近状态" value={latestStatus} tone={latestTone} />
           <StatusMetric label="成功 / 失败" value={`${successCount} / ${failedCount}`} tone={failedCount > 0 ? "warning" : "success"} />
           <StatusMetric label="兜底触发" value={`${runs?.summary.fallbackCount ?? 0} 次`} tone={(runs?.summary.fallbackCount ?? 0) > 0 ? "warning" : "success"} />
-          <StatusMetric label="队列 / 手动并发" value={concurrency ? `${concurrency.jobWorkers} / ${concurrency.focusStockAnalysis}` : "--"} />
+          <StatusMetric label="当前运行" value={concurrency || decisionLoading ? `${activeQueuedRuns} 队列 / ${activeManualItems} 手动` : "0 / 0"} tone={activeQueuedRuns || activeManualItems ? "warning" : "neutral"} />
+          <StatusMetric label="并发上限" value={concurrency ? `${concurrency.jobWorkerLimit} 队列 / ${concurrency.focusStockAnalysisLimit} 手动` : "--"} />
         </div>
 
         {latest ? (

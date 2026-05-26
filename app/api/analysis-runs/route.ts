@@ -24,11 +24,13 @@ export async function GET(request: NextRequest) {
     const todayRuns = runs.filter((run) => run.startedAt >= todayStart);
     const nextRunAt = resolveNextRunAt(latest?.nextRunAt ?? null, focus?.analysisTimes ?? []);
     const latestMetrics = latest ? aggregateRunMetrics(latest.items) : emptyMetrics();
+    const runningCount = runs.filter((run) => run.status === "running").length;
+    const runningItems = runs.reduce((total, run) => total + run.items.filter((item) => item.status === "running").length, 0);
     return Response.json({
       summary: {
         nextRunAt: nextRunAt?.toISOString() ?? null,
         todayRunCount: todayRuns.length,
-        runningCount: runs.filter((run) => run.status === "running").length,
+        runningCount,
         latestRunId: latest?.id ?? null,
         latestRunType: latest?.runType ?? null,
         latestStatus: latest?.status ?? "idle",
@@ -43,9 +45,11 @@ export async function GET(request: NextRequest) {
         latestErrorSummary: latest?.errorSummary ?? null,
         latestMetrics,
         concurrency: {
-          jobWorkers: clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8),
-          focusStockAnalysis: clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6),
-          quoteRequests: Math.max(1, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2))
+          runningRuns: runningCount,
+          runningItems,
+          jobWorkerLimit: clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8),
+          focusStockAnalysisLimit: clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6),
+          quoteRequestLimit: Math.max(1, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2))
         }
       },
       runs: runs.map((run) => {
