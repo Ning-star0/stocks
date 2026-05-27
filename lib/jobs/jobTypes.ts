@@ -1,6 +1,7 @@
 export const JOB_TYPES = {
   NEWS_ANALYSIS: "news_analysis",
   STOCK_ANALYSIS: "stock_analysis",
+  FOCUS_STOCK_BATCH: "focus_stock_batch",
   FOCUS_DECISION: "focus_decision",
   DAILY_BRIEF: "daily_brief",
   ALERT_CHECK: "alert_check"

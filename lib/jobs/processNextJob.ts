@@ -7,6 +7,7 @@ import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { getCache, setCache } from "@/lib/cache";
+import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { generateAndStoreFocusDecision } from "@/lib/focus/decision";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
@@ -14,6 +15,7 @@ import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
 import { saveNewsAnalysis } from "@/lib/news/store";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getQuotesBatch } from "@/lib/services/quoteService";
 
 const workerId = `${process.pid}-${randomUUID()}`;
 let lastTimeoutSweepAt = 0;
@@ -122,6 +124,41 @@ async function failTimedOutJobs() {
 }
 
 async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJob>>>) {
+  if (job.jobType === JOB_TYPES.FOCUS_STOCK_BATCH) {
+    const payload = job.payload as { symbols?: string[]; reason?: string; runId?: string } | null;
+    const symbols = [...new Set((payload?.symbols ?? []).map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
+    if (!symbols.length) throw new Error("今日关注批量分析缺少股票代码。");
+
+    await getQuotesBatch(symbols, { forceRefresh: true, allowStale: true }).catch(() => null);
+    await mapWithConcurrency(symbols, focusAnalysisConcurrency(), async (symbol) => {
+      const runItem = payload?.runId ? await startAnalysisRunItem({ runId: payload.runId, symbol }).catch(() => null) : null;
+      try {
+        await analyzeStockAndRecord({
+          userId: job.userId,
+          symbol,
+          reason: payload?.reason ?? "关注板块定时分析",
+          source: "scheduled",
+          runId: payload?.runId ?? null,
+          runItemId: runItem?.id ?? null,
+          forceRefresh: true
+        });
+      } catch (error) {
+        await finishAnalysisRunItem({
+          itemId: runItem?.id,
+          runId: payload?.runId ?? null,
+          symbol,
+          status: "failed",
+          aiStatus: "failed",
+          quoteStatus: "failed",
+          newsStatus: "skipped",
+          errorMessage: error instanceof Error ? error.message : "未知错误"
+        });
+      }
+    });
+    await invalidateDashboardCache(job.userId);
+    return { resultId: payload?.runId ?? "focus_stock_batch", skippedCached: false };
+  }
+
   if (job.jobType === JOB_TYPES.STOCK_ANALYSIS) {
     if (!job.symbol) throw new Error("股票分析任务缺少股票代码。");
     const payload = job.payload as { reason?: string; refreshNews?: boolean; runId?: string } | null;
@@ -139,40 +176,16 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     }
 
     try {
-      const result = await runStockAnalysis({
+      const result = await analyzeStockAndRecord({
         userId: job.userId,
         symbol: job.symbol,
         inputHash: job.inputHash,
         jobId: job.id,
         reason: payload?.reason ?? "job_queue",
-        forceRefresh: payload?.reason?.includes("关注板块定时分析") ?? false
-      });
-      const watchlistItem = await prisma.watchlistItem.findFirst({
-        where: { symbol: job.symbol, watchlist: { userId: job.userId } }
-      });
-      const history = await createDecisionHistoryFromAnalysis({
-        userId: job.userId,
-        runId: payload?.runId ?? null,
-        analysisId: result.analysisId,
-        symbol: job.symbol,
         source: payload?.reason?.includes("定时") ? "scheduled" : "manual",
-        riskLevel: watchlistItem?.riskLevel ?? null,
-        outputJson: result.outputJson
-      }).catch(() => null);
-      await finishAnalysisRunItem({
-        itemId: runItem?.id,
         runId: payload?.runId ?? null,
-        symbol: job.symbol,
-        status: result.fromCache ? "skipped" : "success",
-        decisionId: history?.id ?? null,
-        aiStatus: isFallbackOutput(result.outputJson) ? "fallback" : "success",
-        quoteStatus: "success",
-        newsStatus: "success",
-        durationMs: result.durationMs,
-        aiDurationMs: "aiDurationMs" in result.timings ? result.timings.aiDurationMs : null,
-        quoteDurationMs: result.timings?.quoteDurationMs ?? null,
-        newsDurationMs: result.timings?.newsDurationMs ?? null,
-        fallbackUsed: isFallbackOutput(result.outputJson)
+        runItemId: runItem?.id ?? null,
+        forceRefresh: payload?.reason?.includes("关注板块定时分析") ?? false
       });
       await invalidateDashboardCache(job.userId);
       return { resultId: result.analysisId, skippedCached: result.fromCache };
@@ -318,6 +331,55 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
   throw new Error(`未知任务类型：${job.jobType}`);
 }
 
+async function analyzeStockAndRecord(input: {
+  userId: string;
+  symbol: string;
+  reason: string;
+  source: "manual" | "scheduled";
+  runId?: string | null;
+  runItemId?: string | null;
+  inputHash?: string | null;
+  jobId?: string;
+  forceRefresh?: boolean;
+}) {
+  const result = await runStockAnalysis({
+    userId: input.userId,
+    symbol: input.symbol,
+    inputHash: input.inputHash,
+    jobId: input.jobId,
+    reason: input.reason,
+    forceRefresh: input.forceRefresh
+  });
+  const watchlistItem = await prisma.watchlistItem.findFirst({
+    where: { symbol: input.symbol, watchlist: { userId: input.userId } }
+  });
+  const history = await createDecisionHistoryFromAnalysis({
+    userId: input.userId,
+    runId: input.runId ?? null,
+    analysisId: result.analysisId,
+    symbol: input.symbol,
+    source: input.source,
+    riskLevel: watchlistItem?.riskLevel ?? null,
+    outputJson: result.outputJson
+  }).catch(() => null);
+  await finishAnalysisRunItem({
+    itemId: input.runItemId,
+    runId: input.runId ?? null,
+    symbol: input.symbol,
+    status: result.fromCache ? "skipped" : "success",
+    decisionId: history?.id ?? null,
+    aiStatus: isFallbackOutput(result.outputJson) ? "fallback" : "success",
+    quoteStatus: "success",
+    newsStatus: "success",
+    durationMs: result.durationMs,
+    aiDurationMs: "aiDurationMs" in result.timings ? result.timings.aiDurationMs : null,
+    quoteDurationMs: result.timings?.quoteDurationMs ?? null,
+    newsDurationMs: result.timings?.newsDurationMs ?? null,
+    fallbackUsed: isFallbackOutput(result.outputJson)
+  });
+  return result;
+}
+
 async function waitForFocusStockAnalyses(jobId: string, runId?: string | null) {
   if (!runId) return null;
   const run = await prisma.analysisRun.findUnique({
@@ -332,7 +394,7 @@ async function waitForFocusStockAnalyses(jobId: string, runId?: string | null) {
   const pendingStockJobs = await prisma.analysisJob.count({
     where: {
       userId: run.userId,
-      jobType: JOB_TYPES.STOCK_ANALYSIS,
+      jobType: { in: [JOB_TYPES.STOCK_ANALYSIS, JOB_TYPES.FOCUS_STOCK_BATCH] },
       status: { in: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING] },
       payload: { path: ["runId"], equals: runId }
     }
@@ -448,4 +510,12 @@ function isFallbackOutput(value: unknown) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function focusAnalysisConcurrency() {
+  return clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

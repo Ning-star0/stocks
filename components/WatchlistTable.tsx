@@ -92,12 +92,15 @@ type WatchlistRowModel = {
 };
 
 const DASHBOARD_CLIENT_CACHE_KEY = "stock-ai:dashboard:v2";
+const WATCHLIST_NEWS_REFRESH_KEY = "stock-ai:watchlist-news-refreshed-at";
 const DASHBOARD_CLIENT_CACHE_TTL_MS = 60_000;
+const WATCHLIST_NEWS_REFRESH_TTL_MS = 30 * 60_000;
 const WATCHLIST_PAGE_SIZE = 6;
 
 export function WatchlistTable() {
   const hasLoadedRef = useRef(false);
   const openQuoteRefreshRef = useRef(false);
+  const openNewsRefreshRef = useRef(false);
   const refreshTimerRef = useRef<number | null>(null);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -153,10 +156,31 @@ export function WatchlistTable() {
     }
   }, [load]);
 
+  const refreshWatchlistNews = useCallback(async (options: { once?: boolean } = {}) => {
+    if (options.once && openNewsRefreshRef.current) return;
+    if (shouldSkipWatchlistNewsRefresh()) return;
+    if (options.once) openNewsRefreshRef.current = true;
+    try {
+      const response = await fetch("/api/news/fetch", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "watchlist" })
+      });
+      if (response.ok) {
+        markWatchlistNewsRefreshed();
+        await load({ force: true, silent: true });
+      }
+    } catch {
+      // 新闻后台刷新失败不影响自选股页面使用。
+    }
+  }, [load]);
+
   useEffect(() => {
     function scheduleOpeningQuoteRefresh() {
       refreshTimerRef.current = window.setTimeout(() => {
         void refreshQuotes({ once: true, background: true });
+        void refreshWatchlistNews({ once: true });
       }, 700);
     }
 
@@ -174,7 +198,7 @@ export function WatchlistTable() {
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
     };
-  }, [load, refreshQuotes]);
+  }, [load, refreshQuotes, refreshWatchlistNews]);
 
   const items = useMemo(() => {
     const watchlists = Array.isArray(data?.watchlists) ? data.watchlists : [];
@@ -782,4 +806,15 @@ function formatQuoteStatus(status?: string) {
     error: "行情错误"
   };
   return status ? map[status] ?? status : "不可用";
+}
+
+function shouldSkipWatchlistNewsRefresh() {
+  if (typeof window === "undefined") return true;
+  const last = Number(window.localStorage.getItem(WATCHLIST_NEWS_REFRESH_KEY));
+  return Number.isFinite(last) && Date.now() - last < WATCHLIST_NEWS_REFRESH_TTL_MS;
+}
+
+function markWatchlistNewsRefreshed() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(WATCHLIST_NEWS_REFRESH_KEY, String(Date.now()));
 }

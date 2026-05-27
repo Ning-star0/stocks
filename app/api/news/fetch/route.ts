@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { deleteCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
+import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
     const body = await request.json().catch(() => ({}));
     const requestedSymbol = typeof body.symbol === "string" ? body.symbol.trim().toUpperCase() : null;
+    const scope = typeof body.scope === "string" ? body.scope : "all";
     const provider = getNewsProvider();
     const to = new Date();
     const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
         },
         select: { symbol: true }
       }),
-      requestedSymbol ? Promise.resolve([]) : prisma.sectorWatch.findMany({ where: { userId: user.id } })
+      requestedSymbol || scope === "watchlist" ? Promise.resolve([]) : prisma.sectorWatch.findMany({ where: { userId: user.id } })
     ]);
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
@@ -146,6 +148,7 @@ export async function POST(request: NextRequest) {
         deleteCache(`news:v2:${symbol}:all`)
       ])
     );
+    await invalidateDashboardCache(user.id);
 
     return NextResponse.json({
       fetched: fetched.length,

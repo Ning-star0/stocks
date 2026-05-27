@@ -1,5 +1,6 @@
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { createAnalysisRun } from "@/lib/analysis/runRecords";
+import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNews, scoreNewsCatalyst } from "@/lib/news/relevance";
 import { upsertNewsItem } from "@/lib/news/store";
@@ -14,7 +15,6 @@ import { searchRelatedNews } from "@/lib/news/webSearch";
 export async function checkFocusSchedules() {
   try {
     const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     if (!isMarketTradingDay(now)) return;
 
     const groups = await prisma.focusGroup.findMany({
@@ -26,51 +26,66 @@ export async function checkFocusSchedules() {
       const symbols = group.symbols.map((s) => s.replace(/\.(SH|SZ|BJ)$/, "").toUpperCase());
       // 先刷新行情
       try {
-        await getQuotesBatch(symbols, { cacheOnly: false });
+        await getQuotesBatch(symbols, { cacheOnly: false, forceRefresh: true, allowStale: true });
       } catch { /* 行情刷新失败不阻塞后续 */ }
 
       // 新闻抓取时间：真正抓新闻入库
-      if (group.newsFetchTime === timeStr && !sameDay(group.lastNewsFetch, now)) {
-        await fetchAndStoreNewsForSymbols(group.userId, symbols);
-        await prisma.focusGroup.update({
-          where: { id: group.id },
-          data: { lastNewsFetch: now }
-        });
-      }
+      const newsDue = isScheduledTimeDue(group.newsFetchTime, group.lastNewsFetch, now);
+      if (newsDue) await refreshFocusNews(group.id, group.userId, symbols, now);
 
       // AI 分析时间点：入队分析任务
-      if (group.analysisTimes.includes(timeStr) && !sameTick(group.lastAnalysis, now)) {
+      const dueAnalysisTime = dueScheduledTime(group.analysisTimes, group.lastAnalysis, now);
+      if (dueAnalysisTime) {
+        if (!newsDue && shouldRefreshNewsBeforeAnalysis(group.newsFetchTime, group.lastNewsFetch, dueAnalysisTime, now)) {
+          await refreshFocusNews(group.id, group.userId, symbols, now);
+        }
         const run = await createAnalysisRun({
           userId: group.userId,
           runType: "scheduled",
           totalSymbols: symbols.length,
           nextRunAt: nextMarketScheduledTime(group.analysisTimes, now)
         });
-        for (const symbol of symbols) {
+        const batchJob = await enqueueJob({
+          userId: group.userId,
+          jobType: JOB_TYPES.FOCUS_STOCK_BATCH,
+          priority: JOB_PRIORITY.SCHEDULED_REFRESH,
+          inputHash: `focus_stock_batch:${group.id}:${formatDateKey(now)}:${dueAnalysisTime}`,
+          payload: { reason: `关注板块定时分析 ${dueAnalysisTime}`, runId: run.id, symbols, scheduledFor: now.toISOString() }
+        }).catch(() => {});
+        if (batchJob) {
           await enqueueJob({
             userId: group.userId,
-            symbol,
-            jobType: JOB_TYPES.STOCK_ANALYSIS,
-            priority: JOB_PRIORITY.SCHEDULED_REFRESH,
-            payload: { reason: `关注板块定时分析 ${timeStr}`, runId: run.id }
+            jobType: JOB_TYPES.FOCUS_DECISION,
+            priority: JOB_PRIORITY.FOCUS_DECISION,
+            inputHash: `focus_decision:${group.id}:${formatDateKey(now)}:${dueAnalysisTime}`,
+            payload: { reason: `关注板块定时策略观察 ${dueAnalysisTime}`, scheduledFor: now.toISOString(), runId: run.id }
           }).catch(() => {});
         }
-        await enqueueJob({
-          userId: group.userId,
-          jobType: JOB_TYPES.FOCUS_DECISION,
-          priority: JOB_PRIORITY.FOCUS_DECISION,
-          inputHash: `focus_decision:${group.id}:${formatDateKey(now)}:${timeStr}`,
-          payload: { reason: `关注板块定时策略观察 ${timeStr}`, scheduledFor: now.toISOString(), runId: run.id }
-        }).catch(() => {});
-        await prisma.focusGroup.update({
-          where: { id: group.id },
-          data: { lastAnalysis: now }
-        });
+        if (batchJob) {
+          await prisma.focusGroup.update({
+            where: { id: group.id },
+            data: { lastAnalysis: now }
+          });
+        } else {
+          await prisma.analysisRun.update({
+            where: { id: run.id },
+            data: { status: "failed", finishedAt: new Date(), errorSummary: "定时批量分析任务入队失败" }
+          }).catch(() => null);
+        }
       }
     }
   } catch {
     // 调度检查失败不影响 worker 主循环
   }
+}
+
+async function refreshFocusNews(groupId: string, userId: string, symbols: string[], now: Date) {
+  await fetchAndStoreNewsForSymbols(userId, symbols);
+  await prisma.focusGroup.update({
+    where: { id: groupId },
+    data: { lastNewsFetch: now }
+  });
+  await invalidateDashboardCache(userId);
 }
 
 // 抓取新闻并存入 DB
@@ -151,15 +166,35 @@ function attachSymbol(item: NewsItem, symbol: string): NewsItem {
   };
 }
 
-function sameDay(a: Date | null, b: Date) {
-  if (!a) return false;
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function isScheduledTimeDue(time: string | null, lastRun: Date | null, now: Date) {
+  if (!time) return false;
+  const scheduledAt = todayAt(time, now);
+  if (!scheduledAt || now < scheduledAt) return false;
+  return !lastRun || lastRun < scheduledAt;
 }
 
-function sameTick(a: Date | null, b: Date) {
-  if (!a) return false;
-  const diff = Math.abs(b.getTime() - a.getTime());
-  return diff < 90_000; // 1.5 分钟内不去重
+function shouldRefreshNewsBeforeAnalysis(newsFetchTime: string | null, lastNewsFetch: Date | null, analysisTime: string, now: Date) {
+  const newsAt = todayAt(newsFetchTime ?? "09:30", now);
+  const analysisAt = todayAt(analysisTime, now);
+  if (!newsAt || !analysisAt || newsAt > analysisAt || now < newsAt) return false;
+  return !lastNewsFetch || lastNewsFetch < newsAt;
+}
+
+function dueScheduledTime(times: string[], lastRun: Date | null, now: Date) {
+  const due = times
+    .map((time) => ({ time, date: todayAt(time, now) }))
+    .filter((item): item is { time: string; date: Date } => Boolean(item.date) && now >= (item.date as Date) && (!lastRun || lastRun < (item.date as Date)))
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
+  return due[0]?.time ?? null;
+}
+
+function todayAt(time: string, now: Date) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return null;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
 }
 
 function formatDateKey(date: Date) {

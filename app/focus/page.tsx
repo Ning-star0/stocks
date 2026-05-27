@@ -649,10 +649,10 @@ function TaskStatusPanel({
   const totalSymbols = runs?.summary.totalSymbols ?? latest?.totalSymbols ?? 0;
   const latestMetrics = runs?.summary.latestMetrics ?? latest?.metrics ?? emptyRunMetrics();
   const concurrency = runs?.summary.concurrency;
-  const activeManualItems = decisionLoading
+  const activeStockItems = decisionLoading
     ? Math.min(focus.symbols.length, concurrency?.focusStockAnalysisLimit ?? 3)
     : concurrency?.runningItems ?? latestMetrics.runningItems ?? 0;
-  const activeQueuedRuns = concurrency?.runningRuns ?? runs?.summary.runningCount ?? 0;
+  const activeTasks = concurrency?.runningRuns ?? runs?.summary.runningCount ?? 0;
   const latestTone = decisionError || runs?.summary.latestStatus === "failed"
     ? "danger"
     : runs?.summary.latestStatus === "partial_failed" || runs?.summary.latestFallbackUsed
@@ -683,8 +683,8 @@ function TaskStatusPanel({
           <StatusMetric label="最近状态" value={latestStatus} tone={latestTone} />
           <StatusMetric label="成功 / 失败" value={`${successCount} / ${failedCount}`} tone={failedCount > 0 ? "warning" : "success"} />
           <StatusMetric label="兜底触发" value={`${runs?.summary.fallbackCount ?? 0} 次`} tone={(runs?.summary.fallbackCount ?? 0) > 0 ? "warning" : "success"} />
-          <StatusMetric label="当前运行" value={concurrency || decisionLoading ? `${activeQueuedRuns} 队列 / ${activeManualItems} 手动` : "0 / 0"} tone={activeQueuedRuns || activeManualItems ? "warning" : "neutral"} />
-          <StatusMetric label="并发上限" value={concurrency ? `${concurrency.jobWorkerLimit} 队列 / ${concurrency.focusStockAnalysisLimit} 手动` : "--"} />
+          <StatusMetric label="当前运行" value={concurrency || decisionLoading ? `${activeTasks} 任务 / ${activeStockItems} 股票` : "0 / 0"} tone={activeTasks || activeStockItems ? "warning" : "neutral"} />
+          <StatusMetric label="并发上限" value={concurrency ? `${concurrency.jobWorkerLimit} 任务 / ${concurrency.focusStockAnalysisLimit} 股票` : "--"} />
         </div>
 
         {latest ? (
