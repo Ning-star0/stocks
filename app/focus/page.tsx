@@ -782,6 +782,9 @@ function TaskStatusPanel({
 
 type CandidateSortKey = "rank" | "confidence" | "profit";
 
+const TRADING_FEE_RATE = 0.0005;
+const TRADING_FEE_MIN_BASE = 10000;
+
 function CandidateRanking({
   decision,
   names,
@@ -804,24 +807,27 @@ function CandidateRanking({
       const latestAnalysis = watch?.latestAnalysis?.outputJson;
       const price = watch?.quote?.price ?? null;
       const holdingPrice = watch?.holdingPrice ?? null;
-      const floatingProfit =
-        watch?.isHolding && price !== null && holdingPrice !== null && holdingPrice > 0
-          ? ((price - holdingPrice) / holdingPrice) * 100
-          : null;
+      const holdingShares = watch?.holdingShares ?? null;
+      const pnl = calculateHoldingPnl({
+        isHolding: Boolean(watch?.isHolding),
+        price,
+        holdingPrice,
+        holdingShares
+      });
       return {
         ...item,
         name: names[item.symbol] || watch?.name || item.symbol,
         status: normalizeRankingView(item.view),
         trend: trendLabel(latestHistory?.strategyDirection || latestAnalysis?.trend || ""),
         confidence: latestHistory?.confidence ?? latestAnalysis?.confidence ?? null,
-        floatingProfit,
+        pnl,
         risk: extractRiskText(item.reason),
         actionTone: rankingTone(item.view)
       };
     });
     return normalized.sort((a, b) => {
       if (sortKey === "confidence") return (b.confidence ?? -1) - (a.confidence ?? -1) || a.rank - b.rank;
-      if (sortKey === "profit") return (b.floatingProfit ?? Number.NEGATIVE_INFINITY) - (a.floatingProfit ?? Number.NEGATIVE_INFINITY) || a.rank - b.rank;
+      if (sortKey === "profit") return (b.pnl?.amount ?? Number.NEGATIVE_INFINITY) - (a.pnl?.amount ?? Number.NEGATIVE_INFINITY) || a.rank - b.rank;
       return a.rank - b.rank;
     });
   }, [history, items, names, sortKey, watchlist]);
@@ -831,13 +837,13 @@ function CandidateRanking({
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>候选标的排序</CardTitle>
-          <p className="mt-2 text-sm text-muted-foreground">用于横向比较今日关注标的，按置信度或浮盈率快速定位重点。</p>
+          <p className="mt-2 text-sm text-muted-foreground">用于横向比较今日关注标的，持仓盈亏已扣除估算买入和卖出手续费。</p>
         </div>
         {items.length ? (
           <div className="flex rounded-lg border border-border bg-muted/20 p-1 text-xs">
             <SortButton active={sortKey === "rank"} onClick={() => setSortKey("rank")}>默认</SortButton>
             <SortButton active={sortKey === "confidence"} onClick={() => setSortKey("confidence")}>置信度</SortButton>
-            <SortButton active={sortKey === "profit"} onClick={() => setSortKey("profit")}>浮盈率</SortButton>
+            <SortButton active={sortKey === "profit"} onClick={() => setSortKey("profit")}>持仓盈亏</SortButton>
           </div>
         ) : null}
       </CardHeader>
@@ -851,7 +857,7 @@ function CandidateRanking({
                   <th className="px-3 py-3 text-left font-medium">状态</th>
                   <th className="px-3 py-3 text-left font-medium">趋势</th>
                   <th className="px-3 py-3 text-right font-medium">置信度</th>
-                  <th className="px-3 py-3 text-right font-medium">浮盈率</th>
+                  <th className="px-3 py-3 text-right font-medium">持仓盈亏</th>
                   <th className="px-3 py-3 text-left font-medium">关键风险</th>
                   <th className="px-4 py-3 text-right font-medium">操作</th>
                 </tr>
@@ -868,7 +874,10 @@ function CandidateRanking({
                     </td>
                     <td className="px-3 py-3 text-muted-foreground">{item.trend}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{formatConfidenceValue(item.confidence)}</td>
-                    <td className={cn("px-3 py-3 text-right tabular-nums", profitClass(item.floatingProfit))}>{formatProfit(item.floatingProfit)}</td>
+                    <td className={cn("px-3 py-3 text-right tabular-nums", profitClass(item.pnl?.amount))}>
+                      <div>{formatPnlAmount(item.pnl?.amount)}</div>
+                      <div className="mt-0.5 text-xs opacity-75">{formatProfit(item.pnl?.rate)}</div>
+                    </td>
                     <td className="max-w-[280px] px-3 py-3">
                       <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.risk}</div>
                     </td>
@@ -1013,9 +1022,37 @@ function formatProfit(value?: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+function formatPnlAmount(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value >= 0 ? "+" : ""}${formatMoney(value)}`;
+}
+
 function profitClass(value?: number | null) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "text-muted-foreground";
   return value >= 0 ? "text-red-500" : "text-emerald-500";
+}
+
+function calculateHoldingPnl(input: {
+  isHolding: boolean;
+  price?: number | null;
+  holdingPrice?: number | null;
+  holdingShares?: number | null;
+}) {
+  const { isHolding, price, holdingPrice, holdingShares } = input;
+  if (!isHolding || !price || !holdingPrice || !holdingShares || price <= 0 || holdingPrice <= 0 || holdingShares <= 0) return null;
+  const buyAmount = holdingPrice * holdingShares;
+  const currentAmount = price * holdingShares;
+  const buyFee = calculateTradeFee(buyAmount);
+  const estimatedSellFee = calculateTradeFee(currentAmount);
+  const totalCost = buyAmount + buyFee;
+  const netValue = currentAmount - estimatedSellFee;
+  const amount = Number((netValue - totalCost).toFixed(2));
+  const rate = totalCost > 0 ? Number(((amount / totalCost) * 100).toFixed(2)) : null;
+  return { amount, rate, buyFee, estimatedSellFee };
+}
+
+function calculateTradeFee(amount: number) {
+  return Number((Math.max(amount, TRADING_FEE_MIN_BASE) * TRADING_FEE_RATE).toFixed(2));
 }
 
 function StatusMetric({
