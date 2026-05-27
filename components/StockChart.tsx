@@ -68,6 +68,7 @@ export function StockChart({
   const hovered = cursor ? data[cursor.nearestIndex] ?? latest : latest;
   const scale = useMemo(() => buildScale(data, showMovingAverages), [data, showMovingAverages]);
   const candleWidth = Math.max(2, Math.min(9, scale.step * 0.58));
+  const latestPriceLabel = isTimeSharing ? intradayLatestPriceLabel(latest) : "收盘价";
 
   function handleMove(event: MouseEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -81,16 +82,17 @@ export function StockChart({
     }
 
     const nearestIndex = nearestIndexForX(x, scale, data.length);
-    const priceY = clamp(y, PRICE_TOP, PRICE_TOP + PRICE_HEIGHT);
     const isVolumeArea = y >= VOLUME_TOP;
     const nearestPoint = data[nearestIndex];
+    const snappedX = scale.x(nearestIndex);
+    const snappedY = nearestPoint ? scale.y(nearestPoint.close) : clamp(y, PRICE_TOP, PRICE_TOP + PRICE_HEIGHT);
 
     queueCursor({
-      x,
-      y,
-      price: priceFromY(priceY, scale),
+      x: snappedX,
+      y: snappedY,
+      price: nearestPoint?.close ?? 0,
       volume: nearestPoint?.volume ?? null,
-      timeLabel: timeLabelForX(data, x, scale, isIntraday),
+      timeLabel: nearestPoint?.date ?? "--",
       nearestIndex,
       area: isVolumeArea ? "volume" : "price"
     });
@@ -128,15 +130,15 @@ export function StockChart({
         <div className="min-w-0 space-y-1">
           <div className="grid gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-              <span className="text-muted-foreground">{isTimeSharing ? "分时线" : "收盘价"}</span>
+              <span className="text-muted-foreground">{latestPriceLabel}</span>
               <span className="truncate tabular-nums text-primary" title={formatPriceValue(latest?.close, { currency, symbol, unit })}>
                 {formatPriceValue(latest?.close, { currency, symbol, unit })}
               </span>
             </div>
             <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-              <span className="text-muted-foreground">成交量</span>
-              <span className="truncate tabular-nums text-muted-foreground" title={formatNumber(latest?.volume)}>
-                {formatNumber(latest?.volume)}
+              <span className="text-muted-foreground">截至时间</span>
+              <span className="truncate tabular-nums text-muted-foreground" title={latest?.date ?? "--"}>
+                {latest?.date ?? "--"}
               </span>
             </div>
           </div>
@@ -159,7 +161,7 @@ export function StockChart({
       </div>
 
       <div className="space-y-3">
-        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} showMovingAverages={showMovingAverages} /> : null}
+        {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} showMovingAverages={showMovingAverages} isTimeSharing={isTimeSharing} /> : null}
         <div className={cn(motionClassNames.chartEnter, "h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
           <svg
             className="h-full w-full"
@@ -244,6 +246,14 @@ function formatDataDateRange(data: ChartPoint[], isIntraday: boolean) {
     return `数据日期 ${date} ${start}-${end}`;
   }
   return `数据范围 ${first.toLocaleDateString("zh-CN")} 至 ${last.toLocaleDateString("zh-CN")}`;
+}
+
+function intradayLatestPriceLabel(point?: ChartPoint) {
+  if (!point) return "最新价";
+  const date = new Date(point.timestamp);
+  if (Number.isNaN(date.getTime())) return "最新价";
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return minutes >= 15 * 60 ? "收盘价" : "最新价";
 }
 
 function buildMovingAverageSeries(values: number[], period: number) {
@@ -410,7 +420,8 @@ function InfoPanel({
   currency,
   symbol,
   unit,
-  showMovingAverages
+  showMovingAverages,
+  isTimeSharing
 }: {
   point: ChartPoint;
   cursor: CursorPoint | null;
@@ -418,15 +429,16 @@ function InfoPanel({
   symbol?: string;
   unit?: string;
   showMovingAverages: boolean;
+  isTimeSharing: boolean;
 }) {
   const change = point.close - point.open;
   const changePct = point.open ? (change / point.open) * 100 : 0;
   const up = change >= 0;
   const cursorTime = cursor?.timeLabel ?? point.date;
-  const cursorPrice = cursor?.price ?? point.close;
+  const cursorPrice = point.close;
   return (
     <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-      <div className="grid gap-1.5 md:grid-cols-[minmax(190px,1.25fr)_minmax(132px,0.9fr)_minmax(144px,1fr)_minmax(148px,1fr)]">
+      <div className="grid gap-x-6 gap-y-1.5 md:grid-cols-[minmax(190px,1.25fr)_minmax(160px,1fr)_minmax(168px,1fr)_minmax(150px,1fr)]">
         <InfoItem label="时间" value={cursorTime} size="wide" />
         <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong size="wide" />
         <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} size="wide" />
@@ -448,7 +460,7 @@ function InfoPanel({
           <InfoItem label="开盘" value={formatPriceValue(point.open, { currency, symbol, unit })} />
           <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
           <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
-          <InfoItem label="收盘" value={formatPriceValue(point.close, { currency, symbol, unit })} />
+          <InfoItem label={isTimeSharing ? intradayLatestPriceLabel(point) : "收盘"} value={formatPriceValue(point.close, { currency, symbol, unit })} />
         </div>
         <div className="mt-1.5 grid gap-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {maSeries.map((item) => (
@@ -486,26 +498,6 @@ function nearestIndexForX(x: number, scale: ReturnType<typeof buildScale>, lengt
 
 function fractionalIndexForX(x: number, scale: ReturnType<typeof buildScale>) {
   return (x - CHART_LEFT - scale.step / 2) / scale.step;
-}
-
-function priceFromY(y: number, scale: ReturnType<typeof buildScale>) {
-  const ratio = (y - PRICE_TOP) / PRICE_HEIGHT;
-  return scale.priceMax - ratio * (scale.priceMax - scale.priceMin);
-}
-
-function timeLabelForX(data: ChartPoint[], x: number, scale: ReturnType<typeof buildScale>, isIntraday: boolean) {
-  if (!data.length) return "--";
-  const fractional = clamp(fractionalIndexForX(x, scale), 0, data.length - 1);
-  const leftIndex = Math.floor(fractional);
-  const rightIndex = Math.min(data.length - 1, Math.ceil(fractional));
-  const leftTime = new Date(data[leftIndex]?.timestamp ?? data[0].timestamp).getTime();
-  const rightTime = new Date(data[rightIndex]?.timestamp ?? data[data.length - 1].timestamp).getTime();
-  const ratio = rightIndex === leftIndex ? 0 : fractional - leftIndex;
-  const time = leftTime + (rightTime - leftTime) * ratio;
-  const date = new Date(time);
-  return isIntraday
-    ? date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" });
 }
 
 function buildLinePath(data: ChartPoint[], key: (typeof maSeries)[number]["key"], scale: ReturnType<typeof buildScale>) {
