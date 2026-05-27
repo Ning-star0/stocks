@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Check, CheckCircle2, Clock3, Loader2, Plus, Save, Sparkles, Trash2, WalletCards } from "lucide-react";
 
@@ -32,7 +32,19 @@ type StockItem = {
   note?: string | null;
   isHolding?: boolean | null;
   holdingPrice?: number | null;
+  holdingShares?: number | null;
   positionOpenedAt?: string | null;
+  quote?: {
+    price?: number | null;
+    changePct?: number | null;
+  } | null;
+  latestAnalysis?: {
+    outputJson?: {
+      trend?: string;
+      confidence?: number;
+      riskFactors?: unknown;
+    } | null;
+  } | null;
 };
 
 type FocusDecision = {
@@ -185,20 +197,23 @@ export default function FocusPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/focus").then((response) => readJsonResponse<Partial<FocusData>>(response)),
-      fetch("/api/watchlist").then((response) => readJsonResponse<{ watchlists?: Array<{ items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }>; items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }>(response))
+      fetch("/api/watchlist").then((response) => readJsonResponse<{ watchlists?: Array<{ items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }>; items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }>(response))
     ])
       .then(async ([focusData, wlData]) => {
         setFocus((prev) => ({ ...prev, ...focusData }));
         const rawItems = Array.isArray(wlData.watchlists)
-          ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }> }) => watchlist.items ?? [])
+          ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }) => watchlist.items ?? [])
           : wlData.items || [];
-        const items = rawItems.map((item: { id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null } | null }) => ({
+        const items = rawItems.map((item: { id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }) => ({
           id: item.id,
           symbol: item.symbol,
           name: item.quote?.name ?? undefined,
           note: item.note,
           isHolding: item.isHolding ?? false,
           holdingPrice: item.holdingPrice ?? null,
+          holdingShares: item.holdingShares ?? null,
+          quote: item.quote ? { price: item.quote.price ?? null, changePct: item.quote.changePct ?? null } : null,
+          latestAnalysis: item.latestAnalysis ?? null,
           positionOpenedAt: item.positionOpenedAt ?? null
         }));
         setWatchlist(items);
@@ -371,7 +386,7 @@ export default function FocusPage() {
           ) : !focus.symbols.length ? (
             <EmptyDecision message="先在下方选择今日关注标的，系统会在自动分析时间生成策略观察。" />
           ) : decision ? (
-            <FocusDecisionPanel decision={decision} nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)} />
+            <FocusDecisionPanel decision={decision} nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)} names={names} />
           ) : decisionLoading ? (
             <LoadingInsight />
           ) : (
@@ -380,10 +395,9 @@ export default function FocusPage() {
         </CardContent>
       </Card>
 
-      <TaskStatusPanel focus={focus} runs={runs} decisionLoading={decisionLoading} decisionError={decisionError} />
+      <CandidateRanking decision={decision} names={names} watchlist={watchlist} history={history} />
 
-      <CandidateRanking decision={decision} names={names} />
-
+      <CollapsiblePanel title="今日关注配置">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         {/* 选股区 */}
         <Card className="soft-card">
@@ -522,6 +536,7 @@ export default function FocusPage() {
           </CardContent>
         </Card>
       </div>
+      </CollapsiblePanel>
 
       {/* 分析结果 */}
       {focus.symbols.length > 0 ? (
@@ -534,13 +549,22 @@ export default function FocusPage() {
           </div>
         </CollapsiblePanel>
       ) : null}
+
+      <CollapsiblePanel title="自动分析任务状态">
+        <TaskStatusPanel focus={focus} runs={runs} decisionLoading={decisionLoading} decisionError={decisionError} />
+      </CollapsiblePanel>
     </PageContainer>
   );
 }
 
-function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecision; nextObserveAt: string }) {
+function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: FocusDecision; nextObserveAt: string; names: Record<string, string> }) {
   const shouldBuy = decision.recommendedAction === "buy" && decision.orders.length > 0;
   const actionLabel = shouldBuy ? "形成观察买入计划" : "等待 / 暂不行动";
+  const highlightNames = uniqueText([
+    ...Object.values(names),
+    ...decision.ranking.map((item) => names[item.symbol] || item.symbol),
+    ...decision.orders.map((item) => item.name || item.symbol)
+  ]);
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
@@ -550,9 +574,9 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
         {decision.scheduledFor ? <span>计划时间：{formatDateTime(decision.scheduledFor)}</span> : null}
         {decision.persistedAt ? <span>保存时间：{formatDateTime(decision.persistedAt)}</span> : null}
-        {decision.source === "scheduled" ? <Badge variant="success">定时决策</Badge> : null}
-        {decision.fromCache ? <Badge variant="secondary">已保存决策</Badge> : <Badge variant="success">最新决策</Badge>}
-        {decision.stale ? <Badge variant="secondary">配置已变化</Badge> : null}
+        <Badge variant={decision.source === "scheduled" ? "success" : "secondary"}>{decision.source === "scheduled" ? "定时决策" : "手动决策"}</Badge>
+        <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">{decision.fromCache ? "已保存" : "最新"}</span>
+        {decision.stale ? <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">配置已变化</span> : null}
         <NotificationBadge notification={decision.notification} />
       </div>
       {decision.notification ? <NotificationStatus notification={decision.notification} /> : null}
@@ -562,11 +586,14 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
           <StrategyBadge tone={shouldBuy ? "watch" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
           <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
         </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-muted-foreground">核心原因：{decision.summary}</p>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+          <span className="text-foreground">核心原因：</span>
+          <HighlightedText text={decision.summary} highlights={highlightNames} />
+        </p>
       </div>
       <div className="grid gap-3 md:grid-cols-4">
-        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} />
-        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={1} />
+        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
+        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={1} className={decision.totalEstimatedFee === 0 ? "opacity-45" : ""} />
         <StatCard label="保留现金" value={formatMoney(decision.cashReserve)} delayIndex={2} />
         <StatCard label="总本金" value={formatMoney(decision.capital)} delayIndex={3} />
       </div>
@@ -601,9 +628,9 @@ function FocusDecisionPanel({ decision, nextObserveAt }: { decision: FocusDecisi
 }
 
 function NotificationBadge({ notification }: { notification?: FocusDecision["notification"] }) {
-  if (!notification) return <Badge variant="secondary">推送状态待确认</Badge>;
+  if (!notification) return <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">推送待确认</span>;
   if (!notification.skipped) return <Badge variant="success">已推送手机</Badge>;
-  return <Badge variant="secondary">未推送：{notificationReasonLabel(notification.reason)}</Badge>;
+  return <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">未推送：{notificationReasonLabel(notification.reason)}</span>;
 }
 
 function NotificationStatus({ notification }: { notification: NonNullable<FocusDecision["notification"]> }) {
@@ -753,43 +780,125 @@ function TaskStatusPanel({
   );
 }
 
-function CandidateRanking({ decision, names }: { decision: FocusDecision | null; names: Record<string, string> }) {
-  const items = decision?.ranking ?? [];
+type CandidateSortKey = "rank" | "confidence" | "profit";
+
+function CandidateRanking({
+  decision,
+  names,
+  watchlist,
+  history
+}: {
+  decision: FocusDecision | null;
+  names: Record<string, string>;
+  watchlist: StockItem[];
+  history: DecisionHistoryRecord[];
+}) {
+  const [sortKey, setSortKey] = useState<CandidateSortKey>("rank");
+  const items = useMemo(() => decision?.ranking ?? [], [decision?.ranking]);
+  const rows = useMemo(() => {
+    const watchMap = new Map(watchlist.flatMap((item) => symbolVariantsForUi(item.symbol).map((symbol) => [symbol, item] as const)));
+    const historyMap = new Map(history.flatMap((item) => symbolVariantsForUi(item.symbol).map((symbol) => [symbol, item] as const)));
+    const normalized = items.map((item) => {
+      const watch = watchMap.get(item.symbol.toUpperCase());
+      const latestHistory = historyMap.get(item.symbol.toUpperCase());
+      const latestAnalysis = watch?.latestAnalysis?.outputJson;
+      const price = watch?.quote?.price ?? null;
+      const holdingPrice = watch?.holdingPrice ?? null;
+      const floatingProfit =
+        watch?.isHolding && price !== null && holdingPrice !== null && holdingPrice > 0
+          ? ((price - holdingPrice) / holdingPrice) * 100
+          : null;
+      return {
+        ...item,
+        name: names[item.symbol] || watch?.name || item.symbol,
+        status: normalizeRankingView(item.view),
+        trend: trendLabel(latestHistory?.strategyDirection || latestAnalysis?.trend || ""),
+        confidence: latestHistory?.confidence ?? latestAnalysis?.confidence ?? null,
+        floatingProfit,
+        risk: extractRiskText(item.reason),
+        actionTone: rankingTone(item.view)
+      };
+    });
+    return normalized.sort((a, b) => {
+      if (sortKey === "confidence") return (b.confidence ?? -1) - (a.confidence ?? -1) || a.rank - b.rank;
+      if (sortKey === "profit") return (b.floatingProfit ?? Number.NEGATIVE_INFINITY) - (a.floatingProfit ?? Number.NEGATIVE_INFINITY) || a.rank - b.rank;
+      return a.rank - b.rank;
+    });
+  }, [history, items, names, sortKey, watchlist]);
+
   return (
     <Card className="soft-card">
-      <CardHeader>
-        <CardTitle>候选标的排序</CardTitle>
+      <CardHeader className="flex-row items-center justify-between gap-3">
+        <div>
+          <CardTitle>候选标的排序</CardTitle>
+          <p className="mt-2 text-sm text-muted-foreground">用于横向比较今日关注标的，按置信度或浮盈率快速定位重点。</p>
+        </div>
+        {items.length ? (
+          <div className="flex rounded-lg border border-border bg-muted/20 p-1 text-xs">
+            <SortButton active={sortKey === "rank"} onClick={() => setSortKey("rank")}>默认</SortButton>
+            <SortButton active={sortKey === "confidence"} onClick={() => setSortKey("confidence")}>置信度</SortButton>
+            <SortButton active={sortKey === "profit"} onClick={() => setSortKey("profit")}>浮盈率</SortButton>
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent>
-        {items.length ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {items.slice(0, 6).map((item, index) => (
-              <div
-                key={`${item.symbol}-${item.rank}`}
-                className={cn(motionClassNames.cardEnter, motionClassNames.hoverLift, "rounded-lg border border-border bg-muted/15 p-3 text-sm")}
-                style={{ animationDelay: `${staggerDelay(index)}ms` }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">#{item.rank}</div>
-                    <div className="mt-1 truncate font-semibold">{names[item.symbol] || item.symbol}</div>
-                    <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">{item.symbol}</div>
-                  </div>
-                  <StrategyBadge tone={rankingTone(item.view)}>{normalizeRankingView(item.view)}</StrategyBadge>
-                </div>
-                <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted-foreground">排序原因：{item.reason}</p>
-                <p className="mt-2 line-clamp-2 text-xs leading-5 text-amber-700 dark:text-amber-300">关键风险：{extractRiskText(item.reason)}</p>
-                <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-                  <Link href={`/stocks/${item.symbol}`}>查看详情</Link>
-                </Button>
-              </div>
-            ))}
+        {rows.length ? (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-muted/25 text-xs text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-4 py-3 text-left font-medium">标的名称</th>
+                  <th className="px-3 py-3 text-left font-medium">状态</th>
+                  <th className="px-3 py-3 text-left font-medium">趋势</th>
+                  <th className="px-3 py-3 text-right font-medium">置信度</th>
+                  <th className="px-3 py-3 text-right font-medium">浮盈率</th>
+                  <th className="px-3 py-3 text-left font-medium">关键风险</th>
+                  <th className="px-4 py-3 text-right font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item, index) => (
+                  <tr key={`${item.symbol}-${item.rank}`} className={cn(motionClassNames.fadeUp, "border-b border-border/70 last:border-0 hover:bg-primary/5")} style={{ animationDelay: `${staggerDelay(index)}ms` }}>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{item.name}</div>
+                      <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">#{item.rank} · {item.symbol}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <StrategyBadge tone={item.actionTone}>{item.status}</StrategyBadge>
+                    </td>
+                    <td className="px-3 py-3 text-muted-foreground">{item.trend}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{formatConfidenceValue(item.confidence)}</td>
+                    <td className={cn("px-3 py-3 text-right tabular-nums", profitClass(item.floatingProfit))}>{formatProfit(item.floatingProfit)}</td>
+                    <td className="max-w-[280px] px-3 py-3">
+                      <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.risk}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/stocks/${item.symbol}`}>查看详情</Link>
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           <EmptyDecision message="暂无候选排序。到达自动分析时间或点击重新分析后，这里会展示关注标的的排序和动作。" />
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function SortButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn("rounded-md px-2.5 py-1.5 transition-colors", active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -846,6 +955,67 @@ function DecisionHistoryTimeline({ records }: { records: DecisionHistoryRecord[]
       </div>
     </div>
   );
+}
+
+function HighlightedText({ text, highlights }: { text: string; highlights: string[] }) {
+  const terms = highlights
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 16);
+  if (!terms.length) return <>{text}</>;
+  const pattern = new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "g");
+  return (
+    <>
+      {text.split(pattern).map((part, index) =>
+        terms.includes(part) ? (
+          <span key={`${part}-${index}`} className="font-semibold text-foreground">
+            {part}
+          </span>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function uniqueText(values: string[]) {
+  return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+}
+
+function symbolVariantsForUi(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  if (!/^\d{6}$/.test(base)) return [normalized];
+  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
+}
+
+function trendLabel(value: string) {
+  if (value === "bullish") return "偏多";
+  if (value === "bearish") return "偏空";
+  if (value === "neutral") return "中性";
+  if (value === "watch") return "观察";
+  return "--";
+}
+
+function formatConfidenceValue(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatProfit(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function profitClass(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "text-muted-foreground";
+  return value >= 0 ? "text-red-500" : "text-emerald-500";
 }
 
 function StatusMetric({
