@@ -93,6 +93,7 @@ export default async function StockDetailPage({
     : null;
   const displayName = quote.name ?? quoteSymbol;
   const isIndex = isIndexSymbol(quoteSymbol);
+  const displayQuote = buildDisplayQuote(quote, candles);
   const strategy = trendToStrategy(analysis?.trend);
   const currentAction = currentActionLabel(analysis);
 
@@ -113,12 +114,12 @@ export default async function StockDetailPage({
                 {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                <span className="text-3xl font-semibold text-foreground tabular-nums">{quote.price === null ? "--" : formatPriceValue(quote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
-                <span className={quote.changePct === null ? "text-muted-foreground" : quote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
-                  {quote.changePct === null ? "--" : formatPercent(quote.changePct)}
+                <span className="text-3xl font-semibold text-foreground tabular-nums">{displayQuote.price === null ? "--" : formatPriceValue(displayQuote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
+                <span className={displayQuote.changePct === null ? "text-muted-foreground" : displayQuote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
+                  {displayQuote.changePct === null ? "--" : formatPercent(displayQuote.changePct)}
                 </span>
-                <span>成交量 {quote.volume === null ? "--" : formatNumber(quote.volume)}</span>
-                <span>{quote.updatedAt ? new Date(quote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
+                <span>成交量 {displayQuote.volume === null ? "--" : formatNumber(displayQuote.volume)}</span>
+                <span>{displayQuote.updatedAt ? new Date(displayQuote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -160,7 +161,7 @@ export default async function StockDetailPage({
           {indicators ? (
             <IndicatorPanel
               indicators={indicators}
-              price={quote.price}
+              price={displayQuote.price}
               support={analysis?.keyLevels?.support ?? []}
               resistance={analysis?.keyLevels?.resistance ?? []}
               currency={quote.currency}
@@ -257,6 +258,56 @@ function normalizeRange(value: string | undefined, interval: string) {
   if (value && allowed.includes(value)) return value;
   if (interval === "1m") return "1d";
   return isIntraday(interval) ? "1mo" : "6mo";
+}
+
+function buildDisplayQuote(
+  quote: Awaited<ReturnType<typeof getQuote>>,
+  candles: Candle[]
+): { price: number | null; changePct: number | null; volume: number | null; updatedAt: string | null } {
+  const latestCandle = candles[candles.length - 1];
+  const quoteTime = parseTime(quote.updatedAt);
+  const candleTime = parseTime(latestCandle?.timestamp);
+  const shouldUseCandle =
+    latestCandle &&
+    Number.isFinite(candleTime) &&
+    (quote.price === null || !Number.isFinite(quoteTime) || candleTime > quoteTime + 60_000);
+
+  if (!shouldUseCandle) {
+    return {
+      price: quote.price,
+      changePct: quote.changePct,
+      volume: quote.volume,
+      updatedAt: quote.updatedAt
+    };
+  }
+
+  const previousClose = quote.raw?.previousClose ?? estimatePreviousClose(quote.price, quote.changePct);
+  const changePct =
+    previousClose && previousClose > 0
+      ? Number((((latestCandle.close - previousClose) / previousClose) * 100).toFixed(2))
+      : latestCandle.open
+        ? Number((((latestCandle.close - latestCandle.open) / latestCandle.open) * 100).toFixed(2))
+        : null;
+
+  return {
+    price: latestCandle.close,
+    changePct,
+    volume: quote.volume ?? latestCandle.volume,
+    updatedAt: latestCandle.timestamp
+  };
+}
+
+function parseTime(value?: string | null) {
+  if (!value) return Number.NaN;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : Number.NaN;
+}
+
+function estimatePreviousClose(price?: number | null, changePct?: number | null) {
+  if (price === null || price === undefined || changePct === null || changePct === undefined) return null;
+  const ratio = 1 + changePct / 100;
+  if (!Number.isFinite(ratio) || ratio <= 0) return null;
+  return price / ratio;
 }
 
 function toDecisionSnapshot(record?: {
