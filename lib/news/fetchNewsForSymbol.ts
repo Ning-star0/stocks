@@ -57,8 +57,8 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
   filteredOut += topicNews.length - relevantTopicNews.length;
   fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
-  // 新闻不足时联网搜索
-  if (fetched.length === 0 || sectorKeywords.length > 0) {
+  // 新闻源结果不足时才允许联网检索补充，默认关闭，避免 Tavily 产生不可预期消耗。
+  if (enableNewsWebSearch() && fetched.filter((item) => item.symbols?.includes(symbol)).length < 3) {
     const webSearch = await searchRelatedNews({
       symbol,
       name,
@@ -121,6 +121,10 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
     queuedAnalysis,
     webSearchUsed
   };
+}
+
+function enableNewsWebSearch() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_NEWS_WEB_SEARCH ?? ""));
 }
 
 async function resolveSymbolName(symbol: string) {

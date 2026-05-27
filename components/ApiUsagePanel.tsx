@@ -29,6 +29,18 @@ type UsageResponse = {
     today: number;
     month: number;
   };
+  aiBalance?: {
+    provider: "deepseek";
+    available: boolean;
+    checkedAt: string;
+    error?: string;
+    balanceInfos: Array<{
+      currency: string;
+      totalBalance: string;
+      grantedBalance: string;
+      toppedUpBalance: string;
+    }>;
+  } | null;
 };
 
 type ModelUsageItem = {
@@ -98,9 +110,9 @@ export function ApiUsagePanel() {
           <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在读取用量...</div>
         ) : (
           <>
-            {data?.aiCost ? <AiCostSummary cost={data.aiCost} /> : null}
+            {data?.aiCost ? <AiCostSummary cost={data.aiCost} balance={data.aiBalance ?? null} /> : null}
             <UsageSection title="AI 消耗" description="模型调用、Token 与本地估算费用。适合判断今天是否消耗异常。" items={aiItems} compact />
-            <UsageSection title="外部接口" description="行情、历史 K 线、新闻和联网检索的调用情况。" items={externalItems} />
+            <UsageSection title="外部接口" description="行情、历史 K 线、新闻和联网检索的调用情况。联网检索默认关闭，只在启用兜底搜索时计数。" items={externalItems} />
             <AiModelUsageTable rows={data?.aiModels ?? []} currency={data?.aiCost?.currency ?? ""} />
           </>
         )}
@@ -110,14 +122,40 @@ export function ApiUsagePanel() {
   );
 }
 
-function AiCostSummary({ cost }: { cost: { currency: string; today: number; month: number } }) {
+function AiCostSummary({
+  cost,
+  balance
+}: {
+  cost: { currency: string; today: number; month: number };
+  balance: UsageResponse["aiBalance"];
+}) {
   return (
     <div className="grid gap-3 lg:grid-cols-[1fr_1fr_0.9fr]">
       <CostCard label="今日 AI 估算费用" value={formatCost(cost.today, cost.currency)} />
       <CostCard label="本月 AI 估算费用" value={formatCost(cost.month, cost.currency)} />
-      <div className="rounded-xl border border-border/70 bg-muted/10 p-4 text-sm leading-6 text-muted-foreground">
-        费用按设置页模型单价和本地 Token 记录估算，用于消耗观察，不等同于厂商账单。
+      <BalanceCard balance={balance} />
+    </div>
+  );
+}
+
+function BalanceCard({ balance }: { balance: UsageResponse["aiBalance"] }) {
+  const primary = balance?.balanceInfos?.[0] ?? null;
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/10 p-4 text-sm leading-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-muted-foreground">DeepSeek 官方余额</div>
+        {balance ? <Badge variant={balance.available ? "success" : "warning"}>{balance.available ? "可用" : "不可用"}</Badge> : <Badge variant="secondary">未接入</Badge>}
       </div>
+      <div className="mt-2 text-2xl font-semibold tracking-normal text-foreground tabular-nums">
+        {primary ? `${Number(primary.totalBalance).toLocaleString("zh-CN", { maximumFractionDigits: 4 })} ${primary.currency}` : "--"}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {balance?.error
+          ? balance.error
+          : primary
+            ? `充值余额 ${primary.toppedUpBalance}，赠金 ${primary.grantedBalance}。`
+            : "费用估算来自本地 Token 记录，余额来自 DeepSeek 账户接口。"}
+      </p>
     </div>
   );
 }

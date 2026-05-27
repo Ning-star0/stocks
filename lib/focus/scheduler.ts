@@ -113,8 +113,8 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
         fetched.push(...relevant.map((item) => attachSymbol(item, symbol)));
       }
 
-      // 联网搜索补充
-      if (fetched.filter((item) => item.symbols?.includes(symbol)).length < 3) {
+      // 新闻源结果不足时才允许联网检索补充，默认关闭，避免 Tavily 产生不可预期消耗。
+      if (enableNewsWebSearch() && fetched.filter((item) => item.symbols?.includes(symbol)).length < 3) {
         try {
           const webResults = await searchRelatedNews({
             symbol, name: null, sectorKeywords, days: 7, maxResults: 5
@@ -203,4 +203,8 @@ function formatDateKey(date: Date) {
     String(date.getMonth() + 1).padStart(2, "0"),
     String(date.getDate()).padStart(2, "0")
   ].join("-");
+}
+
+function enableNewsWebSearch() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_NEWS_WEB_SEARCH ?? ""));
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAiConfig } from "@/lib/ai/config";
+import { getDeepSeekBalance } from "@/lib/ai/balance";
 import { readQuota } from "@/lib/apiUsage";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
@@ -40,7 +41,7 @@ export async function GET() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [aiConfig, aiToday, aiMonth, apiLogs] = await Promise.all([
+    const [aiConfig, aiToday, aiMonth, apiLogs, aiBalance] = await Promise.all([
       getAiConfig(),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: todayStart } } }),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: monthStart } } }),
@@ -49,7 +50,8 @@ export async function GET() {
           createdAt: { gte: monthStart },
           OR: [{ userId: user.id }, { userId: null }]
         }
-      })
+      }),
+      getDeepSeekBalance()
     ]);
 
     const items: UsageItem[] = [
@@ -105,7 +107,8 @@ export async function GET() {
         currency: aiConfig.costCurrency,
         today: sumEstimatedCost(aiToday),
         month: sumEstimatedCost(aiMonth)
-      }
+      },
+      aiBalance
     });
   } catch (error) {
     return apiError(error);

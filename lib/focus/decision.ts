@@ -422,12 +422,12 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 决策要求：
 1. 必须明确 recommendedAction，只能是 buy 或 wait。buy 表示“形成条件触发型计划买入/增持情景”，wait 表示“今日只观察，不执行计划金额”。
 2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
-3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断，若 entryAdvice 是等待、不建议入场、回避、观望，则不能买。
+3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy 订单；若 entryAdvice 明确是等待、不建议入场、回避、观望，则不能买。
 4. 如果最新分析 trend=bearish、confidence 低于 0.55、行情价格不可用、或建议里出现减仓/止损/离场/回避，应 recommendedAction=wait 或在 ranking 标为回避。
 5. 如果建议买入，orders 里最多给 2 笔 buy；必须写清 symbol、amount、shares、reason、riskControl、invalidIf。reason 必须说明这是“新买入”还是“增持”。
 6. amount 是计划成交金额，不含手续费；shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。
 7. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-8. 如果没有足够确定性，宁可 recommendedAction=wait，并说明等待什么触发条件。
+8. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果没有足够确定性，recommendedAction=wait，并说明等待什么触发条件。
 9. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划和手续费性价比排序。
 10. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议或入场建议。
 11. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy" 或 "wait" 其中之一，不能返回 "buy | wait" 这种说明文字。
@@ -586,9 +586,9 @@ function candidateSupportsBuy(candidate: Candidate) {
 
   const advice = candidate.isHolding ? candidate.latestAnalysis?.holdAdvice : candidate.latestAnalysis?.entryAdvice;
   const text = stringifyAdvice(advice);
-  if (/减仓|止损|离场|回避|不建议|等待|观望/.test(text)) return false;
+  if (/减仓|止损|离场|回避|不建议/.test(text)) return false;
   if (candidate.isHolding) return /加仓|增持|逢低|提高仓位/.test(text);
-  return /买入|建仓|入场|轻仓|试探|逢低/.test(text);
+  return /买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) && !/仅观察|继续观察|观望/.test(text);
 }
 
 function stringifyAdvice(value: unknown) {

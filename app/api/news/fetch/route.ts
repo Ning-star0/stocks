@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       filteredOut += topicNews.length - relevantTopicNews.length;
       fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
-      if (fetched.length === beforeSymbolFetch || sectorKeywords.length > 0) {
+      if (enableNewsWebSearch() && fetched.length - beforeSymbolFetch < 3) {
         const webSearch = await searchRelatedNews({
           symbol,
           name,
@@ -202,4 +202,8 @@ function uniqueText(values: string[]) {
 
 function rankUsefulNews(items: NewsItem[], keywords: string[]) {
   return items.filter((item) => !isLowValueMarketMoveNews(item)).sort((a, b) => scoreNewsCatalyst(b, keywords) - scoreNewsCatalyst(a, keywords));
+}
+
+function enableNewsWebSearch() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_NEWS_WEB_SEARCH ?? ""));
 }
