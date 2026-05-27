@@ -1,6 +1,7 @@
 "use client";
 
-import { MouseEvent, useMemo, useRef, useState } from "react";
+import type { CSSProperties, MouseEvent } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { motionClassNames } from "@/lib/motion";
 import type { Candle } from "@/lib/types";
@@ -126,30 +127,23 @@ export function StockChart({
 
   return (
     <div className="w-full">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="grid gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-              <span className="text-muted-foreground">{latestPriceLabel}</span>
-              <span className="truncate tabular-nums text-primary" title={formatPriceValue(latest?.close, { currency, symbol, unit })}>
-                {formatPriceValue(latest?.close, { currency, symbol, unit })}
-              </span>
-            </div>
-            <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-              <span className="text-muted-foreground">截至时间</span>
-              <span className="truncate tabular-nums text-muted-foreground" title={latest?.date ?? "--"}>
-                {latest?.date ?? "--"}
-              </span>
-            </div>
+      <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+        <div className="min-w-0 space-y-1.5">
+          <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <InfoItem label={latestPriceLabel} value={formatPriceValue(latest?.close, { currency, symbol, unit })} strong className="text-primary" />
+            <InfoItem label="成交量" value={formatNumber(latest?.volume)} />
+            <InfoItem label="截至" value={latest?.date ?? "--"} />
           </div>
-          <div className="grid gap-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
             {maSeries.map((item) => (
-              <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] gap-1.5" style={{ color: item.color }}>
-                <span>{item.label}</span>
-                <span className="truncate tabular-nums" title={showMovingAverages ? formatNumber(latest?.[item.key]) : "分时图不计算均线"}>
-                  {showMovingAverages ? formatNumber(latest?.[item.key]) : "--"}
-                </span>
-              </span>
+              <InfoItem
+                key={item.key}
+                label={item.label}
+                value={showMovingAverages ? formatNumber(latest?.[item.key]) : "--"}
+                title={showMovingAverages ? formatNumber(latest?.[item.key]) : "分时图不计算均线"}
+                className="font-normal"
+                style={{ color: item.color }}
+              />
             ))}
           </div>
           <div className="text-xs text-muted-foreground">
@@ -157,7 +151,7 @@ export function StockChart({
             {isIntraday ? "，非交易日会显示最近一个交易日的数据" : ""}
           </div>
         </div>
-        <div className="text-xs text-muted-foreground">{isTimeSharing ? "1 分钟分时线，柱状图为成交量" : "红涨绿跌，均线按当前周期 K 线计算"}</div>
+        <div className="text-xs text-muted-foreground xl:pt-1">{isTimeSharing ? "1 分钟分时线，柱状图为成交量" : "红涨绿跌，均线按当前周期 K 线计算"}</div>
       </div>
 
       <div className="space-y-3">
@@ -438,42 +432,34 @@ function InfoPanel({
   const cursorPrice = point.close;
   return (
     <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-      <div className="grid gap-x-6 gap-y-1.5 md:grid-cols-[minmax(190px,1.25fr)_minmax(160px,1fr)_minmax(168px,1fr)_minmax(150px,1fr)]">
-        <InfoItem label="时间" value={cursorTime} size="wide" />
-        <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong size="wide" />
-        <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} size="wide" />
-        <span className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap">
-          <span className="text-muted-foreground">涨跌</span>
-          <span
-            key={`${change.toFixed(4)}-${changePct.toFixed(2)}`}
-            className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5", up ? "text-red-500" : "text-emerald-500")}
-            title={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
-          >
-            {change >= 0 ? "+" : ""}
-            {formatNumber(change)}/{changePct >= 0 ? "+" : ""}
-            {changePct.toFixed(2)}%
-          </span>
-        </span>
+      <div className="grid gap-x-6 gap-y-1.5 md:grid-cols-4">
+        <InfoItem label="时间" value={cursorTime} />
+        <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />
+        <InfoItem label="成交量" value={formatNumber(cursor?.volume ?? point.volume)} />
+        <InfoItem
+          label="涨跌"
+          value={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+          className={up ? "text-red-500" : "text-emerald-500"}
+          title={`${change >= 0 ? "+" : ""}${formatNumber(change)}/${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
+        />
       </div>
       <div className="mt-1.5 border-t border-border/70 pt-1.5">
-        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
           <InfoItem label="开盘" value={formatPriceValue(point.open, { currency, symbol, unit })} />
           <InfoItem label="最高" value={formatPriceValue(point.high, { currency, symbol, unit })} />
           <InfoItem label="最低" value={formatPriceValue(point.low, { currency, symbol, unit })} />
           <InfoItem label={isTimeSharing ? intradayLatestPriceLabel(point) : "收盘"} value={formatPriceValue(point.close, { currency, symbol, unit })} />
         </div>
-        <div className="mt-1.5 grid gap-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-1.5 grid gap-x-6 gap-y-1.5 border-t border-border/50 pt-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {maSeries.map((item) => (
-            <span key={item.key} className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-1.5 whitespace-nowrap" style={{ color: item.color }}>
-              <span>{item.label}</span>
-              <span
-                key={`${item.key}-${showMovingAverages ? formatNumber(point[item.key]) : "--"}`}
-                className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5")}
-                title={showMovingAverages ? formatNumber(point[item.key]) : "分时图不计算均线"}
-              >
-                {showMovingAverages ? formatNumber(point[item.key]) : "--"}
-              </span>
-            </span>
+            <InfoItem
+              key={item.key}
+              label={item.label}
+              value={showMovingAverages ? formatNumber(point[item.key]) : "--"}
+              title={showMovingAverages ? formatNumber(point[item.key]) : "分时图不计算均线"}
+              className="font-normal"
+              style={{ color: item.color }}
+            />
           ))}
         </div>
       </div>
@@ -481,11 +467,26 @@ function InfoPanel({
   );
 }
 
-function InfoItem({ label, value, strong = false, size = "normal" }: { label: string; value: string; strong?: boolean; size?: "normal" | "wide" }) {
+function InfoItem({
+  label,
+  value,
+  strong = false,
+  title,
+  className,
+  style
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  title?: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const hasCustomColor = Boolean(style?.color);
   return (
-    <span className={cn("grid min-w-0 items-center gap-1.5 whitespace-nowrap", size === "wide" ? "grid-cols-[52px_minmax(0,1fr)]" : "grid-cols-[42px_minmax(0,1fr)]")}>
-      <span className="text-muted-foreground">{label}</span>
-      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5 text-foreground", strong ? "font-semibold" : "")} title={value}>
+    <span className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-2 whitespace-nowrap" style={style}>
+      <span className={hasCustomColor ? "" : "text-muted-foreground"}>{label}</span>
+      <span key={value} className={cn(motionClassNames.numberChange, "min-w-0 truncate tabular-nums leading-5", hasCustomColor ? "" : "text-foreground", strong ? "font-semibold" : "", className)} title={title ?? value}>
         {value}
       </span>
     </span>
