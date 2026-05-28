@@ -12,6 +12,7 @@ import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { notifyFocusDecision } from "@/lib/notifications/send";
 import { prisma } from "@/lib/prisma";
+import { buildQuantSignal, type QuantSignal } from "@/lib/quant/strategy";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { toNumber } from "@/lib/utils";
 
@@ -89,6 +90,7 @@ type Candidate = {
     entryAdvice?: unknown;
     riskFactors?: unknown;
   } | null;
+  quantSignal?: QuantSignal | null;
 };
 
 type GenerateFocusDecisionOptions = {
@@ -342,7 +344,44 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     const item = watchlistItems.find((row) => variants.includes(row.symbol));
     const analysis = seed.latestAnalysisBySymbol.get(symbol) ?? null;
     const output = analysis?.outputJson as Candidate["latestAnalysis"] | undefined;
+    const analysisInput = asRecord(analysis?.inputJson);
+    const analysisIndicators = asRecord(analysisInput.indicators);
+    const analysisHistorySummary = asRecord(analysisInput.historySummary);
+    const analysisKeyLevels = asRecord(asRecord(output).keyLevels);
     const holdingPrice = toNumber(item?.holdingPrice);
+    const keyLevels = {
+      support: numberArray(analysisKeyLevels.support),
+      resistance: numberArray(analysisKeyLevels.resistance)
+    };
+    const quantSignal = buildQuantSignal({
+      price: quote?.price ?? null,
+      changePct: quote?.changePct ?? null,
+      indicators: {
+        rsi14: toNumber(analysisIndicators.rsi14),
+        macd: toNumber(analysisIndicators.macd),
+        macdSignal: toNumber(analysisIndicators.macdSignal),
+        sma20: toNumber(analysisIndicators.sma20),
+        sma50: toNumber(analysisIndicators.sma50),
+        sma200: toNumber(analysisIndicators.sma200),
+        ema20: toNumber(analysisIndicators.ema20),
+        bollingerUpper: toNumber(analysisIndicators.bollingerUpper),
+        bollingerMiddle: toNumber(analysisIndicators.bollingerMiddle),
+        bollingerLower: toNumber(analysisIndicators.bollingerLower)
+      },
+      historySummary: {
+        averageVolume: toNumber(analysisHistorySummary.averageVolume),
+        recentVolume: toNumber(analysisHistorySummary.recentVolume),
+        high: toNumber(analysisHistorySummary.high),
+        low: toNumber(analysisHistorySummary.low),
+        changePercent: toNumber(analysisHistorySummary.changePercent)
+      },
+      keyLevels,
+      isHolding: item?.isHolding ?? false,
+      holdingPrice,
+      holdingShares: toNumber(item?.holdingShares),
+      targetPrice: toNumber(item?.targetPrice),
+      stopLoss: toNumber(item?.stopLoss)
+    });
     return {
       symbol: quote?.symbol ?? symbol,
       name: quote?.name ?? null,
@@ -366,7 +405,8 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
             entryAdvice: output.entryAdvice,
             riskFactors: output.riskFactors
           }
-        : null
+        : null,
+      quantSignal
     } satisfies Candidate;
   });
 
@@ -441,13 +481,14 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
 4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
 5. 使用“趋势过滤 + 动量确认 + 风险边界”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉或达到目标压力位时，优先考虑减仓/止盈/止损。
-6. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-7. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先按 100 股/份整数手；如果剩余持仓不足 100，可一次性卖出剩余数量。
-8. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-9. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，也不要只写观察，必须给出减仓/止损条件。
-10. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏和手续费性价比排序。
-11. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议、入场建议或退出建议。
-12. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
+6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
+7. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+8. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先按 100 股/份整数手；如果剩余持仓不足 100，可一次性卖出剩余数量。
+9. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+10. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，也不要只写观察，必须给出减仓/止损条件。
+11. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏和手续费性价比排序。
+12. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议”。
+13. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -492,6 +533,10 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
   let spent = 0;
   const orders = value.orders
     .filter((order) => order.action === "buy")
+    .filter((order) => {
+      const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
+      return quantAllowsBuy(candidate);
+    })
     .slice(0, 2)
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => item.symbol.replace(/\.(SH|SZ|BJ)$/, "") === order.symbol.replace(/\.(SH|SZ|BJ)$/, ""));
@@ -516,6 +561,10 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
     .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
   const sellOrders = value.sellOrders
     .filter((order) => order.action === "sell" || order.action === "reduce")
+    .filter((order) => {
+      const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
+      return quantAllowsSell(candidate);
+    })
     .slice(0, 3)
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
@@ -575,7 +624,7 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
   const sellCandidates = input.candidates.filter(candidateSupportsSell);
   const ranked = input.candidates
     .filter(candidateSupportsBuy)
-    .sort((a, b) => (b.latestAnalysis?.confidence ?? 0) - (a.latestAnalysis?.confidence ?? 0));
+    .sort((a, b) => (b.quantSignal?.buyScore ?? 0) - (a.quantSignal?.buyScore ?? 0) || (b.latestAnalysis?.confidence ?? 0) - (a.latestAnalysis?.confidence ?? 0));
   const best = ranked[0];
   const sellTarget = sellCandidates[0];
   if ((!best?.price || (best.latestAnalysis?.confidence ?? 0) < 0.55) && !sellTarget?.price) {
@@ -590,8 +639,8 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
         ranking: input.candidates.map((candidate, index) => ({
           symbol: candidate.symbol,
           rank: index + 1,
-          view: "观察",
-          reason: candidate.latestAnalysis?.summary ?? "暂无足够分析。"
+          view: quantView(candidate),
+          reason: quantReason(candidate)
         })),
         disclaimer: "本内容由本地规则生成，仅供研究参考，不构成投资建议。"
       },
@@ -623,8 +672,8 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
         ranking: input.candidates.map((candidate, index) => ({
           symbol: candidate.symbol,
           rank: index + 1,
-          view: sameSymbol(candidate.symbol, sellTarget.symbol) ? "回避" : "观察",
-          reason: candidate.latestAnalysis?.summary ?? "暂无摘要。"
+          view: sameSymbol(candidate.symbol, sellTarget.symbol) ? "减仓/卖出" : quantView(candidate),
+          reason: quantReason(candidate)
         })),
         disclaimer: "本内容由本地规则生成，仅供研究参考，不构成投资建议。"
       },
@@ -655,8 +704,8 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
       ranking: ranked.map((candidate, index) => ({
         symbol: candidate.symbol,
         rank: index + 1,
-        view: index === 0 ? "优先" : "观察",
-        reason: candidate.latestAnalysis?.summary ?? "暂无摘要。"
+        view: index === 0 ? "优先" : quantView(candidate),
+        reason: quantReason(candidate)
       })),
       disclaimer: "本内容由本地规则生成，仅供研究参考，不构成投资建议。"
     },
@@ -686,6 +735,7 @@ function repairJsonText(text: string) {
 
 function candidateSupportsBuy(candidate: Candidate) {
   if (!candidate.price || candidate.price <= 0) return false;
+  if (!quantAllowsBuy(candidate)) return false;
   if (candidate.latestAnalysis?.trend === "bearish") return false;
   if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
 
@@ -698,8 +748,50 @@ function candidateSupportsBuy(candidate: Candidate) {
 
 function candidateSupportsSell(candidate: Candidate) {
   if (!candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
+  if (quantAllowsSell(candidate)) return true;
   const text = stringifyAdvice(candidate.latestAnalysis?.holdAdvice);
   return /减仓|止损|离场|回避|风险规避|止盈|分批兑现|降低仓位/.test(text);
+}
+
+function quantView(candidate: Candidate) {
+  const action = candidate.quantSignal?.action;
+  if (action === "buy" || action === "add") return "优先";
+  if (action === "sell" || action === "reduce") return "减仓/卖出";
+  if (action === "avoid") return "回避";
+  if (action === "hold") return "持有观察";
+  return "观察";
+}
+
+function quantReason(candidate: Candidate) {
+  const signal = candidate.quantSignal;
+  if (!signal) return candidate.latestAnalysis?.summary ?? "暂无量化信号。";
+  const scores = `量化信号：${actionLabel(signal.action)}，买入分 ${signal.buyScore}，卖出分 ${signal.sellScore}，趋势分 ${signal.trendScore}，动量分 ${signal.momentumScore}，风险分 ${signal.riskScore}。`;
+  const reason = signal.reasons.slice(0, 2).join("；");
+  const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
+  return [scores, reason, risk].filter(Boolean).join(" ");
+}
+
+function actionLabel(action: QuantSignal["action"]) {
+  const map: Record<QuantSignal["action"], string> = {
+    buy: "买入观察",
+    add: "增持观察",
+    hold: "持有观察",
+    watch: "继续观察",
+    reduce: "减仓观察",
+    sell: "卖出观察",
+    avoid: "回避"
+  };
+  return map[action];
+}
+
+function quantAllowsBuy(candidate?: Candidate | null) {
+  if (!candidate?.quantSignal) return true;
+  return candidate.quantSignal.action === "buy" || candidate.quantSignal.action === "add" || candidate.quantSignal.buyScore >= 68;
+}
+
+function quantAllowsSell(candidate?: Candidate | null) {
+  if (!candidate?.quantSignal) return false;
+  return candidate.quantSignal.action === "sell" || candidate.quantSignal.action === "reduce" || candidate.quantSignal.sellScore >= 62;
 }
 
 function stringifyAdvice(value: unknown) {
@@ -780,6 +872,15 @@ function normalizeScheduledFor(value: Date | string | null | undefined) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function numberArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => toNumber(item)).filter((item): item is number => item !== null);
 }
 
 function numberEnv(name: string, fallback: number) {
