@@ -215,6 +215,7 @@ export async function createDecisionHistoryFromFocusDecision(input: {
   const decision = asRecord(input.decision);
   const ranking = Array.isArray(decision.ranking) ? decision.ranking.filter(asRecord) : [];
   const orders = Array.isArray(decision.orders) ? decision.orders.filter(asRecord) : [];
+  const sellOrders = Array.isArray(decision.sellOrders) ? decision.sellOrders.filter(asRecord) : [];
   const model = await getModelName();
   const created = [];
 
@@ -223,7 +224,8 @@ export async function createDecisionHistoryFromFocusDecision(input: {
     if (!symbol) continue;
     const candidate = input.candidates?.find((item) => sameSymbol(item.symbol, symbol));
     const order = orders.find((item) => sameSymbol(stringValue(item.symbol), symbol));
-    const action = normalizeAction(stringValue(order?.action) || stringValue(row.view));
+    const sellOrder = sellOrders.find((item) => sameSymbol(stringValue(item.symbol), symbol));
+    const action = normalizeAction(stringValue(sellOrder?.action) || stringValue(order?.action) || stringValue(row.view));
     const previous = await prisma.decisionHistory.findFirst({
       where: { userId: input.userId, symbol },
       orderBy: { decisionTime: "desc" }
@@ -245,9 +247,9 @@ export async function createDecisionHistoryFromFocusDecision(input: {
         summary: stringValue(row.reason) || stringValue(decision.summary) || "暂无摘要。",
         keyReasons: normalizeReasons([], stringValue(row.reason) || stringValue(decision.summary)) as Prisma.InputJsonValue,
         entryRange: stringValue(order?.entryRange),
-        stopLoss: stringValue(order?.riskControl),
+        stopLoss: stringValue(sellOrder?.riskControl) || stringValue(order?.riskControl),
         takeProfit: null,
-        invalidationCondition: stringValue(order?.invalidIf),
+        invalidationCondition: stringValue(sellOrder?.invalidIf) || stringValue(order?.invalidIf),
         fallbackUsed,
         rawModelName: model,
         previousAction: previous?.action ?? null,
@@ -286,7 +288,7 @@ export async function createDecisionHistoryFromFocusDecision(input: {
 
 function normalizeAction(value?: string | null) {
   const text = value || "";
-  if (/减仓|reduce/.test(text)) return "reduce";
+  if (/减仓|reduce|sell|卖出|止盈/.test(text)) return "reduce";
   if (/持有|hold|加仓|增持/.test(text)) return "hold";
   if (/回避|avoid|止损|离场|不建议/.test(text)) return "avoid";
   if (/等待|回调|wait|观望/.test(text)) return "wait_pullback";

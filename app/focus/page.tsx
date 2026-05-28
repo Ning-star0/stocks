@@ -49,11 +49,14 @@ type StockItem = {
 
 type FocusDecision = {
   summary: string;
-  recommendedAction: "buy" | "wait";
+  recommendedAction: "buy" | "sell" | "mixed" | "wait";
   capital: number;
   totalBudgetToUse: number;
   totalEstimatedFee: number;
   totalEstimatedCost: number;
+  totalSellAmount?: number;
+  totalSellEstimatedFee?: number;
+  totalSellNetProceeds?: number;
   cashReserve: number;
   fallbackReason?: string | null;
   fromCache?: boolean;
@@ -78,6 +81,20 @@ type FocusDecision = {
     estimatedPrice: number | null;
     estimatedFee: number;
     totalCost: number;
+    reason: string;
+    riskControl: string;
+    invalidIf: string;
+  }>;
+  sellOrders?: Array<{
+    symbol: string;
+    name?: string | null;
+    action: "sell" | "reduce" | "watch" | "avoid";
+    amount: number;
+    shares: number;
+    estimatedPrice: number | null;
+    estimatedFee: number;
+    netProceeds: number;
+    estimatedPnl?: number | null;
     reason: string;
     riskControl: string;
     invalidIf: string;
@@ -558,12 +575,16 @@ export default function FocusPage() {
 }
 
 function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: FocusDecision; nextObserveAt: string; names: Record<string, string> }) {
-  const shouldBuy = decision.recommendedAction === "buy" && decision.orders.length > 0;
-  const actionLabel = shouldBuy ? "形成观察买入计划" : "等待 / 暂不行动";
+  const sellOrders = decision.sellOrders ?? [];
+  const shouldSell = (decision.recommendedAction === "sell" || decision.recommendedAction === "mixed") && sellOrders.length > 0;
+  const hasBuy = decision.orders.length > 0;
+  const actionLabel = hasBuy && shouldSell ? "买入 + 卖出/减仓" : hasBuy ? "形成观察买入计划" : shouldSell ? "形成卖出/减仓计划" : "等待 / 暂不行动";
+  const conclusionLabel = hasBuy && shouldSell ? "调仓观察" : hasBuy ? "形成观察买入计划" : shouldSell ? "风险处理 / 减仓观察" : "不建议交易";
   const highlightNames = uniqueText([
     ...Object.values(names),
     ...decision.ranking.map((item) => names[item.symbol] || item.symbol),
-    ...decision.orders.map((item) => item.name || item.symbol)
+    ...decision.orders.map((item) => item.name || item.symbol),
+    ...sellOrders.map((item) => item.name || item.symbol)
   ]);
   return (
     <div className="space-y-4">
@@ -580,10 +601,10 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
         <NotificationBadge notification={decision.notification} />
       </div>
       {decision.notification ? <NotificationStatus notification={decision.notification} /> : null}
-      <div className={cn("rounded-xl border p-5", shouldBuy ? "border-primary/25 bg-primary/12" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
+      <div className={cn("rounded-xl border p-5", hasBuy ? "border-primary/25 bg-primary/12" : shouldSell ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
         <div className="flex flex-wrap items-center gap-2">
-          <StrategyBadge tone={shouldBuy ? "bullish" : "wait"}>今日结论：{shouldBuy ? "形成观察买入计划" : "不建议买入"}</StrategyBadge>
-          <StrategyBadge tone={shouldBuy ? "watch" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
+          <StrategyBadge tone={hasBuy ? "bullish" : shouldSell ? "avoid" : "wait"}>今日结论：{conclusionLabel}</StrategyBadge>
+          <StrategyBadge tone={hasBuy ? "watch" : shouldSell ? "avoid" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
           <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
         </div>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
@@ -591,8 +612,9 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
           <HighlightedText text={decision.summary} highlights={highlightNames} />
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
-        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={shouldBuy ? "success" : "neutral"} delayIndex={0} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
+      <div className="grid gap-3 md:grid-cols-5">
+        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} delayIndex={0} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
+        <StatCard label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} delayIndex={1} className={(decision.totalSellAmount ?? 0) === 0 ? "opacity-45" : ""} />
         <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={1} className={decision.totalEstimatedFee === 0 ? "opacity-45" : ""} />
         <StatCard label="保留现金" value={formatMoney(decision.cashReserve)} delayIndex={2} />
         <StatCard label="总本金" value={formatMoney(decision.capital)} delayIndex={3} />
@@ -614,6 +636,32 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
                 <DecisionNumber label="成交金额" value={formatMoney(order.amount)} />
                 <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
                 <DecisionNumber label="总成本" value={formatMoney(order.totalCost)} className="col-span-2" />
+              </div>
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
+              {order.riskControl ? <p className="mt-2 text-xs leading-5 text-muted-foreground">风控：{order.riskControl}</p> : null}
+              {order.invalidIf ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">失效：{order.invalidIf}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {sellOrders.length ? (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {sellOrders.map((order) => (
+            <div key={order.symbol} className="rounded-md border border-rose-500/25 bg-rose-500/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{order.name || order.symbol}</div>
+                  <div className="mt-1 text-xs tabular-nums text-muted-foreground">{order.symbol}</div>
+                </div>
+                <Badge variant="danger">{order.action === "sell" ? "卖出" : "减仓"}</Badge>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <DecisionNumber label="数量" value={`${order.shares} 股/份`} />
+                <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
+                <DecisionNumber label="计划市值" value={formatMoney(order.amount)} />
+                <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
+                <DecisionNumber label="净回收" value={formatMoney(order.netProceeds)} />
+                <DecisionNumber label="估算盈亏" value={formatMoney(order.estimatedPnl)} className={cn((order.estimatedPnl ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")} />
               </div>
               <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
               {order.riskControl ? <p className="mt-2 text-xs leading-5 text-muted-foreground">风控：{order.riskControl}</p> : null}
@@ -1130,6 +1178,7 @@ function startOfLocalDay(date: Date) {
 }
 
 function normalizeRankingView(view: string) {
+  if (/卖出|减仓|止损|止盈|离场/.test(view)) return "减仓/卖出";
   if (/回避|风险/.test(view)) return "回避";
   if (/等待|回调/.test(view)) return "等待回调";
   if (/观察|观望/.test(view)) return "观察";
@@ -1246,7 +1295,7 @@ function extractRiskText(text: string) {
 }
 
 function rankingTone(view: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
-  if (/回避|风险/.test(view)) return "avoid";
+  if (/回避|风险|卖出|减仓|止损|止盈|离场/.test(view)) return "avoid";
   if (/等待|观察/.test(view)) return "wait";
   if (/优先|偏多/.test(view)) return "bullish";
   return "watch";

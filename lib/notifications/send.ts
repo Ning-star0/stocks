@@ -4,8 +4,13 @@ import { getNotificationConfig, type NotificationProvider } from "@/lib/notifica
 type DecisionOrder = {
   symbol?: string | null;
   name?: string | null;
+  action?: string | null;
   amount?: number | null;
   shares?: number | null;
+  estimatedPrice?: number | null;
+  estimatedFee?: number | null;
+  netProceeds?: number | null;
+  estimatedPnl?: number | null;
   reason?: string | null;
   riskControl?: string | null;
   invalidIf?: string | null;
@@ -20,26 +25,29 @@ export type FocusDecisionNotificationInput = {
   fallbackReason?: string | null;
   generatedAt?: string | Date | null;
   orders?: DecisionOrder[];
+  sellOrders?: DecisionOrder[];
   cashReserve?: number | null;
   totalBudgetToUse?: number | null;
   totalEstimatedFee?: number | null;
+  totalSellAmount?: number | null;
+  totalSellNetProceeds?: number | null;
 };
 
 export async function notifyFocusDecision(input: FocusDecisionNotificationInput) {
   if (input.source !== "scheduled") return { skipped: true, reason: "manual_source" };
   if (input.fallbackReason) return { skipped: true, reason: "fallback_decision" };
-  if (!Number(input.totalBudgetToUse)) return { skipped: true, reason: "no_budget" };
 
   const orders = Array.isArray(input.orders) ? input.orders.filter((order) => Number(order.amount) > 0 || Number(order.shares) > 0) : [];
-  if (!orders.length) return { skipped: true, reason: "no_orders" };
+  const sellOrders = Array.isArray(input.sellOrders) ? input.sellOrders.filter((order) => Number(order.amount) > 0 || Number(order.shares) > 0) : [];
+  if (!orders.length && !sellOrders.length) return { skipped: true, reason: "no_orders" };
 
   const config = await getNotificationConfig(input.userId);
   if (!config.enabled || !isConfigSendable(config)) return { skipped: true, reason: "disabled" };
 
-  const dedupeKey = buildFocusDecisionDedupeKey(input, orders);
+  const dedupeKey = buildFocusDecisionDedupeKey(input, [...orders, ...sellOrders]);
   if (dedupeKey && await getCache(dedupeKey)) return { skipped: true, reason: "deduped" };
 
-  const message = buildFocusDecisionMessage(input, orders);
+  const message = buildFocusDecisionMessage(input, orders, sellOrders);
   await sendMessage(config, message);
   if (dedupeKey) await setCache(dedupeKey, { sentAt: new Date().toISOString() }, numberEnv("NOTIFICATION_DEDUPE_TTL_SECONDS", 12 * 60 * 60));
   return { skipped: false, sentAt: new Date().toISOString(), provider: config.provider };
@@ -55,27 +63,39 @@ export async function sendTestNotification(input: { userId: string; title?: stri
   });
 }
 
-function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders: DecisionOrder[]) {
+function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders: DecisionOrder[], sellOrders: DecisionOrder[]) {
   const title = "股票 AI 策略观察";
   const generatedAt = input.generatedAt ? new Date(input.generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
+  const hasBuy = orders.length > 0;
+  const hasSell = sellOrders.length > 0;
+  const conclusion = hasBuy && hasSell ? "形成买入与卖出/减仓观察计划" : hasSell ? "形成卖出/减仓观察计划" : "形成观察买入计划";
   const lines = [
     `## ${title}`,
     "",
     `时间：${generatedAt}`,
     `来源：${input.source === "scheduled" ? "定时分析" : "手动分析"}`,
     "",
-    `结论：形成观察买入计划`,
+    `结论：${conclusion}`,
     input.summary ? `核心原因：${input.summary}` : "",
     "",
     ...orders.flatMap((order, index) => [
-      `### ${index + 1}. ${order.name || order.symbol || "标的"} ${order.symbol ? `(${order.symbol})` : ""}`,
+      `### 买入 ${index + 1}. ${order.name || order.symbol || "标的"} ${order.symbol ? `(${order.symbol})` : ""}`,
       `计划金额：${formatMoney(order.amount)}，数量：${Number(order.shares ?? 0)} 股/份`,
       order.reason ? `原因：${order.reason}` : "",
       order.riskControl ? `风控：${order.riskControl}` : "",
       order.invalidIf ? `失效：${order.invalidIf}` : "",
       ""
     ]),
-    `预计使用：${formatMoney(input.totalBudgetToUse)}，手续费：${formatMoney(input.totalEstimatedFee)}，保留现金：${formatMoney(input.cashReserve)}`,
+    ...sellOrders.flatMap((order, index) => [
+      `### 卖出/减仓 ${index + 1}. ${order.name || order.symbol || "标的"} ${order.symbol ? `(${order.symbol})` : ""}`,
+      `计划市值：${formatMoney(order.amount)}，数量：${Number(order.shares ?? 0)} 股/份，净回收：${formatMoney(order.netProceeds)}`,
+      order.estimatedPnl !== undefined && order.estimatedPnl !== null ? `估算盈亏：${formatMoney(order.estimatedPnl)}` : "",
+      order.reason ? `原因：${order.reason}` : "",
+      order.riskControl ? `风控：${order.riskControl}` : "",
+      order.invalidIf ? `失效：${order.invalidIf}` : "",
+      ""
+    ]),
+    `计划买入：${formatMoney(input.totalBudgetToUse)}，计划卖出：${formatMoney(input.totalSellAmount)}，手续费：${formatMoney(input.totalEstimatedFee)}，卖出净回收：${formatMoney(input.totalSellNetProceeds)}，预计现金：${formatMoney(input.cashReserve)}`,
     "",
     "仅供研究和辅助分析，不构成投资建议。"
   ].filter(Boolean);

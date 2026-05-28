@@ -25,7 +25,7 @@ const TRADING_FEE_RULE = {
 
 const decisionSchema = z.object({
   summary: z.string().min(1),
-  recommendedAction: z.enum(["buy", "wait"]),
+  recommendedAction: z.enum(["buy", "sell", "mixed", "wait"]),
   totalBudgetToUse: z.coerce.number().min(0).default(0),
   cashReserve: z.coerce.number().min(0).default(0),
   orders: z
@@ -33,6 +33,19 @@ const decisionSchema = z.object({
       z.object({
         symbol: z.string().min(1),
         action: z.enum(["buy", "watch", "avoid"]),
+        amount: z.coerce.number().min(0).default(0),
+        shares: z.coerce.number().int().min(0).default(0),
+        reason: z.string().min(1),
+        riskControl: z.string().default(""),
+        invalidIf: z.string().default("")
+      })
+    )
+    .default([]),
+  sellOrders: z
+    .array(
+      z.object({
+        symbol: z.string().min(1),
+        action: z.enum(["sell", "reduce", "watch", "avoid"]),
         amount: z.coerce.number().min(0).default(0),
         shares: z.coerce.number().int().min(0).default(0),
         reason: z.string().min(1),
@@ -168,7 +181,10 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     orders: decision.orders,
     cashReserve: decision.cashReserve,
     totalBudgetToUse: decision.totalBudgetToUse,
-    totalEstimatedFee: decision.totalEstimatedFee
+    totalEstimatedFee: decision.totalEstimatedFee,
+    sellOrders: decision.sellOrders,
+    totalSellAmount: decision.totalSellAmount,
+    totalSellNetProceeds: decision.totalSellNetProceeds
   }).catch((error) => ({
     skipped: true,
     reason: "send_failed",
@@ -393,7 +409,7 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
       {
         role: "system",
         content:
-          "你是一个谨慎的股票组合策略观察助手。你必须基于给定候选股票、最新单股分析、价格、持仓状态和手续费规则，生成今日策略观察、候选排序和条件触发型交易情景。只有当单股分析明确支持、风险可控且手续费性价比合理时，才允许给出计划观察金额；不能保证收益，不能编造数据。输出必须是严格 JSON，所有自然语言字段使用简体中文。"
+          "你是一个谨慎的股票组合策略观察助手。你必须基于给定候选股票、最新单股分析、价格、持仓状态和手续费规则，生成今日策略观察、候选排序、条件触发型买入计划和卖出/减仓计划。策略框架参考成熟量化系统的做法：先用趋势过滤确认大方向，再用 RSI/MACD/均线/关键价位确认动量和风险，最后用止损、止盈、仓位和手续费约束控制执行。不能保证收益，不能编造数据，不能把观察计划写成确定性指令。输出必须是严格 JSON，所有自然语言字段使用简体中文。"
       },
       { role: "user", content: buildDecisionPrompt(input) }
     ]
@@ -420,17 +436,18 @@ function buildDecisionPrompt(input: { capital: number; candidates: Candidate[] }
 ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 
 决策要求：
-1. 必须明确 recommendedAction，只能是 buy 或 wait。buy 表示“形成条件触发型计划买入/增持情景”，wait 表示“今日只观察，不执行计划金额”。
-2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，buy 只能代表“增持/加仓”；只有 holdAdvice 明确偏向加仓、增持、逢低加仓，且风险可控时才允许生成 buy 订单。
-3. isHolding=false 表示用户未持仓，buy 代表“新买入/建仓”；必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy 订单；若 entryAdvice 明确是等待、不建议入场、回避、观望，则不能买。
-4. 如果最新分析 trend=bearish、confidence 低于 0.55、行情价格不可用、或建议里出现减仓/止损/离场/回避，应 recommendedAction=wait 或在 ranking 标为回避。
-5. 如果建议买入，orders 里最多给 2 笔 buy；必须写清 symbol、amount、shares、reason、riskControl、invalidIf。reason 必须说明这是“新买入”还是“增持”。
-6. amount 是计划成交金额，不含手续费；shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。
-7. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-8. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果没有足够确定性，recommendedAction=wait，并说明等待什么触发条件。
-9. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划和手续费性价比排序。
-10. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议或入场建议。
-11. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy" 或 "wait" 其中之一，不能返回 "buy | wait" 这种说明文字。
+1. 必须明确 recommendedAction，只能是 buy、sell、mixed 或 wait。buy 表示只有买入/增持计划；sell 表示只有卖出/减仓计划；mixed 表示同时有买入和卖出/减仓计划；wait 表示今日只观察。
+2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，买入只能代表“增持/加仓”，卖出只能代表“减仓/止盈/止损/离场”；isHolding=false 不能生成 sellOrders。
+3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
+4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
+5. 使用“趋势过滤 + 动量确认 + 风险边界”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉或达到目标压力位时，优先考虑减仓/止盈/止损。
+6. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+7. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先按 100 股/份整数手；如果剩余持仓不足 100，可一次性卖出剩余数量。
+8. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+9. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，也不要只写观察，必须给出减仓/止损条件。
+10. 不要机械平均分配资金，要按趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏和手续费性价比排序。
+11. ranking 必须覆盖所有候选，并在 reason 里体现“已持仓/未持仓”和对应的持仓建议、入场建议或退出建议。
+12. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -445,6 +462,17 @@ ${JSON.stringify(input.candidates, null, 2)}
     {
       "symbol": "",
       "action": "watch",
+      "amount": 0,
+      "shares": 0,
+      "reason": "",
+      "riskControl": "",
+      "invalidIf": ""
+    }
+  ],
+  "sellOrders": [
+    {
+      "symbol": "",
+      "action": "reduce",
       "amount": 0,
       "shares": 0,
       "reason": "",
@@ -486,16 +514,56 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
       };
     })
     .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
+  const sellOrders = value.sellOrders
+    .filter((order) => order.action === "sell" || order.action === "reduce")
+    .slice(0, 3)
+    .map((order) => {
+      const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
+      const price = candidate?.price ?? 0;
+      const holdingShares = candidate?.isHolding ? candidate.holdingShares ?? 0 : 0;
+      const shares = normalizeSellShares(order.shares || sharesFromAmount(order.amount, price), holdingShares);
+      const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
+      const fee = calculateFee(amount);
+      const netProceeds = Number((amount - fee).toFixed(2));
+      const estimatedPnl = calculateSellPnl({
+        sellAmount: amount,
+        sellFee: fee,
+        shares,
+        holdingPrice: candidate?.holdingPrice ?? null
+      });
+      return {
+        ...order,
+        symbol: candidate?.symbol ?? order.symbol,
+        name: candidate?.name ?? null,
+        estimatedPrice: price || null,
+        shares,
+        amount,
+        estimatedFee: fee,
+        netProceeds,
+        estimatedPnl,
+        feeRule: TRADING_FEE_RULE.description
+      };
+    })
+    .filter((order) => order.shares > 0 && order.amount > 0);
+  const normalizedAction = sellOrders.length && orders.length ? "mixed" : sellOrders.length ? "sell" : orders.length ? "buy" : "wait";
+  const buyFee = Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
+  const sellFee = Number(sellOrders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
+  const totalSellNetProceeds = Number(sellOrders.reduce((sum, order) => sum + order.netProceeds, 0).toFixed(2));
 
   return {
     ...value,
-    recommendedAction: orders.length ? value.recommendedAction : "wait",
-    summary: orders.length || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行的交易情景，已改为等待。${value.summary}`,
+    recommendedAction: normalizedAction,
+    summary: normalizedAction !== "wait" || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行的交易情景，已改为等待。${value.summary}`,
     orders,
+    sellOrders,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
-    totalEstimatedFee: Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2)),
+    totalSellAmount: Number(sellOrders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
+    totalEstimatedFee: Number((buyFee + sellFee).toFixed(2)),
+    totalBuyEstimatedFee: buyFee,
+    totalSellEstimatedFee: sellFee,
     totalEstimatedCost: Number(orders.reduce((sum, order) => sum + order.totalCost, 0).toFixed(2)),
-    cashReserve: Number((input.capital - orders.reduce((sum, order) => sum + order.totalCost, 0)).toFixed(2)),
+    totalSellNetProceeds,
+    cashReserve: Number((input.capital - orders.reduce((sum, order) => sum + order.totalCost, 0) + totalSellNetProceeds).toFixed(2)),
     capital: input.capital,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
@@ -504,11 +572,13 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
 }
 
 function buildFallbackDecision(input: { capital: number; candidates: Candidate[] }, reason: string) {
+  const sellCandidates = input.candidates.filter(candidateSupportsSell);
   const ranked = input.candidates
     .filter(candidateSupportsBuy)
     .sort((a, b) => (b.latestAnalysis?.confidence ?? 0) - (a.latestAnalysis?.confidence ?? 0));
   const best = ranked[0];
-  if (!best?.price || (best.latestAnalysis?.confidence ?? 0) < 0.55) {
+  const sellTarget = sellCandidates[0];
+  if ((!best?.price || (best.latestAnalysis?.confidence ?? 0) < 0.55) && !sellTarget?.price) {
     return normalizeDecision(
       {
         summary: "当前没有足够清晰的买入候选，建议等待更高置信度的信号。",
@@ -516,11 +586,45 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
         totalBudgetToUse: 0,
         cashReserve: input.capital,
         orders: [],
+        sellOrders: [],
         ranking: input.candidates.map((candidate, index) => ({
           symbol: candidate.symbol,
           rank: index + 1,
           view: "观察",
           reason: candidate.latestAnalysis?.summary ?? "暂无足够分析。"
+        })),
+        disclaimer: "本内容由本地规则生成，仅供研究参考，不构成投资建议。"
+      },
+      input,
+      reason
+    );
+  }
+
+  if (sellTarget?.price) {
+    const sellShares = fallbackSellShares(sellTarget.holdingShares ?? 0, stringifyAdvice(sellTarget.latestAnalysis?.holdAdvice));
+    return normalizeDecision(
+      {
+        summary: `本地规则检测到 ${sellTarget.symbol} 持仓风险信号，优先生成减仓观察计划，仍需等待真实 AI 服务恢复后复核。`,
+        recommendedAction: "sell",
+        totalBudgetToUse: 0,
+        cashReserve: input.capital,
+        orders: [],
+        sellOrders: [
+          {
+            symbol: sellTarget.symbol,
+            action: /止损|离场|回避/.test(stringifyAdvice(sellTarget.latestAnalysis?.holdAdvice)) ? "sell" : "reduce",
+            amount: sellShares * sellTarget.price,
+            shares: sellShares,
+            reason: `已持仓，最近分析出现减仓/止损/风险规避信号。${sellTarget.latestAnalysis?.summary ?? ""}`,
+            riskControl: "若价格重新站回关键支撑且单股分析转为持有，可取消减仓计划；否则按止损/减仓条件执行观察。",
+            invalidIf: "AI 服务恢复后结论相反，或价格重新回到持仓计划的安全区间。"
+          }
+        ],
+        ranking: input.candidates.map((candidate, index) => ({
+          symbol: candidate.symbol,
+          rank: index + 1,
+          view: sameSymbol(candidate.symbol, sellTarget.symbol) ? "回避" : "观察",
+          reason: candidate.latestAnalysis?.summary ?? "暂无摘要。"
         })),
         disclaimer: "本内容由本地规则生成，仅供研究参考，不构成投资建议。"
       },
@@ -547,6 +651,7 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
           invalidIf: "AI 服务恢复后结论相反，或价格快速偏离计划买入区间。"
         }
       ],
+      sellOrders: [],
       ranking: ranked.map((candidate, index) => ({
         symbol: candidate.symbol,
         rank: index + 1,
@@ -591,6 +696,12 @@ function candidateSupportsBuy(candidate: Candidate) {
   return /买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) && !/仅观察|继续观察|观望/.test(text);
 }
 
+function candidateSupportsSell(candidate: Candidate) {
+  if (!candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
+  const text = stringifyAdvice(candidate.latestAnalysis?.holdAdvice);
+  return /减仓|止损|离场|回避|风险规避|止盈|分批兑现|降低仓位/.test(text);
+}
+
 function stringifyAdvice(value: unknown) {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -603,6 +714,11 @@ function symbolVariants(symbol: string) {
   const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
   if (!/^\d{6}$/.test(base)) return [normalized];
   return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
+}
+
+function sameSymbol(a?: string | null, b?: string | null) {
+  if (!a || !b) return false;
+  return symbolVariants(a).includes(b.toUpperCase()) || symbolVariants(b).includes(a.toUpperCase());
 }
 
 function latestAnalysesForSymbols<T extends { id: string; symbol: string; createdAt: Date }>(symbols: string[], analyses: T[]) {
@@ -629,6 +745,27 @@ function normalizeShares(shares: number, price: number, availableCash: number) {
     nextShares -= TRADING_FEE_RULE.lotSize;
   }
   return 0;
+}
+
+function normalizeSellShares(shares: number, holdingShares: number) {
+  if (!Number.isFinite(holdingShares) || holdingShares <= 0) return 0;
+  const capped = Math.min(Math.max(0, shares), holdingShares);
+  if (capped >= TRADING_FEE_RULE.lotSize) return Math.floor(capped / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
+  return Math.floor(capped);
+}
+
+function fallbackSellShares(holdingShares: number, adviceText: string) {
+  if (!Number.isFinite(holdingShares) || holdingShares <= 0) return 0;
+  if (/止损|离场|回避/.test(adviceText)) return normalizeSellShares(holdingShares, holdingShares);
+  return normalizeSellShares(Math.max(TRADING_FEE_RULE.lotSize, holdingShares * 0.5), holdingShares);
+}
+
+function calculateSellPnl(input: { sellAmount: number; sellFee: number; shares: number; holdingPrice?: number | null }) {
+  const holdingPrice = input.holdingPrice ?? 0;
+  if (!holdingPrice || holdingPrice <= 0 || input.shares <= 0) return null;
+  const costAmount = holdingPrice * input.shares;
+  const buyFeeShare = calculateFee(costAmount);
+  return Number((input.sellAmount - input.sellFee - costAmount - buyFeeShare).toFixed(2));
 }
 
 function calculateFee(amount: number) {
