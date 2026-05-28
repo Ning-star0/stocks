@@ -26,6 +26,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: chunkErrorScript }} />
       </head>
       <body>
         <div className="min-h-screen terminal-grid">
@@ -53,6 +54,30 @@ const themeScript = `
     document.documentElement.classList.add("dark");
     document.documentElement.style.colorScheme = "dark";
   }
+})();
+`;
+
+const chunkErrorScript = `
+(() => {
+  var KEY = "__chunk_reloaded";
+  try {
+    if (sessionStorage.getItem(KEY) === "1") return;
+  } catch (e) {}
+  function reloadIfChunkError(error) {
+    var msg = error && error.message ? error.message : String(error);
+    if (msg.indexOf("Loading chunk") !== -1 || msg.indexOf("Failed to fetch") !== -1) {
+      try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+      window.location.reload();
+    }
+  }
+  window.addEventListener("unhandledrejection", function (event) {
+    reloadIfChunkError(event.reason);
+  });
+  window.addEventListener("error", function (event) {
+    if (event.target && event.target.tagName === "SCRIPT") {
+      reloadIfChunkError(event.error || new Error("Loading chunk failed"));
+    }
+  }, true);
 })();
 `;
 

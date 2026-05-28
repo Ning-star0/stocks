@@ -8,14 +8,15 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
   const intervalMs = numberEnv("JOB_POLL_INTERVAL_MS", 5000);
   const maxConcurrent = clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8);
   const activeJobs = new Set<Promise<void>>();
-  let lastScheduleCheck = 0;
+  let lastScheduleCheck = Date.now(); // 启动后等 60s 再首次调度检查
   let scheduleCheckRunning = false;
 
   while (!options.signal?.aborted) {
+    let workPickedUp = false;
     while (activeJobs.size < maxConcurrent) {
       const task = processNextJob()
         .then((job) => {
-          if (!job) return;
+          if (job) workPickedUp = true;
         })
         .catch(() => {})
         .finally(() => {
@@ -36,7 +37,13 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
         });
     }
 
+    // 等待任一任务完成或超时
     await Promise.race([...activeJobs, sleep(intervalMs)]);
+
+    // 本轮没有实际任务时，等待 intervalMs 再继续，避免空轮询吃满 CPU
+    if (!workPickedUp && activeJobs.size === 0) {
+      await sleep(intervalMs);
+    }
   }
 
   await Promise.allSettled(activeJobs);
