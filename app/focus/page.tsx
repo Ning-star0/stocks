@@ -875,7 +875,7 @@ function CandidateRanking({
     });
     return normalized.sort((a, b) => {
       if (sortKey === "confidence") return (b.confidence ?? -1) - (a.confidence ?? -1) || a.rank - b.rank;
-      if (sortKey === "profit") return (b.pnl?.amount ?? Number.NEGATIVE_INFINITY) - (a.pnl?.amount ?? Number.NEGATIVE_INFINITY) || a.rank - b.rank;
+      if (sortKey === "profit") return (pnlSortValue(b.pnl) - pnlSortValue(a.pnl)) || a.rank - b.rank;
       return a.rank - b.rank;
     });
   }, [history, items, names, sortKey, watchlist]);
@@ -922,7 +922,7 @@ function CandidateRanking({
                     </td>
                     <td className="px-3 py-3 text-muted-foreground">{item.trend}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{formatConfidenceValue(item.confidence)}</td>
-                    <td className={cn("px-3 py-3 text-right tabular-nums", profitClass(item.pnl?.amount))}>
+                    <td className={cn("px-3 py-3 text-right tabular-nums", profitClass(item.pnl?.amount ?? item.pnl?.rate))}>
                       <div>{formatPnlAmount(item.pnl?.amount)}</div>
                       <div className="mt-0.5 text-xs opacity-75">{formatProfit(item.pnl?.rate)}</div>
                     </td>
@@ -1080,6 +1080,13 @@ function profitClass(value?: number | null) {
   return value >= 0 ? "text-red-500" : "text-emerald-500";
 }
 
+function pnlSortValue(value?: { amount: number | null; rate: number | null } | null) {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  if (value.amount !== null && Number.isFinite(value.amount)) return value.amount;
+  if (value.rate !== null && Number.isFinite(value.rate)) return value.rate;
+  return Number.NEGATIVE_INFINITY;
+}
+
 function calculateHoldingPnl(input: {
   isHolding: boolean;
   price?: number | null;
@@ -1087,7 +1094,15 @@ function calculateHoldingPnl(input: {
   holdingShares?: number | null;
 }) {
   const { isHolding, price, holdingPrice, holdingShares } = input;
-  if (!isHolding || !price || !holdingPrice || !holdingShares || price <= 0 || holdingPrice <= 0 || holdingShares <= 0) return null;
+  if (!isHolding || !price || !holdingPrice || price <= 0 || holdingPrice <= 0) return null;
+  if (!holdingShares || holdingShares <= 0) {
+    return {
+      amount: null,
+      rate: Number((((price - holdingPrice) / holdingPrice) * 100).toFixed(2)),
+      buyFee: null,
+      estimatedSellFee: null
+    };
+  }
   const buyAmount = holdingPrice * holdingShares;
   const currentAmount = price * holdingShares;
   const buyFee = calculateTradeFee(buyAmount);
