@@ -62,9 +62,9 @@ export async function deleteCache(key: string): Promise<void> {
   await deleteRedisCache(key);
 
   try {
-    await prisma.cacheEntry.delete({ where: { key } });
+    await prisma.cacheEntry.deleteMany({ where: { key } });
   } catch {
-    // Cache deletion is best effort; a missing DB row is fine.
+    // Cache deletion is best effort; DB errors are fine.
   }
 }
 

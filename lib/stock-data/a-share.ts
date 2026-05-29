@@ -28,8 +28,8 @@ type EastMoneyKlineResponse = {
 };
 
 export class AShareEastMoneyProvider implements StockDataProvider {
-  private readonly quoteBaseUrl = "https://push2.eastmoney.com/api/qt/stock/get";
-  private readonly klineBaseUrl = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
+  private readonly quoteBaseUrl = "http://push2.eastmoney.com/api/qt/stock/get";
+  private readonly klineBaseUrl = "http://push2his.eastmoney.com/api/qt/stock/kline/get";
 
   async getQuote(symbol: string): Promise<Quote> {
     const target = normalizeAShareSymbol(symbol);

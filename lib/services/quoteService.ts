@@ -205,7 +205,10 @@ function normalizeCurrency(value?: string): "USD" | "CNY" | "HKD" {
 function inferCurrency(symbol: string): "USD" | "CNY" | "HKD" {
   if (symbol.endsWith(".HK")) return "HKD";
   if (/^\d{6}(\.(SH|SZ|BJ))?$/.test(symbol)) return "CNY";
-  return process.env.STOCK_DATA_PROVIDER === "a_share" ? "CNY" : "USD";
+  // A-shares are 6-digit numeric codes; everything else (letter tickers) defaults to USD
+  const compact = symbol.replace(/\.(SH|SZ|BJ)$/, "");
+  if (/^\d{6}$/.test(compact)) return "CNY";
+  return "USD";
 }
 
 function inferMarket(symbol: string, currency?: string): "US" | "CN" | "HK" {

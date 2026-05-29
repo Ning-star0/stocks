@@ -1,6 +1,8 @@
+import { setDefaultResultOrder } from "node:dns";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+setDefaultResultOrder("ipv4first");
 loadDotEnv();
 
 async function main() {
