@@ -93,6 +93,13 @@ type Candidate = {
   quantSignal?: QuantSignal | null;
 };
 
+type DecisionInput = {
+  capital: number;
+  investedCost: number;
+  availableCash: number;
+  candidates: Candidate[];
+};
+
 type GenerateFocusDecisionOptions = {
   userId: string;
   forceRefresh?: boolean;
@@ -200,7 +207,7 @@ async function logFocusDecisionAiUsage(input: {
   userId: string;
   source: string;
   inputHash: string;
-  input: { capital: number; candidates: Candidate[] };
+  input: DecisionInput;
   decision: Awaited<ReturnType<typeof generateFocusDecision>>;
   cacheHit: boolean;
 }) {
@@ -285,23 +292,34 @@ async function loadDecisionSeed(userId: string) {
 
   const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
   const allSymbolVariants = symbols.flatMap(symbolVariants);
-  const analyses = await prisma.aiAnalysis.findMany({
-    where: { userId, symbol: { in: allSymbolVariants } },
-    orderBy: { createdAt: "desc" },
-    take: Math.max(20, symbols.length * 5)
-  });
-  const watchlistItems = await prisma.watchlistItem.findMany({
-    where: { watchlist: { userId }, symbol: { in: allSymbolVariants } },
-    select: {
-      symbol: true,
-      isHolding: true,
-      holdingPrice: true,
-      holdingShares: true,
-      targetPrice: true,
-      stopLoss: true,
-      positionOpenedAt: true
-    }
-  });
+  const [analyses, watchlistItems, portfolioItems] = await Promise.all([
+    prisma.aiAnalysis.findMany({
+      where: { userId, symbol: { in: allSymbolVariants } },
+      orderBy: { createdAt: "desc" },
+      take: Math.max(20, symbols.length * 5)
+    }),
+    prisma.watchlistItem.findMany({
+      where: { watchlist: { userId }, symbol: { in: allSymbolVariants } },
+      select: {
+        symbol: true,
+        isHolding: true,
+        holdingPrice: true,
+        holdingShares: true,
+        targetPrice: true,
+        stopLoss: true,
+        positionOpenedAt: true
+      }
+    }),
+    prisma.watchlistItem.findMany({
+      where: { watchlist: { userId }, isHolding: true },
+      select: {
+        symbol: true,
+        holdingPrice: true,
+        holdingShares: true,
+        positionOpenedAt: true
+      }
+    })
+  ]);
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
   const positionSignature = symbols.map((symbol) => {
     const variants = symbolVariants(symbol);
@@ -316,6 +334,14 @@ async function loadDecisionSeed(userId: string) {
       positionOpenedAt: item?.positionOpenedAt?.toISOString() ?? null
     };
   });
+  const portfolioSignature = portfolioItems
+    .map((item) => ({
+      symbol: item.symbol.toUpperCase(),
+      holdingPrice: toNumber(item.holdingPrice),
+      holdingShares: toNumber(item.holdingShares),
+      positionOpenedAt: item.positionOpenedAt?.toISOString() ?? null
+    }))
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
   return {
     userId,
@@ -326,17 +352,27 @@ async function loadDecisionSeed(userId: string) {
     focusLastAnalysis: focus.lastAnalysis?.toISOString() ?? null,
     analyses,
     latestAnalysisBySymbol,
-    positionSignature
+    positionSignature,
+    portfolioSignature
   };
 }
 
 async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSeed>>) {
-  const [watchlistItems, quotes] = await Promise.all([
+  const [watchlistItems, portfolioItems, quotes] = await Promise.all([
     prisma.watchlistItem.findMany({
       where: { watchlist: { userId: seed.userId }, symbol: { in: seed.allSymbolVariants } }
     }),
+    prisma.watchlistItem.findMany({
+      where: { watchlist: { userId: seed.userId }, isHolding: true },
+      select: {
+        holdingPrice: true,
+        holdingShares: true
+      }
+    }),
     getQuotesBatch(seed.symbols, { allowStale: true })
   ]);
+  const investedCost = calculateInvestedCost(portfolioItems);
+  const availableCash = Number(Math.max(0, seed.capital - investedCost).toFixed(2));
 
   const candidates = seed.symbols.map((symbol) => {
     const variants = symbolVariants(symbol);
@@ -412,6 +448,8 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
 
   return {
     capital: seed.capital,
+    investedCost,
+    availableCash,
     candidates,
     focusUpdatedAt: seed.focusUpdatedAt,
     focusLastAnalysis: seed.focusLastAnalysis,
@@ -428,6 +466,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         focusUpdatedAt: input.focusUpdatedAt,
         focusLastAnalysis: input.focusLastAnalysis,
         positionSignature: input.positionSignature,
+        portfolioSignature: input.portfolioSignature,
         latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )
@@ -435,7 +474,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
     .slice(0, 16);
 }
 
-async function generateFocusDecision(input: { capital: number; candidates: Candidate[] }) {
+async function generateFocusDecision(input: DecisionInput) {
   const config = await getAiConfig();
   if (!config.apiKey) return buildFallbackDecision(input, "AI API key 未配置，已使用本地规则生成临时决策。");
 
@@ -467,10 +506,13 @@ async function generateFocusDecision(input: { capital: number; candidates: Candi
   }
 }
 
-function buildDecisionPrompt(input: { capital: number; candidates: Candidate[] }) {
+function buildDecisionPrompt(input: DecisionInput) {
   return `请基于今日关注股票生成“今日 AI 策略观察”。返回严格 JSON，不要 Markdown。
 
-总本金：${input.capital} 元
+账户资金：
+- 总本金：${input.capital} 元
+- 已持仓占用成本（按持仓成本价 + 估算买入手续费）：${input.investedCost} 元
+- 当前可用现金：${input.availableCash} 元
 
 交易手续费规则：
 ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
@@ -484,7 +526,7 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
 7. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数或触发条件。
 8. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-9. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares；如果 suggestedSellRatioPct=100，应给出清仓计划；如果 suggestedSellRatioPct=25/50，应给出对应比例的减仓计划；如果剩余持仓不足 100，可一次性卖出剩余数量。
+9. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares；如果 suggestedSellRatioPct=100，应给出清仓计划；如果 suggestedSellRatioPct=25/50，应给出对应比例的减仓计划；如果剩余持仓不足 100，可一次性卖出剩余数量。
 10. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
 11. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
 12. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
@@ -529,7 +571,7 @@ ${JSON.stringify(input.candidates, null, 2)}
 }`;
 }
 
-function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capital: number; candidates: Candidate[] }, fallbackReason: string | null) {
+function normalizeDecision(value: z.infer<typeof decisionSchema>, input: DecisionInput, fallbackReason: string | null) {
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
   let spent = 0;
   const orders = value.orders
@@ -542,14 +584,15 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => item.symbol.replace(/\.(SH|SZ|BJ)$/, "") === order.symbol.replace(/\.(SH|SZ|BJ)$/, ""));
       const price = candidate?.price ?? 0;
-      const shares = normalizeShares(order.shares || sharesFromAmount(order.amount, price), price, input.capital - spent);
+      const remainingCash = Math.max(0, input.availableCash - spent);
+      const shares = normalizeShares(order.shares || sharesFromAmount(order.amount, price), price, remainingCash);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFee(amount);
-      if (amount + fee > input.capital - spent) return null;
+      if (amount + fee > remainingCash) return null;
       spent += amount + fee;
       return {
         ...order,
-        action: "buy" as const,
+        action: candidate?.isHolding ? ("add" as const) : ("buy" as const),
         symbol: candidate?.symbol ?? order.symbol,
         name: candidate?.name ?? null,
         estimatedPrice: price || null,
@@ -614,15 +657,17 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
     totalSellEstimatedFee: sellFee,
     totalEstimatedCost: Number(orders.reduce((sum, order) => sum + order.totalCost, 0).toFixed(2)),
     totalSellNetProceeds,
-    cashReserve: Number((input.capital - orders.reduce((sum, order) => sum + order.totalCost, 0) + totalSellNetProceeds).toFixed(2)),
+    cashReserve: Number((input.availableCash - orders.reduce((sum, order) => sum + order.totalCost, 0) + totalSellNetProceeds).toFixed(2)),
     capital: input.capital,
+    investedCost: input.investedCost,
+    availableCash: input.availableCash,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
     generatedAt: new Date().toISOString()
   };
 }
 
-function buildFallbackDecision(input: { capital: number; candidates: Candidate[] }, reason: string) {
+function buildFallbackDecision(input: DecisionInput, reason: string) {
   const sellCandidates = input.candidates.filter(candidateSupportsSell);
   const ranked = input.candidates
     .filter(candidateSupportsBuy)
@@ -635,7 +680,7 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
         summary: "当前没有足够清晰的买入候选，建议等待更高置信度的信号。",
         recommendedAction: "wait",
         totalBudgetToUse: 0,
-        cashReserve: input.capital,
+        cashReserve: input.availableCash,
         orders: [],
         sellOrders: [],
         ranking: input.candidates.map((candidate, index) => ({
@@ -658,7 +703,7 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
         summary: `本地规则检测到 ${sellTarget.symbol} 持仓风险信号，优先生成减仓观察计划，仍需等待真实 AI 服务恢复后复核。`,
         recommendedAction: "sell",
         totalBudgetToUse: 0,
-        cashReserve: input.capital,
+        cashReserve: input.availableCash,
         orders: [],
         sellOrders: [
           {
@@ -684,17 +729,17 @@ function buildFallbackDecision(input: { capital: number; candidates: Candidate[]
     );
   }
 
-  const targetAmount = Math.min(input.capital * 0.3, input.capital - TRADING_FEE_RULE.minimumFee);
+  const targetAmount = Math.min(input.availableCash, input.capital * 0.3, Math.max(0, input.availableCash - TRADING_FEE_RULE.minimumFee));
   return normalizeDecision(
     {
       summary: `本地规则优先选择 ${best.symbol}，但仍需等待真实 AI 服务恢复后复核。`,
       recommendedAction: "buy",
       totalBudgetToUse: targetAmount,
-      cashReserve: input.capital - targetAmount,
+      cashReserve: input.availableCash - targetAmount,
       orders: [
         {
           symbol: best.symbol,
-          action: "buy",
+          action: best.isHolding ? "add" : "buy",
           amount: targetAmount,
           shares: sharesFromAmount(targetAmount, best.price),
           reason: `${best.isHolding ? "已持仓，按本地规则仅视为增持候选。" : "未持仓，按本地规则视为新买入候选。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "趋势和置信度在候选中相对更高。"}`,
@@ -866,6 +911,17 @@ function calculateSellPnl(input: { sellAmount: number; sellFee: number; shares: 
   const costAmount = holdingPrice * input.shares;
   const buyFeeShare = calculateFee(costAmount);
   return Number((input.sellAmount - input.sellFee - costAmount - buyFeeShare).toFixed(2));
+}
+
+function calculateInvestedCost(items: Array<{ holdingPrice: unknown; holdingShares: unknown }>) {
+  const total = items.reduce((sum, item) => {
+    const price = toNumber(item.holdingPrice) ?? 0;
+    const shares = toNumber(item.holdingShares) ?? 0;
+    if (price <= 0 || shares <= 0) return sum;
+    const amount = price * shares;
+    return sum + amount + calculateFee(amount);
+  }, 0);
+  return Number(total.toFixed(2));
 }
 
 function calculateFee(amount: number) {
