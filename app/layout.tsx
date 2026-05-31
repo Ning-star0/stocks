@@ -59,21 +59,48 @@ const themeScript = `
 
 const chunkErrorScript = `
 (() => {
-  var KEY = "__chunk_reloaded";
-  try {
-    if (sessionStorage.getItem(KEY) === "1") return;
-  } catch (e) {}
+  var KEY = "__chunk_reload_at";
+  var RELOAD_WINDOW_MS = 30000;
+  function reloadedRecently() {
+    try {
+      var last = Number(sessionStorage.getItem(KEY) || 0);
+      return last > 0 && Date.now() - last < RELOAD_WINDOW_MS;
+    } catch (e) {
+      return false;
+    }
+  }
+  function markReload() {
+    try { sessionStorage.setItem(KEY, String(Date.now())); } catch (e) {}
+  }
+  function clearReloadMark() {
+    try { sessionStorage.removeItem(KEY); } catch (e) {}
+  }
+  function isChunkMessage(message) {
+    return /ChunkLoadError|Loading chunk|CSS_CHUNK_LOAD_FAILED|dynamically imported module/i.test(message || "");
+  }
+  function isNextAsset(target) {
+    var url = target && (target.src || target.href || "");
+    return typeof url === "string" && url.indexOf("/_next/static/") !== -1;
+  }
   function reloadIfChunkError(error) {
     var msg = error && error.message ? error.message : String(error);
-    if (msg.indexOf("Loading chunk") !== -1 || msg.indexOf("Failed to fetch") !== -1) {
-      try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+    if (isChunkMessage(msg) && !reloadedRecently()) {
+      markReload();
       window.location.reload();
     }
   }
+  window.addEventListener("load", function () {
+    setTimeout(clearReloadMark, 1000);
+  });
   window.addEventListener("unhandledrejection", function (event) {
     reloadIfChunkError(event.reason);
   });
   window.addEventListener("error", function (event) {
+    if (isNextAsset(event.target) && !reloadedRecently()) {
+      markReload();
+      window.location.reload();
+      return;
+    }
     if (event.target && event.target.tagName === "SCRIPT") {
       reloadIfChunkError(event.error || new Error("Loading chunk failed"));
     }
