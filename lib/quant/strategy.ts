@@ -10,9 +10,20 @@ export type QuantSignal = {
   buyScore: number;
   sellScore: number;
   confidence: number;
+  volumeRatio: number | null;
+  supportDistancePct: number | null;
+  resistanceDistancePct: number | null;
+  stopDistancePct: number | null;
+  takeProfitDistancePct: number | null;
+  riskRewardRatio: number | null;
+  holdingReturnPct: number | null;
+  suggestedBuyCapitalPct: number;
+  suggestedSellRatioPct: number;
+  suggestedSellShares: number;
   entryZone: string;
   stopLoss: string;
   takeProfit: string;
+  exitPlan: string;
   reasons: string[];
   risks: string[];
 };
@@ -90,9 +101,16 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
   const nearResistance = resistance !== null ? Math.abs((resistance - price) / price) <= 0.035 : false;
   const stopLoss = validNumber(input.stopLoss);
   const targetPrice = validNumber(input.targetPrice);
-  const stopTriggered = Boolean(stopLoss && price <= stopLoss);
-  const targetReached = Boolean(targetPrice && price >= targetPrice);
+  const effectiveStopLoss = stopLoss ?? support ?? price * 0.96;
+  const effectiveTakeProfit = targetPrice ?? resistance ?? price * 1.06;
+  const stopTriggered = Boolean(effectiveStopLoss && price <= effectiveStopLoss);
+  const targetReached = Boolean(effectiveTakeProfit && price >= effectiveTakeProfit);
   const holdingReturn = input.isHolding && input.holdingPrice ? ((price - input.holdingPrice) / input.holdingPrice) * 100 : null;
+  const supportDistancePct = support ? ((price - support) / price) * 100 : null;
+  const resistanceDistancePct = resistance ? ((resistance - price) / price) * 100 : null;
+  const stopDistancePct = effectiveStopLoss ? ((price - effectiveStopLoss) / price) * 100 : null;
+  const takeProfitDistancePct = effectiveTakeProfit ? ((effectiveTakeProfit - price) / price) * 100 : null;
+  const riskRewardRatio = stopDistancePct !== null && takeProfitDistancePct !== null && stopDistancePct > 0 ? takeProfitDistancePct / stopDistancePct : null;
 
   const riskScore = clamp(
     50 +
@@ -100,6 +118,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
       scoreIf(overbought && macdBearish, 22) +
       scoreIf(nearResistance && overbought, 16) +
       scoreIf(trendScore < 42, 16) +
+      scoreIf(riskRewardRatio !== null && riskRewardRatio < 1.2, 10) +
       scoreIf(holdingReturn !== null && holdingReturn <= -6, 12) -
       scoreIf(nearSupport && trendScore >= 55, 8) -
       scoreIf(oversold && trendScore >= 50, 6),
@@ -112,7 +131,9 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
       (100 - riskScore) * 0.2 +
       scoreIf(nearSupport, 8) -
       scoreIf(overbought, 14) -
-      scoreIf(nearResistance, 8),
+      scoreIf(nearResistance, 8) +
+      scoreIf(riskRewardRatio !== null && riskRewardRatio >= 1.8, 6) -
+      scoreIf(riskRewardRatio !== null && riskRewardRatio < 1, 8),
     0,
     100
   );
@@ -128,9 +149,12 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
   );
 
   const reasons = buildReasons({ trendScore, momentumScore, riskScore, rsi, macdBearish, nearSupport, nearResistance, volumeRatio });
-  const risks = buildRisks({ overbought, macdBearish, nearResistance, stopTriggered, targetReached, trendScore, volumeRatio });
+  const risks = buildRisks({ overbought, macdBearish, nearResistance, stopTriggered, targetReached, trendScore, volumeRatio, riskRewardRatio });
   const action = chooseAction({ isHolding: Boolean(input.isHolding), buyScore, sellScore, stopTriggered, targetReached, overbought, macdBearish });
   const confidence = clamp(Math.max(buyScore, sellScore, 100 - Math.abs(buyScore - sellScore)) / 100, 0.35, 0.9);
+  const suggestedBuyCapitalPct = estimateBuyCapitalPct({ isHolding: Boolean(input.isHolding), action, buyScore, riskScore, riskRewardRatio });
+  const suggestedSellRatioPct = estimateSellRatioPct({ isHolding: Boolean(input.isHolding), action, sellScore, stopTriggered, targetReached, overbought, macdBearish, holdingReturn, nearResistance });
+  const suggestedSellShares = estimateSellShares(input.holdingShares, suggestedSellRatioPct);
 
   return {
     action,
@@ -140,9 +164,20 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     buyScore: round(buyScore),
     sellScore: round(sellScore),
     confidence: round(confidence, 2),
+    volumeRatio: nullableRound(volumeRatio, 2),
+    supportDistancePct: nullableRound(supportDistancePct),
+    resistanceDistancePct: nullableRound(resistanceDistancePct),
+    stopDistancePct: nullableRound(stopDistancePct),
+    takeProfitDistancePct: nullableRound(takeProfitDistancePct),
+    riskRewardRatio: nullableRound(riskRewardRatio, 2),
+    holdingReturnPct: nullableRound(holdingReturn),
+    suggestedBuyCapitalPct,
+    suggestedSellRatioPct,
+    suggestedSellShares,
     entryZone: formatZone(support, indicators.sma20, price),
-    stopLoss: formatLevel(stopLoss ?? support ?? price * 0.96),
-    takeProfit: formatLevel(targetPrice ?? resistance ?? price * 1.06),
+    stopLoss: formatLevel(effectiveStopLoss),
+    takeProfit: formatLevel(effectiveTakeProfit),
+    exitPlan: buildExitPlan({ action, suggestedSellRatioPct, suggestedSellShares, effectiveStopLoss, effectiveTakeProfit, sellScore }),
     reasons,
     risks
   };
@@ -177,9 +212,20 @@ function emptySignal(reason: string): QuantSignal {
     buyScore: 0,
     sellScore: 0,
     confidence: 0.35,
+    volumeRatio: null,
+    supportDistancePct: null,
+    resistanceDistancePct: null,
+    stopDistancePct: null,
+    takeProfitDistancePct: null,
+    riskRewardRatio: null,
+    holdingReturnPct: null,
+    suggestedBuyCapitalPct: 0,
+    suggestedSellRatioPct: 0,
+    suggestedSellShares: 0,
     entryZone: "--",
     stopLoss: "--",
     takeProfit: "--",
+    exitPlan: "行情不可用，不生成卖出或减仓计划。",
     reasons: [reason],
     risks: [reason]
   };
@@ -217,6 +263,7 @@ function buildRisks(input: {
   targetReached: boolean;
   trendScore: number;
   volumeRatio: number | null;
+  riskRewardRatio: number | null;
 }) {
   const risks = [];
   if (input.stopTriggered) risks.push("价格已触及或跌破止损边界。");
@@ -226,7 +273,72 @@ function buildRisks(input: {
   if (input.nearResistance) risks.push("价格靠近压力位，风险收益比下降。");
   if (input.trendScore < 45) risks.push("趋势过滤不支持主动进攻。");
   if (input.volumeRatio !== null && input.volumeRatio < 0.75) risks.push("量能不足，突破或反弹有效性需要复核。");
+  if (input.riskRewardRatio !== null && input.riskRewardRatio < 1.2) risks.push("止盈空间相对止损空间不足，风险收益比偏低。");
   return [...new Set(risks)].slice(0, 5);
+}
+
+function estimateBuyCapitalPct(input: {
+  isHolding: boolean;
+  action: QuantAction;
+  buyScore: number;
+  riskScore: number;
+  riskRewardRatio: number | null;
+}) {
+  if (input.action !== "buy" && input.action !== "add") return 0;
+  let pct = input.isHolding ? 10 : 15;
+  if (input.buyScore >= 78) pct += 10;
+  else if (input.buyScore >= 70) pct += 5;
+  if (input.riskScore >= 62) pct -= 5;
+  if (input.riskRewardRatio !== null && input.riskRewardRatio >= 2) pct += 5;
+  if (input.riskRewardRatio !== null && input.riskRewardRatio < 1.3) pct -= 5;
+  return clamp(Math.round(pct), 0, input.isHolding ? 20 : 30);
+}
+
+function estimateSellRatioPct(input: {
+  isHolding: boolean;
+  action: QuantAction;
+  sellScore: number;
+  stopTriggered: boolean;
+  targetReached: boolean;
+  overbought: boolean;
+  macdBearish: boolean;
+  holdingReturn: number | null;
+  nearResistance: boolean;
+}) {
+  if (!input.isHolding) return 0;
+  if (input.stopTriggered || input.action === "sell" || input.sellScore >= 82) return 100;
+  if (input.targetReached && input.sellScore >= 70) return 50;
+  if (input.sellScore >= 72) return 50;
+  if (input.action === "reduce" || input.sellScore >= 62 || (input.overbought && input.macdBearish)) return 25;
+  if (input.holdingReturn !== null && input.holdingReturn >= 10 && input.nearResistance) return 25;
+  return 0;
+}
+
+function estimateSellShares(holdingShares: number | null | undefined, ratioPct: number) {
+  const shares = validNumber(holdingShares);
+  if (!shares || shares <= 0 || ratioPct <= 0) return 0;
+  if (ratioPct >= 100) return Math.floor(shares);
+  const target = Math.floor((shares * ratioPct) / 100);
+  if (target <= 0) return shares < 100 ? Math.floor(shares) : 0;
+  const lotShares = Math.floor(target / 100) * 100;
+  if (lotShares > 0) return Math.min(lotShares, Math.floor(shares));
+  return shares < 100 ? Math.floor(shares) : 100;
+}
+
+function buildExitPlan(input: {
+  action: QuantAction;
+  suggestedSellRatioPct: number;
+  suggestedSellShares: number;
+  effectiveStopLoss: number | null;
+  effectiveTakeProfit: number | null;
+  sellScore: number;
+}) {
+  if (input.suggestedSellRatioPct <= 0) {
+    return `当前卖出分 ${round(input.sellScore)}，未触发减仓/卖出阈值。`;
+  }
+  const actionLabel = input.action === "sell" ? "卖出" : "减仓";
+  const sharesText = input.suggestedSellShares > 0 ? `，约 ${input.suggestedSellShares} 股/份` : "";
+  return `${actionLabel}观察：建议比例 ${input.suggestedSellRatioPct}%${sharesText}；止损边界 ${formatLevel(input.effectiveStopLoss)}，止盈/压力边界 ${formatLevel(input.effectiveTakeProfit)}。`;
 }
 
 function rsiScore(value: number | null) {
@@ -301,4 +413,8 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 1) {
   return Number(value.toFixed(digits));
+}
+
+function nullableRound(value: number | null, digits = 1) {
+  return value === null || !Number.isFinite(value) ? null : round(value, digits);
 }

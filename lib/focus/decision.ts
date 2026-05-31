@@ -21,7 +21,7 @@ const TRADING_FEE_RULE = {
   minimumFeeBase: 10000,
   minimumFee: 5,
   lotSize: 100,
-  description: "买入手续费为成交金额的万分之五；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 按 100 股/份整数手买入。"
+  description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 按 100 股/份整数手买入，卖出可按持仓余量一次性清掉零碎持仓。"
 };
 
 const decisionSchema = z.object({
@@ -480,15 +480,16 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，买入只能代表“增持/加仓”，卖出只能代表“减仓/止盈/止损/离场”；isHolding=false 不能生成 sellOrders。
 3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
 4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
-5. 使用“趋势过滤 + 动量确认 + 风险边界”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉或达到目标压力位时，优先考虑减仓/止盈/止损。
-6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
-7. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-8. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先按 100 股/份整数手；如果剩余持仓不足 100，可一次性卖出剩余数量。
-9. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-10. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，也不要只写观察，必须给出减仓/止损条件。
-11. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏和手续费性价比排序。
-12. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议”。
-13. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
+5. 使用“趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
+6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
+7. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数或触发条件。
+8. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+9. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares；如果 suggestedSellRatioPct=100，应给出清仓计划；如果 suggestedSellRatioPct=25/50，应给出对应比例的减仓计划；如果剩余持仓不足 100，可一次性卖出剩余数量。
+10. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+11. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
+12. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
+13. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
+14. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -570,7 +571,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
       const holdingShares = candidate?.isHolding ? candidate.holdingShares ?? 0 : 0;
-      const shares = normalizeSellShares(order.shares || sharesFromAmount(order.amount, price), holdingShares);
+      const shares = normalizeSellShares(order.shares || sharesFromAmount(order.amount, price) || candidate?.quantSignal?.suggestedSellShares || 0, holdingShares);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFee(amount);
       const netProceeds = Number((amount - fee).toFixed(2));
@@ -766,9 +767,15 @@ function quantReason(candidate: Candidate) {
   const signal = candidate.quantSignal;
   if (!signal) return candidate.latestAnalysis?.summary ?? "暂无量化信号。";
   const scores = `量化信号：${actionLabel(signal.action)}，买入分 ${signal.buyScore}，卖出分 ${signal.sellScore}，趋势分 ${signal.trendScore}，动量分 ${signal.momentumScore}，风险分 ${signal.riskScore}。`;
+  const sizing = `仓位建议：买入资金 ${signal.suggestedBuyCapitalPct}%；卖出比例 ${signal.suggestedSellRatioPct}%${signal.suggestedSellShares ? `，约 ${signal.suggestedSellShares} 股/份` : ""}。`;
+  const metrics = `风险收益比 ${signal.riskRewardRatio ?? "--"}，止损距离 ${formatPct(signal.stopDistancePct)}，止盈距离 ${formatPct(signal.takeProfitDistancePct)}。`;
   const reason = signal.reasons.slice(0, 2).join("；");
   const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, reason, risk].filter(Boolean).join(" ");
+  return [scores, sizing, metrics, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
+}
+
+function formatPct(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "--";
 }
 
 function actionLabel(action: QuantSignal["action"]) {
