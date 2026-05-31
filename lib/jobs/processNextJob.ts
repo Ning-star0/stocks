@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
-import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
+import { estimateAiCost, getAiConfig, getFocusStockAnalysisConcurrency, selectAiModel } from "@/lib/ai/config";
 import { analyzeNews } from "@/lib/ai/analyzeNews";
 import { generateDailyBrief } from "@/lib/briefs/generateDailyBrief";
 import { evaluateAllActiveAlerts } from "@/lib/alerts/evaluateAlerts";
@@ -130,7 +130,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     if (!symbols.length) throw new Error("今日关注批量分析缺少股票代码。");
 
     await getQuotesBatch(symbols, { forceRefresh: true, allowStale: true }).catch(() => null);
-    await mapWithConcurrency(symbols, focusAnalysisConcurrency(), async (symbol) => {
+    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), async (symbol) => {
       const runItem = payload?.runId ? await startAnalysisRunItem({ runId: payload.runId, symbol }).catch(() => null) : null;
       try {
         await analyzeStockAndRecord({
@@ -510,12 +510,4 @@ function isFallbackOutput(value: unknown) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function focusAnalysisConcurrency() {
-  return clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6);
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }

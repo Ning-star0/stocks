@@ -278,6 +278,7 @@ model AiConfig {
   standardInputPricePerMillion Decimal  @default(0) @db.Decimal(18, 8)
   standardOutputPricePerMillion Decimal @default(0) @db.Decimal(18, 8)
   costCurrency                 String   @default("CNY")
+  focusStockAnalysisConcurrency Int      @default(5)
   updatedAt                    DateTime @updatedAt
 }
 

@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/lib/currentUser";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
+import { getFocusStockAnalysisConcurrency } from "@/lib/ai/config";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { apiError } from "@/lib/errors";
@@ -31,7 +32,7 @@ export async function POST() {
       runType: "manual",
       totalSymbols: focus?.symbols.length ?? 0
     });
-    await mapWithConcurrency(focus?.symbols ?? [], focusAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
+    await mapWithConcurrency(focus?.symbols ?? [], await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
       forceRefresh: true,
@@ -98,17 +99,4 @@ async function analyzeFocusSymbol(userId: string, runId: string, symbol: string)
 
 function isFallbackOutput(output: unknown) {
   return Boolean(output && typeof output === "object" && "isFallback" in output && (output as { isFallback?: unknown }).isFallback);
-}
-
-function focusAnalysisConcurrency() {
-  return clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6);
-}
-
-function numberEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }

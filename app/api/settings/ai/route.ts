@@ -8,6 +8,7 @@ import {
   normalizeAiModel,
   normalizeAiProvider,
   normalizeCostCurrency,
+  normalizeFocusStockAnalysisConcurrency,
   normalizeStandardAiModel,
   normalizeTokenPrice,
   updateAiConfig
@@ -29,6 +30,7 @@ export async function GET() {
       standardInputPricePerMillion: config.standardInputPricePerMillion,
       standardOutputPricePerMillion: config.standardOutputPricePerMillion,
       costCurrency: config.costCurrency,
+      focusStockAnalysisConcurrency: config.focusStockAnalysisConcurrency,
       apiKeyMasked: config.apiKey ? `${config.apiKey.slice(0, 8)}***${config.apiKey.slice(-4)}` : ""
     });
   } catch (error) {
@@ -57,7 +59,8 @@ export async function PUT(request: Request) {
       flagshipOutputPricePerMillion: normalizeTokenPrice(body.flagshipOutputPricePerMillion ?? current.flagshipOutputPricePerMillion),
       standardInputPricePerMillion: normalizeTokenPrice(body.standardInputPricePerMillion ?? current.standardInputPricePerMillion),
       standardOutputPricePerMillion: normalizeTokenPrice(body.standardOutputPricePerMillion ?? current.standardOutputPricePerMillion),
-      costCurrency: normalizeCostCurrency(body.costCurrency ?? current.costCurrency)
+      costCurrency: normalizeCostCurrency(body.costCurrency ?? current.costCurrency),
+      focusStockAnalysisConcurrency: normalizeFocusStockAnalysisConcurrency(body.focusStockAnalysisConcurrency ?? current.focusStockAnalysisConcurrency)
     });
     return NextResponse.json({
       baseUrl: config.baseUrl,
@@ -70,6 +73,7 @@ export async function PUT(request: Request) {
       standardInputPricePerMillion: config.standardInputPricePerMillion,
       standardOutputPricePerMillion: config.standardOutputPricePerMillion,
       costCurrency: config.costCurrency,
+      focusStockAnalysisConcurrency: config.focusStockAnalysisConcurrency,
       apiKeyMasked: config.apiKey ? `${config.apiKey.slice(0, 8)}***${config.apiKey.slice(-4)}` : ""
     });
   } catch (error) {

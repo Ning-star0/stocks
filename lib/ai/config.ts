@@ -14,6 +14,7 @@ export interface AiConfigData {
   standardInputPricePerMillion: number;
   standardOutputPricePerMillion: number;
   costCurrency: string;
+  focusStockAnalysisConcurrency: number;
 }
 
 export type AiModelTier = "flagship" | "standard";
@@ -55,6 +56,11 @@ export function normalizeTokenPrice(value?: string | number | null) {
   return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
+export function normalizeFocusStockAnalysisConcurrency(value?: string | number | null) {
+  const number = Math.floor(Number(value));
+  return Number.isFinite(number) ? Math.min(5, Math.max(1, number)) : 5;
+}
+
 export function normalizeAiApiKey(value?: string | null) {
   const apiKey = String(value ?? "").trim().replace(/^["']|["']$/g, "");
   if (!apiKey || apiKey.includes("***") || apiKey.includes("CHANGE_ME") || apiKey.includes("@")) return "";
@@ -76,6 +82,7 @@ export async function getAiConfig(): Promise<AiConfigData> {
   let dbStandardInputPrice: number | undefined;
   let dbStandardOutputPrice: number | undefined;
   let dbCostCurrency: string | undefined;
+  let dbFocusStockAnalysisConcurrency: number | undefined;
 
   try {
     const row = await prisma.aiConfig.findFirst();
@@ -91,6 +98,7 @@ export async function getAiConfig(): Promise<AiConfigData> {
       dbStandardInputPrice = decimalToNumber(row.standardInputPricePerMillion);
       dbStandardOutputPrice = decimalToNumber(row.standardOutputPricePerMillion);
       if (row.costCurrency) dbCostCurrency = row.costCurrency;
+      dbFocusStockAnalysisConcurrency = row.focusStockAnalysisConcurrency;
     }
   } catch {
     // DB 不可用时 fallback
@@ -114,7 +122,8 @@ export async function getAiConfig(): Promise<AiConfigData> {
     flagshipOutputPricePerMillion: normalizeTokenPrice(dbFlagshipOutputPrice ?? process.env.AI_FLAGSHIP_OUTPUT_PRICE_PER_MILLION),
     standardInputPricePerMillion: normalizeTokenPrice(dbStandardInputPrice ?? process.env.AI_STANDARD_INPUT_PRICE_PER_MILLION),
     standardOutputPricePerMillion: normalizeTokenPrice(dbStandardOutputPrice ?? process.env.AI_STANDARD_OUTPUT_PRICE_PER_MILLION),
-    costCurrency: normalizeCostCurrency(dbCostCurrency ?? process.env.AI_COST_CURRENCY)
+    costCurrency: normalizeCostCurrency(dbCostCurrency ?? process.env.AI_COST_CURRENCY),
+    focusStockAnalysisConcurrency: normalizeFocusStockAnalysisConcurrency(dbFocusStockAnalysisConcurrency ?? process.env.FOCUS_STOCK_ANALYSIS_CONCURRENT)
   };
   cachedAt = Date.now();
   return cached;
@@ -132,7 +141,8 @@ export async function updateAiConfig(data: AiConfigData): Promise<AiConfigData> 
     flagshipOutputPricePerMillion: normalizeTokenPrice(data.flagshipOutputPricePerMillion),
     standardInputPricePerMillion: normalizeTokenPrice(data.standardInputPricePerMillion),
     standardOutputPricePerMillion: normalizeTokenPrice(data.standardOutputPricePerMillion),
-    costCurrency: normalizeCostCurrency(data.costCurrency)
+    costCurrency: normalizeCostCurrency(data.costCurrency),
+    focusStockAnalysisConcurrency: normalizeFocusStockAnalysisConcurrency(data.focusStockAnalysisConcurrency)
   };
   const existing = await prisma.aiConfig.findFirst();
   const row = existing
@@ -150,7 +160,8 @@ export async function updateAiConfig(data: AiConfigData): Promise<AiConfigData> 
     flagshipOutputPricePerMillion: decimalToNumber(row.flagshipOutputPricePerMillion),
     standardInputPricePerMillion: decimalToNumber(row.standardInputPricePerMillion),
     standardOutputPricePerMillion: decimalToNumber(row.standardOutputPricePerMillion),
-    costCurrency: row.costCurrency
+    costCurrency: row.costCurrency,
+    focusStockAnalysisConcurrency: row.focusStockAnalysisConcurrency
   };
   cachedAt = Date.now();
   return cached;
@@ -158,6 +169,11 @@ export async function updateAiConfig(data: AiConfigData): Promise<AiConfigData> 
 
 export function selectAiModel(config: AiConfigData, tier: AiModelTier) {
   return tier === "standard" ? config.standardModel : config.flagshipModel;
+}
+
+export async function getFocusStockAnalysisConcurrency() {
+  const config = await getAiConfig();
+  return config.focusStockAnalysisConcurrency;
 }
 
 export function estimateAiCost(input: {

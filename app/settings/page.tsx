@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const [flagshipOutputPrice, setFlagshipOutputPrice] = useState("0");
   const [standardInputPrice, setStandardInputPrice] = useState("0");
   const [standardOutputPrice, setStandardOutputPrice] = useState("0");
+  const [focusConcurrency, setFocusConcurrency] = useState("5");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export default function SettingsPage() {
         if (data.flagshipOutputPricePerMillion !== undefined) setFlagshipOutputPrice(String(data.flagshipOutputPricePerMillion));
         if (data.standardInputPricePerMillion !== undefined) setStandardInputPrice(String(data.standardInputPricePerMillion));
         if (data.standardOutputPricePerMillion !== undefined) setStandardOutputPrice(String(data.standardOutputPricePerMillion));
+        if (data.focusStockAnalysisConcurrency !== undefined) setFocusConcurrency(String(data.focusStockAnalysisConcurrency));
         setHasExistingKey(!!data.apiKeyMasked);
       })
       .catch(() => {});
@@ -103,7 +105,8 @@ export default function SettingsPage() {
           flagshipInputPricePerMillion: flagshipInputPrice,
           flagshipOutputPricePerMillion: flagshipOutputPrice,
           standardInputPricePerMillion: standardInputPrice,
-          standardOutputPricePerMillion: standardOutputPrice
+          standardOutputPricePerMillion: standardOutputPrice,
+          focusStockAnalysisConcurrency: focusConcurrency
         })
       });
       if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");
@@ -268,6 +271,31 @@ export default function SettingsPage() {
               <PriceInput label="普通输出" value={standardOutputPrice} onChange={setStandardOutputPrice} />
             </div>
           </div>
+
+          <div className="space-y-3 rounded-xl border border-border bg-muted/15 p-3">
+            <div>
+              <div className="text-sm font-medium">自动分析并发</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                控制一轮“今日 AI 策略观察”里最多同时分析几只股票。并发越高越快，但会同时占用更多 AI / 行情 / 新闻接口连接。
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[220px_1fr] md:items-center">
+              <div className="space-y-2">
+                <span className="block text-sm font-medium">股票并发数</span>
+                <Select value={focusConcurrency} onChange={(event) => setFocusConcurrency(event.target.value)}>
+                  <option value="1">1 只，最稳</option>
+                  <option value="2">2 只，低负载</option>
+                  <option value="3">3 只，稳定</option>
+                  <option value="4">4 只，较快</option>
+                  <option value="5">5 只，默认最快</option>
+                </Select>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                如果服务器 CPU/内存较小、AI 接口经常超时，建议保持 3；如果接口稳定，可以调到 5。后台任务并发仍保持独立限制，避免多轮任务叠加。
+              </p>
+            </div>
+          </div>
+
           <div className="flex gap-3">
             <Button onClick={save} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}

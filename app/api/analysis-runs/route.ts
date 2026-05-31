@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 
+import { getFocusStockAnalysisConcurrency } from "@/lib/ai/config";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { nextMarketScheduledTime } from "@/lib/marketCalendar";
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
     const latestMetrics = latest ? aggregateRunMetrics(latest.items) : emptyMetrics();
     const runningCount = runs.filter((run) => run.status === "running").length;
     const runningItems = runs.reduce((total, run) => total + run.items.filter((item) => item.status === "running").length, 0);
+    const focusStockAnalysisLimit = await getFocusStockAnalysisConcurrency();
     return Response.json({
       summary: {
         nextRunAt: nextRunAt?.toISOString() ?? null,
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
           runningRuns: runningCount,
           runningItems,
           jobWorkerLimit: clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8),
-          focusStockAnalysisLimit: clamp(numberEnv("FOCUS_STOCK_ANALYSIS_CONCURRENT", 3), 1, 6),
+          focusStockAnalysisLimit,
           quoteRequestLimit: Math.max(1, numberEnv("MAX_EXTERNAL_API_CONCURRENT", 2))
         }
       },
