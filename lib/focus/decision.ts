@@ -33,7 +33,7 @@ const decisionSchema = z.object({
     .array(
       z.object({
         symbol: z.string().min(1),
-        action: z.enum(["buy", "watch", "avoid"]),
+        action: z.enum(["buy", "add", "watch", "avoid"]),
         amount: z.coerce.number().min(0).default(0),
         shares: z.coerce.number().int().min(0).default(0),
         reason: z.string().min(1),
@@ -483,13 +483,13 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 5. 使用“趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
 6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
 7. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数或触发条件。
-8. orders 只放买入/增持计划，最多 2 笔；sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+8. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
 9. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，不能超过总本金扣除手续费后的可用金额。卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares；如果 suggestedSellRatioPct=100，应给出清仓计划；如果 suggestedSellRatioPct=25/50，应给出对应比例的减仓计划；如果剩余持仓不足 100，可一次性卖出剩余数量。
 10. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
 11. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
 12. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
 13. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
-14. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，不能返回说明文字。
+14. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -503,7 +503,7 @@ ${JSON.stringify(input.candidates, null, 2)}
   "orders": [
     {
       "symbol": "",
-      "action": "watch",
+      "action": "buy",
       "amount": 0,
       "shares": 0,
       "reason": "",
@@ -533,7 +533,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
   let spent = 0;
   const orders = value.orders
-    .filter((order) => order.action === "buy")
+    .filter((order) => order.action === "buy" || order.action === "add")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       return quantAllowsBuy(candidate);
@@ -549,6 +549,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: { capit
       spent += amount + fee;
       return {
         ...order,
+        action: "buy" as const,
         symbol: candidate?.symbol ?? order.symbol,
         name: candidate?.name ?? null,
         estimatedPrice: price || null,
