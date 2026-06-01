@@ -1,4 +1,5 @@
 import { getCache, setCache } from "@/lib/cache";
+import { buildDecisionFeedbackUrl } from "@/lib/decisionFeedback";
 import { getNotificationConfig, type NotificationProvider } from "@/lib/notifications/config";
 
 type DecisionOrder = {
@@ -96,6 +97,7 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
       ""
     ]),
     `计划买入：${formatMoney(input.totalBudgetToUse)}，计划卖出：${formatMoney(input.totalSellAmount)}，手续费：${formatMoney(input.totalEstimatedFee)}，卖出净回收：${formatMoney(input.totalSellNetProceeds)}，预计现金：${formatMoney(input.cashReserve)}`,
+    ...buildFeedbackLines(input, hasBuy, hasSell),
     "",
     "仅供研究和辅助分析，不构成投资建议。"
   ].filter(Boolean);
@@ -105,6 +107,22 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
     markdown: lines.join("\n"),
     text: lines.map((line) => line.replace(/^#+\s*/, "")).join("\n")
   };
+}
+
+function buildFeedbackLines(input: FocusDecisionNotificationInput, hasBuy: boolean, hasSell: boolean) {
+  const actions = [
+    hasBuy ? { action: "bought", label: "已买入/增持" } : null,
+    hasSell ? { action: "sold", label: "已卖出/减仓" } : null,
+    { action: "watched", label: "继续观察" },
+    { action: "skipped", label: "未采纳" }
+  ].filter((item): item is { action: string; label: string } => Boolean(item));
+  const links = actions
+    .map((item) => {
+      const url = buildDecisionFeedbackUrl({ userId: input.userId, decisionId: input.decisionId, action: item.action });
+      return url ? `[${item.label}](${url})` : "";
+    })
+    .filter(Boolean);
+  return links.length ? ["", "### 反馈你的最终决策", links.join(" ｜ ")] : [];
 }
 
 function buildFocusDecisionDedupeKey(input: FocusDecisionNotificationInput, orders: DecisionOrder[]) {

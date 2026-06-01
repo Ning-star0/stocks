@@ -114,13 +114,15 @@ export async function getLatestStoredFocusDecision(userId: string) {
   const inputHash = createDecisionSignature(seed);
   const exact = await prisma.focusDecision.findFirst({
     where: { userId, inputHash },
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    include: { feedback: true }
   });
   if (exact) return attachStoredMetadata(exact, { fromCache: true, stale: false });
 
   const latest = await prisma.focusDecision.findFirst({
     where: { userId },
-    orderBy: { createdAt: "desc" }
+    orderBy: { createdAt: "desc" },
+    include: { feedback: true }
   });
   return latest ? attachStoredMetadata(latest, { fromCache: true, stale: true }) : null;
 }
@@ -134,7 +136,8 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
   if (!options.forceRefresh) {
     const stored = await prisma.focusDecision.findFirst({
       where: { userId: options.userId, inputHash },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
+      include: { feedback: true }
     });
     if (stored) return attachStoredMetadata(stored, { fromCache: true, stale: false });
 
@@ -270,7 +273,17 @@ async function updateStoredDecisionJson(id: string, decision: Awaited<ReturnType
   });
 }
 
-function attachStoredMetadata(row: StoredFocusDecision, metadata: { fromCache: boolean; stale: boolean }) {
+type StoredFocusDecisionWithFeedback = StoredFocusDecision & {
+  feedback?: {
+    feedbackAction: string;
+    note: string | null;
+    executedPrice: unknown;
+    executedShares: unknown;
+    updatedAt: Date;
+  } | null;
+};
+
+function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { fromCache: boolean; stale: boolean }) {
   const decision = isRecord(row.decisionJson) ? row.decisionJson : {};
   return {
     ...decision,
@@ -279,7 +292,16 @@ function attachStoredMetadata(row: StoredFocusDecision, metadata: { fromCache: b
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
     source: row.source,
     fromCache: metadata.fromCache,
-    stale: metadata.stale
+    stale: metadata.stale,
+    feedback: row.feedback
+      ? {
+          feedbackAction: row.feedback.feedbackAction,
+          note: row.feedback.note,
+          executedPrice: toNumber(row.feedback.executedPrice),
+          executedShares: toNumber(row.feedback.executedShares),
+          updatedAt: row.feedback.updatedAt.toISOString()
+        }
+      : null
   };
 }
 

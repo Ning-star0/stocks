@@ -37,6 +37,7 @@ model User {
   decisionHistories DecisionHistory[]
   notificationConfig NotificationConfig?
   apiUsageLogs ApiUsageLog[]
+  decisionFeedbacks DecisionFeedback[]
 }
 
 model Watchlist {
@@ -328,9 +329,27 @@ model FocusDecision {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedback     DecisionFeedback?
 
   @@unique([userId, inputHash, source])
   @@index([userId, createdAt])
+}
+
+model DecisionFeedback {
+  id             String   @id @default(cuid())
+  userId         String
+  decisionId     String   @unique
+  feedbackAction String
+  note           String?
+  executedPrice  Decimal? @db.Decimal(18, 4)
+  executedShares Decimal? @db.Decimal(18, 4)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  decision       FocusDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([feedbackAction])
 }
 
 model AnalysisRun {

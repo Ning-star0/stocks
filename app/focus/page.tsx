@@ -48,6 +48,7 @@ type StockItem = {
 };
 
 type FocusDecision = {
+  decisionId?: string;
   summary: string;
   recommendedAction: "buy" | "sell" | "mixed" | "wait";
   capital: number;
@@ -73,6 +74,13 @@ type FocusDecision = {
     sentAt?: string;
     provider?: string;
     error?: string;
+  } | null;
+  feedback?: {
+    feedbackAction: string;
+    note?: string | null;
+    executedPrice?: number | null;
+    executedShares?: number | null;
+    updatedAt?: string;
   } | null;
   orders: Array<{
     symbol: string;
@@ -677,7 +685,125 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
           ))}
         </div>
       ) : null}
+      <DecisionFeedbackPanel
+        decisionId={decision.decisionId}
+        feedback={decision.feedback}
+        hasBuy={hasBuy}
+        hasSell={shouldSell}
+      />
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+    </div>
+  );
+}
+
+function DecisionFeedbackPanel({
+  decisionId,
+  feedback,
+  hasBuy,
+  hasSell
+}: {
+  decisionId?: string;
+  feedback?: FocusDecision["feedback"];
+  hasBuy: boolean;
+  hasSell: boolean;
+}) {
+  const [action, setAction] = useState(feedback?.feedbackAction ?? (hasBuy ? "bought" : hasSell ? "sold" : "watched"));
+  const [executedPrice, setExecutedPrice] = useState(feedback?.executedPrice ? String(feedback.executedPrice) : "");
+  const [executedShares, setExecutedShares] = useState(feedback?.executedShares ? String(feedback.executedShares) : "");
+  const [note, setNote] = useState(feedback?.note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(feedback ? `已记录：${feedbackActionLabel(feedback.feedbackAction)}` : null);
+
+  useEffect(() => {
+    setAction(feedback?.feedbackAction ?? (hasBuy ? "bought" : hasSell ? "sold" : "watched"));
+    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : "");
+    setExecutedShares(feedback?.executedShares ? String(feedback.executedShares) : "");
+    setNote(feedback?.note ?? "");
+    setMessage(feedback ? `已记录：${feedbackActionLabel(feedback.feedbackAction)}` : null);
+  }, [decisionId, feedback, hasBuy, hasSell]);
+
+  const options = [
+    ...(hasBuy ? [{ value: "bought", label: "已买入/增持" }] : []),
+    ...(hasSell ? [{ value: "sold", label: "已卖出/减仓" }] : []),
+    { value: "watched", label: "继续观察" },
+    { value: "skipped", label: "未采纳/暂不操作" },
+    { value: "other", label: "其他决策" }
+  ];
+
+  async function submitFeedback() {
+    if (!decisionId) {
+      setMessage("当前决策还没有保存 ID，暂时不能记录反馈。");
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/decision-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decisionId,
+          feedbackAction: action,
+          executedPrice,
+          executedShares,
+          note
+        })
+      });
+      const json = await readJsonResponse<{ feedback?: { label?: string } }>(response);
+      setMessage(`已记录：${json.feedback?.label ?? feedbackActionLabel(action)}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "反馈保存失败。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-background/35 p-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-sm font-semibold">记录你的最终决策</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">用于复盘 AI 策略观察和你的真实操作，不会自动改动持仓。</p>
+        </div>
+        {feedback?.updatedAt ? <span className="text-xs text-muted-foreground">上次记录：{formatDateTime(feedback.updatedAt)}</span> : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setAction(option.value)}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs transition-colors",
+              action === option.value
+                ? "border-primary/40 bg-primary/12 text-primary"
+                : "border-border bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <Input value={executedPrice} onChange={(event) => setExecutedPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，可选" />
+        <Input value={executedShares} onChange={(event) => setExecutedShares(event.target.value)} inputMode="decimal" placeholder="实际数量，可选" />
+      </div>
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        rows={2}
+        placeholder="备注，可选，例如：价格没到，继续观察。"
+        className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          保存反馈
+        </Button>
+        {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
+      </div>
     </div>
   );
 }
@@ -1247,6 +1373,17 @@ function notificationReasonLabel(value?: string | null) {
     send_failed: "发送失败"
   };
   return value ? map[value] ?? value : "未满足推送条件";
+}
+
+function feedbackActionLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    bought: "已买入/增持",
+    sold: "已卖出/减仓",
+    watched: "继续观察",
+    skipped: "未采纳/暂不操作",
+    other: "其他决策"
+  };
+  return value ? map[value] ?? map.other : map.other;
 }
 
 function historyActionTone(action: string): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
