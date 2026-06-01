@@ -1,5 +1,5 @@
 import { AppError } from "@/lib/errors";
-import type { Candle, CompanyProfile, Quote, StockDataProvider } from "@/lib/stock-data/types";
+import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
 
 type EastMoneyQuoteResponse = {
   rc?: number;
@@ -79,7 +79,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     };
   }
 
-  async getHistory(symbol: string, range = "1y", interval = "1d"): Promise<Candle[]> {
+  async getHistory(symbol: string, range = "1y", interval = "1d", options: HistoryOptions = {}): Promise<Candle[]> {
     const target = normalizeAShareSymbol(symbol);
     const normalizedInterval = normalizeInterval(interval);
     const url = new URL(this.klineBaseUrl);
@@ -92,10 +92,16 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     url.searchParams.set("end", "20500101");
     url.searchParams.set("lmt", String(rangeToLimit(range, normalizedInterval)));
 
-    const response = await fetch(url, {
-      headers: requestHeaders(),
-      next: { revalidate: isIntraday(normalizedInterval) ? 60 : 300 }
-    });
+    const shouldBypassCache = options.forceRefresh || isIntraday(normalizedInterval);
+    const response = await fetch(url, shouldBypassCache
+      ? {
+          headers: requestHeaders(),
+          cache: "no-store"
+        }
+      : {
+          headers: requestHeaders(),
+          next: { revalidate: 300 }
+        });
     if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
 
     const payload = (await response.json()) as EastMoneyKlineResponse;

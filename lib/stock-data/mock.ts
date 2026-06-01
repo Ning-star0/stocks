@@ -1,4 +1,4 @@
-import type { Candle, CompanyProfile, NewsItem, Quote, StockDataProvider } from "@/lib/stock-data/types";
+import type { Candle, CompanyProfile, HistoryOptions, NewsItem, Quote, StockDataProvider } from "@/lib/stock-data/types";
 import { AppError } from "@/lib/errors";
 
 const basePrices: Record<string, number> = {
@@ -50,8 +50,9 @@ export class MockStockDataProvider implements StockDataProvider {
     };
   }
 
-  async getHistory(symbol: string, range = "6mo", interval = "1d"): Promise<Candle[]> {
+  async getHistory(symbol: string, range = "6mo", interval = "1d", options: HistoryOptions = {}): Promise<Candle[]> {
     void interval;
+    void options;
     const normalized = symbol.toUpperCase();
     assertValidMockSymbol(normalized);
     const seed = hashSymbol(normalized);

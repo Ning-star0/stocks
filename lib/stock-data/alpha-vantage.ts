@@ -1,4 +1,4 @@
-import type { Candle, CompanyProfile, Quote, StockDataProvider } from "@/lib/stock-data/types";
+import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
 import { AppError } from "@/lib/errors";
 
 type AlphaGlobalQuote = {
@@ -55,13 +55,13 @@ export class AlphaVantageProvider implements StockDataProvider {
     };
   }
 
-  async getHistory(symbol: string, range = "6mo", interval = "1d"): Promise<Candle[]> {
+  async getHistory(symbol: string, range = "6mo", interval = "1d", options: HistoryOptions = {}): Promise<Candle[]> {
     const key = requireKey();
     const functionName = interval === "1d" ? "TIME_SERIES_DAILY_ADJUSTED" : "TIME_SERIES_INTRADAY";
     const intervalParam = interval === "1d" ? "" : `&interval=${encodeURIComponent(interval)}`;
     const outputsize = range === "1mo" || range === "3mo" ? "compact" : "full";
     const url = `${this.baseUrl}?function=${functionName}&symbol=${encodeURIComponent(symbol)}${intervalParam}&outputsize=${outputsize}&apikey=${key}`;
-    const response = await fetch(url, { next: { revalidate: 300 } });
+    const response = await fetch(url, options.forceRefresh ? { cache: "no-store" } : { next: { revalidate: 300 } });
     if (!response.ok) throw new Error(`Alpha Vantage 历史行情请求失败：${response.status}`);
     const data = await response.json();
     if (data.Note) throw new AppError("RATE_LIMIT", "Alpha Vantage 触发限流。", { providerMessage: data.Note });

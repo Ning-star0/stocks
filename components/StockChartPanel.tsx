@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StockChart } from "@/components/StockChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,27 +57,52 @@ export function StockChartPanel({
   const [interval, setInterval] = useState(initialInterval);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const requestIdRef = useRef(0);
   const ranges = useMemo(() => (isIntraday(interval) ? intradayRangeOptions : rangeOptions), [interval]);
 
-  async function updateChart(nextInterval: string, nextRange: string) {
+  const updateChart = useCallback(async (nextInterval: string, nextRange: string, options: { force?: boolean; background?: boolean } = {}) => {
     const normalizedRange = normalizeRange(nextRange, nextInterval);
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setError(null);
     setInterval(nextInterval);
     setRange(normalizedRange);
-    setIsLoading(true);
+    if (!options.background) setIsLoading(true);
     try {
-      const response = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/history?interval=${encodeURIComponent(nextInterval)}&range=${encodeURIComponent(normalizedRange)}`, {
+      const params = new URLSearchParams({
+        interval: nextInterval,
+        range: normalizedRange
+      });
+      if (options.force) params.set("refresh", "1");
+      const response = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/history?${params.toString()}`, {
         cache: "no-store"
       });
       const json = await readJsonResponse(response);
       if (!response.ok) throw new Error(json?.error?.message ?? "行情数据加载失败。");
-      setCandles(Array.isArray(json.candles) ? json.candles : []);
+      if (requestId === requestIdRef.current) setCandles(Array.isArray(json.candles) ? json.candles : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "行情数据加载失败。");
+      if (requestId === requestIdRef.current) setError(err instanceof Error ? err.message : "行情数据加载失败。");
     } finally {
-      setIsLoading(false);
+      if (!options.background && requestId === requestIdRef.current) setIsLoading(false);
     }
-  }
+  }, [symbol]);
+
+  useEffect(() => {
+    setCandles(initialCandles);
+    setRange(initialRange);
+    setInterval(initialInterval);
+  }, [initialCandles, initialInterval, initialRange, symbol]);
+
+  useEffect(() => {
+    if (!isIntraday(interval)) return;
+    void updateChart(interval, range, { force: true, background: true });
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && shouldRefreshIntradayChart()) {
+        void updateChart(interval, range, { force: true, background: true });
+      }
+    }, 45_000);
+    return () => window.clearInterval(timer);
+  }, [interval, range, updateChart]);
 
   return (
     <Card className="soft-card">
@@ -92,7 +117,7 @@ export function StockChartPanel({
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => updateChart(option.value, normalizeRange(range, option.value))}
+                    onClick={() => updateChart(option.value, normalizeRange(range, option.value), { force: true })}
                     disabled={isLoading}
                     className={cn(
                       "min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -111,7 +136,7 @@ export function StockChartPanel({
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => updateChart(interval, option.value)}
+                    onClick={() => updateChart(interval, option.value, { force: true })}
                     disabled={isLoading}
                     className={cn(
                       "min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -160,6 +185,14 @@ function normalizeRange(value: string | undefined, interval: string) {
 
 function isIntraday(interval: string) {
   return ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
+}
+
+function shouldRefreshIntradayChart() {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 35) || (minutes >= 12 * 60 + 55 && minutes <= 15 * 60 + 5);
 }
 
 async function readJsonResponse(response: Response) {
