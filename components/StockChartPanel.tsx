@@ -58,16 +58,21 @@ export function StockChartPanel({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const requestIdRef = useRef(0);
+  const foregroundRequestIdRef = useRef<number | null>(null);
   const ranges = useMemo(() => (isIntraday(interval) ? intradayRangeOptions : rangeOptions), [interval]);
 
   const updateChart = useCallback(async (nextInterval: string, nextRange: string, options: { force?: boolean; background?: boolean } = {}) => {
     const normalizedRange = normalizeRange(nextRange, nextInterval);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    const isBackground = Boolean(options.background);
     setError(null);
-    setInterval(nextInterval);
-    setRange(normalizedRange);
-    if (!options.background) setIsLoading(true);
+    if (!isBackground) {
+      foregroundRequestIdRef.current = requestId;
+      setInterval(nextInterval);
+      setRange(normalizedRange);
+      setIsLoading(true);
+    }
     try {
       const params = new URLSearchParams({
         interval: nextInterval,
@@ -79,11 +84,21 @@ export function StockChartPanel({
       });
       const json = await readJsonResponse(response);
       if (!response.ok) throw new Error(json?.error?.message ?? "行情数据加载失败。");
-      if (requestId === requestIdRef.current) setCandles(Array.isArray(json.candles) ? json.candles : []);
+      if (requestId === requestIdRef.current) {
+        const nextCandles = Array.isArray(json.candles) ? json.candles : [];
+        if (nextCandles.length) {
+          setCandles(nextCandles);
+        } else if (!isBackground) {
+          setError("本次没有返回可展示的 K 线数据，已保留上一组图表数据。");
+        }
+      }
     } catch (err) {
       if (requestId === requestIdRef.current) setError(err instanceof Error ? err.message : "行情数据加载失败。");
     } finally {
-      if (!options.background && requestId === requestIdRef.current) setIsLoading(false);
+      if (!isBackground && foregroundRequestIdRef.current === requestId) {
+        foregroundRequestIdRef.current = null;
+        setIsLoading(false);
+      }
     }
   }, [symbol]);
 
@@ -94,6 +109,7 @@ export function StockChartPanel({
   }, [initialCandles, initialInterval, initialRange, symbol]);
 
   useEffect(() => {
+    if (isLoading) return;
     if (!isIntraday(interval)) return;
     void updateChart(interval, range, { force: true, background: true });
     const timer = window.setInterval(() => {
@@ -102,7 +118,7 @@ export function StockChartPanel({
       }
     }, 45_000);
     return () => window.clearInterval(timer);
-  }, [interval, range, updateChart]);
+  }, [interval, isLoading, range, updateChart]);
 
   return (
     <Card className="soft-card">
