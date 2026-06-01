@@ -586,7 +586,7 @@ export default function FocusPage() {
 
 function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: FocusDecision; nextObserveAt: string; names: Record<string, string> }) {
   const sellOrders = decision.sellOrders ?? [];
-  const shouldSell = (decision.recommendedAction === "sell" || decision.recommendedAction === "mixed") && sellOrders.length > 0;
+  const shouldSell = sellOrders.length > 0;
   const hasBuy = decision.orders.length > 0;
   const investedCost = decision.investedCost ?? 0;
   const availableCash = decision.availableCash ?? decision.capital;
@@ -982,9 +982,13 @@ function CandidateRanking({
   const rows = useMemo(() => {
     const watchMap = new Map(watchlist.flatMap((item) => symbolVariantsForUi(item.symbol).map((symbol) => [symbol, item] as const)));
     const historyMap = new Map(history.flatMap((item) => symbolVariantsForUi(item.symbol).map((symbol) => [symbol, item] as const)));
+    const buyOrderMap = new Map((decision?.orders ?? []).flatMap((order) => symbolVariantsForUi(order.symbol).map((symbol) => [symbol, order] as const)));
+    const sellOrderMap = new Map((decision?.sellOrders ?? []).flatMap((order) => symbolVariantsForUi(order.symbol).map((symbol) => [symbol, order] as const)));
     const normalized = items.map((item) => {
       const watch = watchMap.get(item.symbol.toUpperCase());
       const latestHistory = historyMap.get(item.symbol.toUpperCase());
+      const buyOrder = buyOrderMap.get(item.symbol.toUpperCase());
+      const sellOrder = sellOrderMap.get(item.symbol.toUpperCase());
       const latestAnalysis = watch?.latestAnalysis?.outputJson;
       const price = watch?.quote?.price ?? null;
       const holdingPrice = watch?.holdingPrice ?? null;
@@ -998,12 +1002,12 @@ function CandidateRanking({
       return {
         ...item,
         name: names[item.symbol] || watch?.name || item.symbol,
-        status: normalizeRankingView(item.view),
+        status: sellOrder ? (sellOrder.action === "sell" ? "卖出" : "减仓") : buyOrder ? (buyOrder.action === "add" ? "增持" : "买入") : normalizeRankingView(item.view),
         trend: trendLabel(latestHistory?.strategyDirection || latestAnalysis?.trend || ""),
         confidence: latestHistory?.confidence ?? latestAnalysis?.confidence ?? null,
         pnl,
         risk: extractRiskText(item.reason),
-        actionTone: rankingTone(item.view)
+        actionTone: sellOrder ? "avoid" as const : buyOrder ? "bullish" as const : rankingTone(item.view)
       };
     });
     return normalized.sort((a, b) => {
@@ -1011,7 +1015,7 @@ function CandidateRanking({
       if (sortKey === "profit") return (pnlSortValue(b.pnl) - pnlSortValue(a.pnl)) || a.rank - b.rank;
       return a.rank - b.rank;
     });
-  }, [history, items, names, sortKey, watchlist]);
+  }, [decision?.orders, decision?.sellOrders, history, items, names, sortKey, watchlist]);
 
   return (
     <Card className="soft-card">

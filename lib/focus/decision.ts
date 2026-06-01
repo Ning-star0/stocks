@@ -68,6 +68,8 @@ const decisionSchema = z.object({
   disclaimer: z.string().default("本内容由 AI 生成，仅供研究参考，不构成投资建议。")
 });
 
+type DecisionSchemaValue = z.infer<typeof decisionSchema>;
+
 type Candidate = {
   symbol: string;
   name?: string | null;
@@ -593,7 +595,7 @@ ${JSON.stringify(input.candidates, null, 2)}
 }`;
 }
 
-function normalizeDecision(value: z.infer<typeof decisionSchema>, input: DecisionInput, fallbackReason: string | null) {
+function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fallbackReason: string | null) {
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
   let spent = 0;
   const orders = value.orders
@@ -662,6 +664,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: Decisio
     })
     .filter((order) => order.shares > 0 && order.amount > 0);
   const normalizedAction = sellOrders.length && orders.length ? "mixed" : sellOrders.length ? "sell" : orders.length ? "buy" : "wait";
+  const summary = alignSummaryWithStructuredPlan(value.summary, value, input, orders, sellOrders, normalizedAction);
   const buyFee = Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
   const sellFee = Number(sellOrders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
   const totalSellNetProceeds = Number(sellOrders.reduce((sum, order) => sum + order.netProceeds, 0).toFixed(2));
@@ -669,7 +672,7 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: Decisio
   return {
     ...value,
     recommendedAction: normalizedAction,
-    summary: normalizedAction !== "wait" || value.recommendedAction === "wait" ? value.summary : `当前没有形成可执行的交易情景，已改为等待。${value.summary}`,
+    summary,
     orders,
     sellOrders,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
@@ -687,6 +690,69 @@ function normalizeDecision(value: z.infer<typeof decisionSchema>, input: Decisio
     fallbackReason,
     generatedAt: new Date().toISOString()
   };
+}
+
+function alignSummaryWithStructuredPlan(
+  summary: string,
+  value: DecisionSchemaValue,
+  input: DecisionInput,
+  orders: Array<{ symbol: string; name?: string | null }>,
+  sellOrders: Array<{ symbol: string; name?: string | null }>,
+  normalizedAction: "buy" | "sell" | "mixed" | "wait"
+) {
+  const unsupportedSellClaims = detectUnsupportedSellClaims(value, input, sellOrders);
+  const planText = describeStructuredPlan(orders, sellOrders, normalizedAction);
+  const ignoredSellText = unsupportedSellClaims.length
+    ? `；已忽略未通过本地量化/持仓校验的卖出表述：${unsupportedSellClaims.join("、")}`
+    : "";
+  const prefix = normalizedAction === "wait" && value.recommendedAction !== "wait"
+    ? "当前没有形成可执行的交易情景，已改为等待。"
+    : "";
+  if (planText || ignoredSellText || prefix) {
+    return `${prefix}${planText}${ignoredSellText}。AI 原始理由：${summary}`;
+  }
+  return summary;
+}
+
+function describeStructuredPlan(
+  orders: Array<{ symbol: string; name?: string | null }>,
+  sellOrders: Array<{ symbol: string; name?: string | null }>,
+  normalizedAction: "buy" | "sell" | "mixed" | "wait"
+) {
+  if (normalizedAction === "wait") return "";
+  const buyText = orders.length ? `实际可执行买入/增持计划：${orders.map(orderLabel).join("、")}` : "";
+  const sellText = sellOrders.length ? `实际可执行卖出/减仓计划：${sellOrders.map(orderLabel).join("、")}` : "";
+  return [buyText, sellText].filter(Boolean).join("；");
+}
+
+function detectUnsupportedSellClaims(
+  value: DecisionSchemaValue,
+  input: DecisionInput,
+  sellOrders: Array<{ symbol: string; name?: string | null }>
+) {
+  const supportedSellSymbols = new Set(sellOrders.flatMap((order) => symbolVariants(order.symbol)));
+  const rankingBySymbol = new Map(value.ranking.map((item) => [item.symbol, `${item.view} ${item.reason}`]));
+  return input.candidates
+    .filter((candidate) => candidate.isHolding)
+    .filter((candidate) => !symbolVariants(candidate.symbol).some((symbol) => supportedSellSymbols.has(symbol)))
+    .filter((candidate) => {
+      const text = `${value.summary} ${rankingBySymbol.get(candidate.symbol) ?? ""}`;
+      return textMentionsCandidate(text, candidate) && /减仓|卖出|止盈|止损|离场|兑现|降低仓位/.test(text);
+    })
+    .map(orderLabel)
+    .slice(0, 3);
+}
+
+function textMentionsCandidate(text: string, candidate: Candidate) {
+  const aliases = [candidate.symbol, ...symbolVariants(candidate.symbol), candidate.name ?? ""]
+    .filter(Boolean)
+    .map((item) => item.toUpperCase());
+  const upper = text.toUpperCase();
+  return aliases.some((alias) => alias && upper.includes(alias));
+}
+
+function orderLabel(input: { symbol: string; name?: string | null }) {
+  return input.name ? `${input.name}（${input.symbol}）` : input.symbol;
 }
 
 function buildFallbackDecision(input: DecisionInput, reason: string) {
