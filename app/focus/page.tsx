@@ -82,6 +82,13 @@ type FocusDecision = {
     executedShares?: number | null;
     updatedAt?: string;
   } | null;
+  dataScope?: {
+    latestQuoteTime?: string | null;
+    latestHistoryTo?: string | null;
+    latestAnalysisGeneratedAt?: string | null;
+    quoteTimes?: Array<{ symbol: string; quoteTime: string | null; status: string }>;
+    historyTimes?: Array<{ symbol: string; historyTo: string | null; historyRange: string | null; historyInterval: string | null; historyCandles: number | null }>;
+  };
   orders: Array<{
     symbol: string;
     name?: string | null;
@@ -608,6 +615,8 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
         {decision.scheduledFor ? <span>计划时间：{formatDateTime(decision.scheduledFor)}</span> : null}
         {decision.persistedAt ? <span>保存时间：{formatDateTime(decision.persistedAt)}</span> : null}
+        {decision.dataScope?.latestQuoteTime ? <span>行情截止：{formatDateTime(decision.dataScope.latestQuoteTime)}</span> : null}
+        {decision.dataScope?.latestHistoryTo ? <span>日K截止：{formatDate(decision.dataScope.latestHistoryTo)}</span> : null}
         <Badge variant={decision.source === "scheduled" ? "success" : "secondary"}>{decision.source === "scheduled" ? "定时决策" : "手动决策"}</Badge>
         <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">{decision.fromCache ? "已保存" : "最新"}</span>
         {decision.stale ? <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">配置已变化</span> : null}
@@ -1647,6 +1656,15 @@ function formatDateTime(value?: string | Date | null) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
+  });
+}
+
+function formatDate(value?: string | Date | null) {
+  if (!value) return "--";
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit"
   });
 }
 

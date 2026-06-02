@@ -27,9 +27,21 @@ type EastMoneyKlineResponse = {
   } | null;
 };
 
+type TencentKlineResponse = {
+  code?: number;
+  data?: Record<string, {
+    day?: string[][];
+    week?: string[][];
+    month?: string[][];
+    m1?: string[][];
+    prec?: string;
+  }>;
+};
+
 export class AShareEastMoneyProvider implements StockDataProvider {
   private readonly quoteBaseUrl = "http://push2.eastmoney.com/api/qt/stock/get";
   private readonly klineBaseUrl = "http://push2his.eastmoney.com/api/qt/stock/kline/get";
+  private readonly tencentKlineBaseUrl = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline";
 
   async getQuote(symbol: string): Promise<Quote> {
     const target = normalizeAShareSymbol(symbol);
@@ -93,33 +105,39 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     url.searchParams.set("lmt", String(rangeToLimit(range, normalizedInterval)));
 
     const shouldBypassCache = options.forceRefresh || isIntraday(normalizedInterval);
-    const response = await fetch(url, shouldBypassCache
-      ? {
-          headers: requestHeaders(),
-          cache: "no-store"
-        }
-      : {
-          headers: requestHeaders(),
-          next: { revalidate: 300 }
-        });
-    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
+    try {
+      const response = await fetch(url, shouldBypassCache
+        ? {
+            headers: requestHeaders(),
+            cache: "no-store"
+          }
+        : {
+            headers: requestHeaders(),
+            next: { revalidate: 300 }
+          });
+      if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
 
-    const payload = (await response.json()) as EastMoneyKlineResponse;
-    const rows = payload.data?.klines;
-    if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol });
+      const payload = (await response.json()) as EastMoneyKlineResponse;
+      const rows = payload.data?.klines;
+      if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol });
 
-    return rows.map((row) => {
-      const [date, open, close, high, low, volume] = row.split(",");
-      return {
-        symbol: target.symbol,
-        open: Number(open),
-        high: Number(high),
-        low: Number(low),
-        close: Number(close),
-        volume: Math.round(Number(volume) * 100),
-        timestamp: parseKlineTimestamp(date, normalizedInterval)
-      };
-    });
+      return rows.map((row) => {
+        const [date, open, close, high, low, volume] = row.split(",");
+        return {
+          symbol: target.symbol,
+          open: Number(open),
+          high: Number(high),
+          low: Number(low),
+          close: Number(close),
+          volume: Math.round(Number(volume) * 100),
+          timestamp: parseKlineTimestamp(date, normalizedInterval)
+        };
+      });
+    } catch (error) {
+      return this.getTencentFallbackHistory(target, range, normalizedInterval).catch(() => {
+        throw error;
+      });
+    }
   }
 
   async getCompanyProfile(symbol: string): Promise<CompanyProfile> {
@@ -130,6 +148,52 @@ export class AShareEastMoneyProvider implements StockDataProvider {
       exchange: target.exchange,
       sector: "A股"
     };
+  }
+
+  private async getTencentFallbackHistory(
+    target: ReturnType<typeof normalizeAShareSymbol>,
+    range: string,
+    interval: string
+  ): Promise<Candle[]> {
+    if (isIntraday(interval)) {
+      const candles = await this.getTencentIntradayHistory(target, range);
+      return aggregateIntradayCandles(candles, interval);
+    }
+    return this.getTencentDailyHistory(target, range, interval);
+  }
+
+  private async getTencentIntradayHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string) {
+    const marketSymbol = tencentMarketSymbol(target);
+    const url = new URL(`${this.tencentKlineBaseUrl}/mkline`);
+    const limit = Math.min(rangeToLimit(range, "1m"), 1440);
+    url.searchParams.set("param", `${marketSymbol},m1,,${limit}`);
+
+    const response = await fetch(url, {
+      headers: requestHeaders(),
+      cache: "no-store"
+    });
+    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `腾讯分时 K 线请求失败：${response.status}`);
+    const payload = (await response.json()) as TencentKlineResponse;
+    const rows = payload.data?.[marketSymbol]?.m1;
+    if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯分时行情。`);
+    return rows.map((row) => tencentRowToCandle(target.symbol, row, true)).filter(isValidCandle);
+  }
+
+  private async getTencentDailyHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string, interval: string) {
+    const marketSymbol = tencentMarketSymbol(target);
+    const period = interval === "1wk" || interval === "1w" ? "week" : interval === "1mo" ? "month" : "day";
+    const url = new URL(`${this.tencentKlineBaseUrl}/kline`);
+    url.searchParams.set("param", `${marketSymbol},${period},,,${rangeToLimit(range, interval)}`);
+
+    const response = await fetch(url, {
+      headers: requestHeaders(),
+      cache: "no-store"
+    });
+    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `腾讯日 K 线请求失败：${response.status}`);
+    const payload = (await response.json()) as TencentKlineResponse;
+    const rows = payload.data?.[marketSymbol]?.[period];
+    if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯历史行情。`);
+    return rows.map((row) => tencentRowToCandle(target.symbol, row, false)).filter(isValidCandle);
   }
 }
 
@@ -235,6 +299,61 @@ function parseEastMoneyTimestamp(value: number) {
   const minute = text.slice(10, 12);
   const second = text.slice(12, 14);
   return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`).toISOString();
+}
+
+function tencentMarketSymbol(target: ReturnType<typeof normalizeAShareSymbol>) {
+  return `${target.exchange.toLowerCase()}${target.code}`;
+}
+
+function tencentRowToCandle(symbol: string, row: string[], intraday: boolean): Candle {
+  const [time, open, close, high, low, volume] = row;
+  return {
+    symbol,
+    open: Number(open),
+    high: Number(high),
+    low: Number(low),
+    close: Number(close),
+    volume: Math.round(Number(volume) * 100),
+    timestamp: intraday ? parseTencentIntradayTimestamp(time) : new Date(`${time}T15:00:00+08:00`).toISOString()
+  };
+}
+
+function parseTencentIntradayTimestamp(value: string) {
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+  const hour = value.slice(8, 10);
+  const minute = value.slice(10, 12);
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:00+08:00`).toISOString();
+}
+
+function aggregateIntradayCandles(candles: Candle[], interval: string) {
+  const minutes = intervalMinutes(interval);
+  if (minutes <= 1) return candles;
+  const buckets = new Map<number, Candle[]>();
+  for (const candle of candles) {
+    const date = new Date(candle.timestamp);
+    const bucketMinute = Math.floor(date.getMinutes() / minutes) * minutes;
+    const bucketStart = new Date(date);
+    bucketStart.setMinutes(bucketMinute, 0, 0);
+    const key = bucketStart.getTime();
+    const rows = buckets.get(key) ?? [];
+    rows.push(candle);
+    buckets.set(key, rows);
+  }
+  return [...buckets.entries()].sort(([a], [b]) => a - b).map(([timestamp, rows]) => ({
+    symbol: rows[0].symbol,
+    open: rows[0].open,
+    high: Math.max(...rows.map((row) => row.high)),
+    low: Math.min(...rows.map((row) => row.low)),
+    close: rows[rows.length - 1].close,
+    volume: rows.reduce((sum, row) => sum + row.volume, 0),
+    timestamp: new Date(timestamp).toISOString()
+  }));
+}
+
+function isValidCandle(candle: Candle) {
+  return [candle.open, candle.high, candle.low, candle.close].every((value) => Number.isFinite(value) && value > 0);
 }
 
 function requestHeaders() {

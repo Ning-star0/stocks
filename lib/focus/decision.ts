@@ -75,6 +75,15 @@ type Candidate = {
   name?: string | null;
   price: number | null;
   changePct: number | null;
+  quoteTime?: string | null;
+  analysisGeneratedAt?: string | null;
+  analysisDataScope?: {
+    quoteTime?: string | null;
+    historyTo?: string | null;
+    historyRange?: string | null;
+    historyInterval?: string | null;
+    historyCandles?: number | null;
+  } | null;
   status: string;
   note?: string | null;
   riskLevel?: string;
@@ -100,6 +109,13 @@ type DecisionInput = {
   investedCost: number;
   availableCash: number;
   candidates: Candidate[];
+  dataScope: {
+    latestQuoteTime: string | null;
+    latestHistoryTo: string | null;
+    latestAnalysisGeneratedAt: string | null;
+    quoteTimes: Array<{ symbol: string; quoteTime: string | null; status: string }>;
+    historyTimes: Array<{ symbol: string; historyTo: string | null; historyRange: string | null; historyInterval: string | null; historyCandles: number | null }>;
+  };
 };
 
 type GenerateFocusDecisionOptions = {
@@ -405,6 +421,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     const analysis = seed.latestAnalysisBySymbol.get(symbol) ?? null;
     const output = analysis?.outputJson as Candidate["latestAnalysis"] | undefined;
     const analysisInput = asRecord(analysis?.inputJson);
+    const analysisDataScope = asRecord(analysisInput.dataScope);
     const analysisIndicators = asRecord(analysisInput.indicators);
     const analysisHistorySummary = asRecord(analysisInput.historySummary);
     const analysisKeyLevels = asRecord(asRecord(output).keyLevels);
@@ -447,6 +464,15 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       name: quote?.name ?? null,
       price: quote?.price ?? null,
       changePct: quote?.changePct ?? null,
+      quoteTime: quote?.updatedAt ?? null,
+      analysisGeneratedAt: analysis?.createdAt.toISOString() ?? null,
+      analysisDataScope: {
+        quoteTime: toNullableString(analysisDataScope.quoteTime),
+        historyTo: toNullableString(analysisDataScope.historyTo),
+        historyRange: toNullableString(analysisDataScope.historyRange),
+        historyInterval: toNullableString(analysisDataScope.historyInterval),
+        historyCandles: toNumber(analysisDataScope.historyCandles)
+      },
       status: quote?.status ?? "unavailable",
       note: item?.note ?? null,
       riskLevel: item?.riskLevel,
@@ -475,9 +501,32 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     investedCost,
     availableCash,
     candidates,
+    dataScope: buildDecisionDataScope(candidates),
     focusUpdatedAt: seed.focusUpdatedAt,
     focusLastAnalysis: seed.focusLastAnalysis,
     latestAnalysisIds: [...seed.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
+  };
+}
+
+function buildDecisionDataScope(candidates: Candidate[]): DecisionInput["dataScope"] {
+  const quoteTimes = candidates.map((candidate) => ({
+    symbol: candidate.symbol,
+    quoteTime: candidate.quoteTime ?? candidate.analysisDataScope?.quoteTime ?? null,
+    status: candidate.status
+  }));
+  const historyTimes = candidates.map((candidate) => ({
+    symbol: candidate.symbol,
+    historyTo: candidate.analysisDataScope?.historyTo ?? null,
+    historyRange: candidate.analysisDataScope?.historyRange ?? null,
+    historyInterval: candidate.analysisDataScope?.historyInterval ?? null,
+    historyCandles: candidate.analysisDataScope?.historyCandles ?? null
+  }));
+  return {
+    latestQuoteTime: latestIso(quoteTimes.map((item) => item.quoteTime)),
+    latestHistoryTo: latestIso(historyTimes.map((item) => item.historyTo)),
+    latestAnalysisGeneratedAt: latestIso(candidates.map((candidate) => candidate.analysisGeneratedAt ?? null)),
+    quoteTimes,
+    historyTimes
   };
 }
 
@@ -540,6 +589,9 @@ function buildDecisionPrompt(input: DecisionInput) {
 
 交易手续费规则：
 ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
+
+本次决策数据截止：
+${JSON.stringify(input.dataScope, null, 2)}
 
 决策要求：
 1. 必须明确 recommendedAction，只能是 buy、sell、mixed 或 wait。buy 表示只有买入/增持计划；sell 表示只有卖出/减仓计划；mixed 表示同时有买入和卖出/减仓计划；wait 表示今日只观察。
@@ -686,6 +738,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     capital: input.capital,
     investedCost: input.investedCost,
     availableCash: input.availableCash,
+    dataScope: input.dataScope,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
     generatedAt: new Date().toISOString()
@@ -1033,6 +1086,24 @@ function asRecord(value: unknown): Record<string, unknown> {
 function numberArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.map((item) => toNumber(item)).filter((item): item is number => item !== null);
+}
+
+function toNullableString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function latestIso(values: Array<string | null | undefined>) {
+  let latest: string | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > latestTime) {
+      latest = value;
+      latestTime = time;
+    }
+  }
+  return latest;
 }
 
 function numberEnv(name: string, fallback: number) {
