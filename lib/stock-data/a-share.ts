@@ -176,7 +176,8 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     const payload = (await response.json()) as TencentKlineResponse;
     const rows = payload.data?.[marketSymbol]?.m1;
     if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯分时行情。`);
-    return rows.map((row) => tencentRowToCandle(target.symbol, row, true)).filter(isValidCandle);
+    const candles = rows.map((row) => tencentRowToCandle(target.symbol, row, true)).filter(isValidCandle);
+    return filterIntradayCandlesByRange(candles, range);
   }
 
   private async getTencentDailyHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string, interval: string) {
@@ -350,6 +351,25 @@ function aggregateIntradayCandles(candles: Candle[], interval: string) {
     volume: rows.reduce((sum, row) => sum + row.volume, 0),
     timestamp: new Date(timestamp).toISOString()
   }));
+}
+
+function filterIntradayCandlesByRange(candles: Candle[], range: string) {
+  const ordered = [...candles].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (!ordered.length) return ordered;
+
+  const keepDays = intradayTradingDays(range);
+  const dates = Array.from(new Set(ordered.map((candle) => localDateKey(candle.timestamp))));
+  const allowedDates = new Set(dates.slice(-keepDays));
+  return ordered.filter((candle) => allowedDates.has(localDateKey(candle.timestamp)));
+}
+
+function localDateKey(timestamp: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(timestamp));
 }
 
 function isValidCandle(candle: Candle) {
