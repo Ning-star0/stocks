@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { LoadingInsight, PageContainer, SectionHeader, StatCard } from "@/components/ui/layout";
+import { LoadingInsight, PageContainer, SectionHeader } from "@/components/ui/layout";
 import { StrategyBadge } from "@/components/StrategyBadge";
 import { motionClassNames, staggerDelay } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -621,10 +621,14 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
   const hasBuy = decision.orders.length > 0;
   const investedCost = decision.investedCost ?? 0;
   const availableCash = decision.availableCash ?? decision.capital;
-  const currentMarketValue = decision.currentMarketValue ?? 0;
-  const unrealizedPnl = decision.unrealizedPnl ?? 0;
+  const rawMarketValue = decision.currentMarketValue ?? 0;
+  const marketValueUsesCostFallback = investedCost > 0 && rawMarketValue <= 0;
+  const currentMarketValue = marketValueUsesCostFallback ? investedCost : rawMarketValue;
+  const unrealizedPnl = marketValueUsesCostFallback ? 0 : decision.unrealizedPnl ?? 0;
   const realizedPnl = decision.realizedPnl ?? 0;
-  const totalAssets = decision.totalAssets ?? Number((availableCash + currentMarketValue).toFixed(2));
+  const totalAssets = marketValueUsesCostFallback
+    ? Number((availableCash + currentMarketValue).toFixed(2))
+    : decision.totalAssets ?? Number((availableCash + currentMarketValue).toFixed(2));
   const hasAddOnly = hasBuy && decision.orders.every((order) => order.action === "add");
   const actionLabel = hasBuy && shouldSell ? "买入 + 卖出/减仓" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "形成卖出/减仓计划" : "等待 / 暂不行动";
   const conclusionLabel = hasBuy && shouldSell ? "调仓观察" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "风险处理 / 减仓观察" : "不建议交易";
@@ -682,20 +686,39 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
           <HighlightedText text={decision.summary} highlights={highlightNames} />
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
-        <StatCard label="总资产" value={formatMoney(totalAssets)} delayIndex={0} />
-        <StatCard label="投入本金" value={formatMoney(decision.capital)} delayIndex={0} />
-        <StatCard label="当前现金" value={formatMoney(availableCash)} delayIndex={1} />
-        <StatCard label="持仓市值" value={formatMoney(currentMarketValue)} delayIndex={1} className={currentMarketValue === 0 ? "opacity-45" : ""} />
-        <StatCard label="持仓浮盈" value={formatMoney(unrealizedPnl)} tone={unrealizedPnl >= 0 ? "warning" : "success"} delayIndex={2} className={unrealizedPnl === 0 ? "opacity-45" : ""} />
-        <StatCard label="已实现盈亏" value={formatMoney(realizedPnl)} tone={realizedPnl >= 0 ? "warning" : "success"} delayIndex={2} className={realizedPnl === 0 ? "opacity-45" : ""} />
-        <StatCard label="已持仓成本" value={formatMoney(investedCost)} delayIndex={3} className={investedCost === 0 ? "opacity-45" : ""} />
-        <StatCard label="计划后现金" value={formatMoney(decision.cashReserve)} delayIndex={3} />
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} delayIndex={0} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
-        <StatCard label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} delayIndex={1} className={(decision.totalSellAmount ?? 0) === 0 ? "opacity-45" : ""} />
-        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={2} className={decision.totalEstimatedFee === 0 ? "opacity-45" : ""} />
+      <div className="grid gap-3 xl:grid-cols-[1.05fr_1fr_1fr]">
+        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
+          <div className="text-xs font-medium text-muted-foreground">资产概览</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <AssetMetric label="总资产" value={formatMoney(totalAssets)} size="lg" />
+            <AssetMetric label="投入本金" value={formatMoney(decision.capital)} />
+            <AssetMetric label="当前现金" value={formatMoney(availableCash)} />
+            <AssetMetric label="计划后现金" value={formatMoney(decision.cashReserve)} tone={decision.cashReserve < availableCash ? "warning" : "neutral"} />
+          </div>
+        </div>
+        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-medium text-muted-foreground">持仓与盈亏</div>
+            {marketValueUsesCostFallback ? <Badge variant="warning">按成本估值</Badge> : null}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <AssetMetric label="持仓市值" value={formatMoney(currentMarketValue)} />
+            <AssetMetric label="已持仓成本" value={formatMoney(investedCost)} />
+            <AssetMetric label="持仓浮盈" value={formatMoney(unrealizedPnl)} tone={unrealizedPnl >= 0 ? "danger" : "success"} muted={marketValueUsesCostFallback || unrealizedPnl === 0} />
+            <AssetMetric label="已实现盈亏" value={formatMoney(realizedPnl)} tone={realizedPnl >= 0 ? "danger" : "success"} muted={realizedPnl === 0} />
+          </div>
+          {marketValueUsesCostFallback ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">当前决策缺少可用持仓报价，市值暂按持仓成本估算，避免总资产被低估。</p>
+          ) : null}
+        </div>
+        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
+          <div className="text-xs font-medium text-muted-foreground">本次计划影响</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+            <AssetMetric label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} muted={decision.totalBudgetToUse === 0} />
+            <AssetMetric label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} muted={(decision.totalSellAmount ?? 0) === 0} />
+            <AssetMetric label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} muted={decision.totalEstimatedFee === 0} />
+          </div>
+        </div>
       </div>
       {decision.orders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">
@@ -1615,6 +1638,33 @@ function DecisionNumber({ label, value, className }: { label: string; value: str
     <div className={cn("rounded-md border border-border bg-muted/20 px-3 py-2", className)}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-medium tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function AssetMetric({
+  label,
+  value,
+  tone = "neutral",
+  size = "md",
+  muted = false
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+  size?: "md" | "lg";
+  muted?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-xl border px-3 py-3", {
+      "border-border bg-muted/18": tone === "neutral",
+      "border-emerald-500/20 bg-emerald-500/8": tone === "success",
+      "border-amber-500/25 bg-amber-500/10": tone === "warning",
+      "border-rose-500/20 bg-rose-500/8": tone === "danger",
+      "opacity-50": muted
+    })}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={cn("mt-2 font-semibold tabular-nums tracking-tight", size === "lg" ? "text-2xl" : "text-xl")}>{value}</div>
     </div>
   );
 }

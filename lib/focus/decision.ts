@@ -1237,14 +1237,14 @@ function calculateInvestedCost(items: Array<{ holdingPrice: unknown; holdingShar
 }
 
 function calculateCurrentMarketValue(
-  items: Array<{ symbol: string; holdingShares: unknown }>,
+  items: Array<{ symbol: string; holdingPrice?: unknown; holdingShares: unknown }>,
   quotes: Record<string, { price?: number | null } | null | undefined>
 ) {
   const total = items.reduce((sum, item) => {
     const shares = toNumber(item.holdingShares) ?? 0;
     if (shares <= 0) return sum;
     const quote = quotes[item.symbol] ?? quotes[symbolVariants(item.symbol).find((symbol) => quotes[symbol]) ?? item.symbol];
-    const price = quote?.price ?? null;
+    const price = quote?.price ?? toNumber(item.holdingPrice) ?? null;
     if (!price || price <= 0) return sum;
     return sum + price * shares;
   }, 0);
