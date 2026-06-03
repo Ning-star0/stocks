@@ -681,12 +681,12 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       };
     })
     .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
-  const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input);
+  const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input, value.ranking);
   const sellOrders = sellOrderCandidates
     .filter((order) => order.action === "sell" || order.action === "reduce")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
-      return quantAllowsSell(candidate);
+      return quantAllowsSell(candidate) || aiRankingClaimsSell(value.ranking, candidate);
     })
     .slice(0, 3)
     .map((order) => {
@@ -809,11 +809,16 @@ function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean
   return quantReason(candidate);
 }
 
-function withRequiredQuantSellOrders(orders: DecisionSchemaValue["sellOrders"], input: DecisionInput): DecisionSchemaValue["sellOrders"] {
+function withRequiredQuantSellOrders(
+  orders: DecisionSchemaValue["sellOrders"],
+  input: DecisionInput,
+  ranking: DecisionSchemaValue["ranking"]
+): DecisionSchemaValue["sellOrders"] {
   const output = [...orders];
   const existing = new Set(output.flatMap((order) => symbolVariants(order.symbol)));
   for (const candidate of input.candidates) {
-    if (!candidateSupportsSell(candidate)) continue;
+    const rankingClaimsSell = aiRankingClaimsSell(ranking, candidate);
+    if (!candidateSupportsSell(candidate) && !rankingClaimsSell) continue;
     if (symbolVariants(candidate.symbol).some((symbol) => existing.has(symbol))) continue;
     const shares = candidate.quantSignal?.suggestedSellShares || fallbackSellShares(candidate.holdingShares ?? 0, stringifyAdvice(candidate.latestAnalysis?.holdAdvice));
     if (!shares || shares <= 0) continue;
@@ -822,7 +827,7 @@ function withRequiredQuantSellOrders(orders: DecisionSchemaValue["sellOrders"], 
       action: candidate.quantSignal?.action === "sell" ? "sell" : "reduce",
       amount: candidate.price && candidate.price > 0 ? Number((shares * candidate.price).toFixed(2)) : 0,
       shares,
-      reason: buildRequiredSellReason(candidate),
+      reason: buildRequiredSellReason(candidate, rankingClaimsSell),
       riskControl: candidate.quantSignal?.exitPlan || "若风险信号消失、价格重新站回关键支撑并且量化卖出分回落，可取消减仓观察。",
       invalidIf: "最新行情或单股分析显示卖出分低于阈值，且价格重新回到安全趋势区间。"
     });
@@ -831,10 +836,20 @@ function withRequiredQuantSellOrders(orders: DecisionSchemaValue["sellOrders"], 
   return output;
 }
 
-function buildRequiredSellReason(candidate: Candidate) {
+function aiRankingClaimsSell(ranking: DecisionSchemaValue["ranking"], candidate?: Candidate | null) {
+  if (!candidate?.isHolding || !candidate.holdingShares || candidate.holdingShares < TRADING_FEE_RULE.lotSize) return false;
+  return ranking.some((item) => {
+    if (!sameSymbol(item.symbol, candidate.symbol)) return false;
+    return /卖出|减仓|止盈|止损|离场|分批兑现|锁定利润|降低仓位/.test(`${item.view} ${item.reason}`);
+  });
+}
+
+function buildRequiredSellReason(candidate: Candidate, rankingClaimsSell = false) {
   const signal = candidate.quantSignal;
   const parts = [
-    "本地量化规则触发持仓风控，AI 未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。",
+    rankingClaimsSell
+      ? "AI 排名理由已触发减仓/止盈语义，但未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。"
+      : "本地量化规则触发持仓风控，AI 未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。",
     signal ? `卖出分 ${signal.sellScore}，建议卖出比例 ${signal.suggestedSellRatioPct}%，建议股数 ${signal.suggestedSellShares} 股/份。` : "",
     signal?.holdingReturnPct !== null && signal?.holdingReturnPct !== undefined ? `当前持仓收益约 ${signal.holdingReturnPct}%。` : "",
     signal?.risks?.length ? `主要风险：${signal.risks.slice(0, 2).join("；")}` : ""
