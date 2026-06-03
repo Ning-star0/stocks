@@ -143,17 +143,19 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
       (100 - momentumScore) * 0.18 +
       scoreIf(stopTriggered, 24) +
       scoreIf(targetReached, 12) +
-      scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && nearResistance, 10),
+      scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && nearResistance, 12) +
+      scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && overbought, 10) +
+      scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && riskRewardRatio !== null && riskRewardRatio < 1.2, 12),
     0,
     100
   );
 
   const reasons = buildReasons({ trendScore, momentumScore, riskScore, rsi, macdBearish, nearSupport, nearResistance, volumeRatio });
   const risks = buildRisks({ overbought, macdBearish, nearResistance, stopTriggered, targetReached, trendScore, volumeRatio, riskRewardRatio });
-  const action = chooseAction({ isHolding: Boolean(input.isHolding), buyScore, sellScore, stopTriggered, targetReached, overbought, macdBearish });
+  const action = chooseAction({ isHolding: Boolean(input.isHolding), buyScore, sellScore, stopTriggered, targetReached, overbought, macdBearish, holdingReturn, nearResistance, riskRewardRatio });
   const confidence = clamp(Math.max(buyScore, sellScore, 100 - Math.abs(buyScore - sellScore)) / 100, 0.35, 0.9);
   const suggestedBuyCapitalPct = estimateBuyCapitalPct({ isHolding: Boolean(input.isHolding), action, buyScore, riskScore, riskRewardRatio });
-  const suggestedSellRatioPct = estimateSellRatioPct({ isHolding: Boolean(input.isHolding), action, sellScore, stopTriggered, targetReached, overbought, macdBearish, holdingReturn, nearResistance });
+  const suggestedSellRatioPct = estimateSellRatioPct({ isHolding: Boolean(input.isHolding), action, sellScore, stopTriggered, targetReached, overbought, macdBearish, holdingReturn, nearResistance, riskRewardRatio });
   const suggestedSellShares = estimateSellShares(input.holdingShares, suggestedSellRatioPct);
 
   return {
@@ -191,10 +193,17 @@ function chooseAction(input: {
   targetReached: boolean;
   overbought: boolean;
   macdBearish: boolean;
+  holdingReturn: number | null;
+  nearResistance: boolean;
+  riskRewardRatio: number | null;
 }): QuantAction {
   if (input.isHolding) {
     if (input.stopTriggered || input.sellScore >= 76) return "sell";
-    if (input.targetReached || input.sellScore >= 62 || (input.overbought && input.macdBearish)) return "reduce";
+    const profitProtect =
+      input.holdingReturn !== null &&
+      input.holdingReturn >= 8 &&
+      (input.nearResistance || input.overbought || (input.riskRewardRatio !== null && input.riskRewardRatio < 1.2));
+    if (input.targetReached || input.sellScore >= 62 || (input.overbought && input.macdBearish) || profitProtect) return "reduce";
     if (input.buyScore >= 72 && input.sellScore < 48) return "add";
     return "hold";
   }
@@ -304,6 +313,7 @@ function estimateSellRatioPct(input: {
   macdBearish: boolean;
   holdingReturn: number | null;
   nearResistance: boolean;
+  riskRewardRatio: number | null;
 }) {
   if (!input.isHolding) return 0;
   if (input.stopTriggered || input.action === "sell" || input.sellScore >= 82) return 100;
@@ -311,6 +321,8 @@ function estimateSellRatioPct(input: {
   if (input.sellScore >= 72) return 50;
   if (input.action === "reduce" || input.sellScore >= 62 || (input.overbought && input.macdBearish)) return 25;
   if (input.holdingReturn !== null && input.holdingReturn >= 10 && input.nearResistance) return 25;
+  if (input.holdingReturn !== null && input.holdingReturn >= 8 && input.overbought) return 25;
+  if (input.holdingReturn !== null && input.holdingReturn >= 8 && input.riskRewardRatio !== null && input.riskRewardRatio < 1.2) return 25;
   return 0;
 }
 
