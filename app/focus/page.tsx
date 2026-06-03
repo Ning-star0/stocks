@@ -58,6 +58,8 @@ type FocusDecision = {
   unrealizedPnl?: number;
   realizedPnl?: number;
   totalAssets?: number;
+  portfolioValuationStatus?: "live" | "stale" | "partial_fallback" | "cost_fallback" | "empty";
+  portfolioSnapshotAt?: string;
   totalBudgetToUse: number;
   totalEstimatedFee: number;
   totalEstimatedCost: number;
@@ -444,7 +446,15 @@ export default function FocusPage() {
           ) : !focus.symbols.length ? (
             <EmptyDecision message="先在下方选择今日关注标的，系统会在自动分析时间生成策略观察。" />
           ) : decision ? (
-            <FocusDecisionPanel decision={decision} nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)} names={names} />
+            <FocusDecisionPanel
+              decision={decision}
+              nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)}
+              names={names}
+              onFeedbackSaved={() => {
+                void loadDecision("GET");
+                void refreshTrackingData();
+              }}
+            />
           ) : decisionLoading ? (
             <LoadingInsight />
           ) : (
@@ -615,7 +625,17 @@ export default function FocusPage() {
   );
 }
 
-function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: FocusDecision; nextObserveAt: string; names: Record<string, string> }) {
+function FocusDecisionPanel({
+  decision,
+  nextObserveAt,
+  names,
+  onFeedbackSaved
+}: {
+  decision: FocusDecision;
+  nextObserveAt: string;
+  names: Record<string, string>;
+  onFeedbackSaved?: () => void;
+}) {
   const sellOrders = decision.sellOrders ?? [];
   const shouldSell = sellOrders.length > 0;
   const hasBuy = decision.orders.length > 0;
@@ -623,6 +643,8 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
   const availableCash = decision.availableCash ?? decision.capital;
   const rawMarketValue = decision.currentMarketValue ?? 0;
   const marketValueUsesCostFallback = investedCost > 0 && rawMarketValue <= 0;
+  const valuationStatus = decision.portfolioValuationStatus ?? (marketValueUsesCostFallback ? "cost_fallback" : rawMarketValue > 0 ? "live" : "empty");
+  const valuationIsFallback = valuationStatus === "cost_fallback" || valuationStatus === "partial_fallback" || marketValueUsesCostFallback;
   const currentMarketValue = marketValueUsesCostFallback ? investedCost : rawMarketValue;
   const unrealizedPnl = marketValueUsesCostFallback ? 0 : decision.unrealizedPnl ?? 0;
   const realizedPnl = decision.realizedPnl ?? 0;
@@ -699,16 +721,16 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
         <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-medium text-muted-foreground">持仓与盈亏</div>
-            {marketValueUsesCostFallback ? <Badge variant="warning">按成本估值</Badge> : null}
+            {valuationStatus !== "empty" ? <Badge variant={valuationStatus === "live" ? "success" : "warning"}>{valuationStatusLabel(valuationStatus)}</Badge> : null}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <AssetMetric label="持仓市值" value={formatMoney(currentMarketValue)} />
             <AssetMetric label="已持仓成本" value={formatMoney(investedCost)} />
-            <AssetMetric label="持仓浮盈" value={formatMoney(unrealizedPnl)} tone={unrealizedPnl >= 0 ? "danger" : "success"} muted={marketValueUsesCostFallback || unrealizedPnl === 0} />
+            <AssetMetric label="持仓浮盈" value={formatMoney(unrealizedPnl)} tone={unrealizedPnl >= 0 ? "danger" : "success"} muted={valuationIsFallback || unrealizedPnl === 0} />
             <AssetMetric label="已实现盈亏" value={formatMoney(realizedPnl)} tone={realizedPnl >= 0 ? "danger" : "success"} muted={realizedPnl === 0} />
           </div>
-          {marketValueUsesCostFallback ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">当前决策缺少可用持仓报价，市值暂按持仓成本估算，避免总资产被低估。</p>
+          {valuationStatus !== "live" && valuationStatus !== "empty" ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">{valuationStatusHelp(valuationStatus)}</p>
           ) : null}
         </div>
         <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
@@ -777,6 +799,7 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
         hasBuy={hasBuy}
         hasSell={shouldSell}
         tradeOptions={tradeOptions}
+        onFeedbackSaved={onFeedbackSaved}
       />
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
     </div>
@@ -788,13 +811,15 @@ function DecisionFeedbackPanel({
   feedback,
   hasBuy,
   hasSell,
-  tradeOptions
+  tradeOptions,
+  onFeedbackSaved
 }: {
   decisionId?: string;
   feedback?: FocusDecision["feedback"];
   hasBuy: boolean;
   hasSell: boolean;
   tradeOptions: TradeOption[];
+  onFeedbackSaved?: () => void;
 }) {
   const initialAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
   const [action, setAction] = useState(initialAction);
@@ -872,6 +897,7 @@ function DecisionFeedbackPanel({
       });
       const json = await readJsonResponse<{ feedback?: NonNullable<FocusDecision["feedback"]> & { label?: string } }>(response);
       setMessage(json.feedback ? feedbackMessage(json.feedback) : `已记录：${feedbackActionLabel(action)}`);
+      onFeedbackSaved?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "反馈保存失败。");
     } finally {
@@ -947,6 +973,21 @@ function DecisionFeedbackPanel({
       </div>
     </div>
   );
+}
+
+function valuationStatusLabel(status: NonNullable<FocusDecision["portfolioValuationStatus"]>) {
+  if (status === "live") return "实时估值";
+  if (status === "stale") return "缓存估值";
+  if (status === "partial_fallback") return "部分按成本";
+  if (status === "cost_fallback") return "按成本估值";
+  return "暂无持仓";
+}
+
+function valuationStatusHelp(status: NonNullable<FocusDecision["portfolioValuationStatus"]>) {
+  if (status === "stale") return "当前持仓市值使用最近一次可用报价估算，浮盈会随报价缓存更新。";
+  if (status === "partial_fallback") return "部分持仓暂缺可用报价，缺失部分按持仓成本估值。";
+  if (status === "cost_fallback") return "当前持仓暂缺可用报价，市值按持仓成本估算，浮盈会在报价恢复后更新。";
+  return "";
 }
 
 function defaultFeedbackAction(feedback: FocusDecision["feedback"] | undefined, hasBuy: boolean, hasSell: boolean) {

@@ -134,19 +134,20 @@ type GenerateFocusDecisionOptions = {
 export async function getLatestStoredFocusDecision(userId: string) {
   const seed = await loadDecisionSeed(userId);
   const inputHash = createDecisionSignature(seed);
+  const portfolioSnapshot = await loadPortfolioSnapshot(userId, seed.capital);
   const exact = await prisma.focusDecision.findFirst({
     where: { userId, inputHash },
     orderBy: { createdAt: "desc" },
     include: { feedback: true }
   });
-  if (exact) return attachStoredMetadata(exact, { fromCache: true, stale: false });
+  if (exact) return attachStoredMetadata(exact, { fromCache: true, stale: false }, portfolioSnapshot);
 
   const latest = await prisma.focusDecision.findFirst({
     where: { userId },
     orderBy: { createdAt: "desc" },
     include: { feedback: true }
   });
-  return latest ? attachStoredMetadata(latest, { fromCache: true, stale: true }) : null;
+  return latest ? attachStoredMetadata(latest, { fromCache: true, stale: true }, portfolioSnapshot) : null;
 }
 
 export async function generateAndStoreFocusDecision(options: GenerateFocusDecisionOptions) {
@@ -161,7 +162,10 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
       orderBy: { createdAt: "desc" },
       include: { feedback: true }
     });
-    if (stored) return attachStoredMetadata(stored, { fromCache: true, stale: false });
+    if (stored) {
+      const portfolioSnapshot = await loadPortfolioSnapshot(options.userId, seed.capital);
+      return attachStoredMetadata(stored, { fromCache: true, stale: false }, portfolioSnapshot);
+    }
 
     const cached = await getCache<Awaited<ReturnType<typeof generateFocusDecision>>>(cacheKey);
     if (cached) return { ...cached, fromCache: true, stale: false };
@@ -225,7 +229,8 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     error: error instanceof Error ? error.message : "推送失败"
   }));
   row = await updateStoredDecisionJson(row.id, { ...decision, notification }).catch(() => row);
-  return attachStoredMetadata(row, { fromCache: false, stale: false });
+  const portfolioSnapshot = await loadPortfolioSnapshot(options.userId, seed.capital);
+  return attachStoredMetadata(row, { fromCache: false, stale: false }, portfolioSnapshot);
 }
 
 async function logFocusDecisionAiUsage(input: {
@@ -308,10 +313,35 @@ type StoredFocusDecisionWithFeedback = StoredFocusDecision & {
   } | null;
 };
 
-function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { fromCache: boolean; stale: boolean }) {
+type PortfolioSnapshot = {
+  investedCost: number;
+  availableCash: number;
+  currentMarketValue: number;
+  unrealizedPnl: number;
+  realizedPnl: number;
+  totalAssets: number;
+  portfolioValuationStatus: "live" | "stale" | "partial_fallback" | "cost_fallback" | "empty";
+  portfolioSnapshotAt: string;
+};
+
+type PortfolioValuationStatus = PortfolioSnapshot["portfolioValuationStatus"];
+
+function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { fromCache: boolean; stale: boolean }, portfolioSnapshot?: PortfolioSnapshot) {
   const decision = isRecord(row.decisionJson) ? row.decisionJson : {};
   return {
     ...decision,
+    ...(portfolioSnapshot
+      ? {
+          investedCost: portfolioSnapshot.investedCost,
+          availableCash: portfolioSnapshot.availableCash,
+          currentMarketValue: portfolioSnapshot.currentMarketValue,
+          unrealizedPnl: portfolioSnapshot.unrealizedPnl,
+          realizedPnl: portfolioSnapshot.realizedPnl,
+          totalAssets: portfolioSnapshot.totalAssets,
+          portfolioValuationStatus: portfolioSnapshot.portfolioValuationStatus,
+          portfolioSnapshotAt: portfolioSnapshot.portfolioSnapshotAt
+        }
+      : {}),
     decisionId: row.id,
     persistedAt: row.updatedAt.toISOString(),
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
@@ -330,6 +360,42 @@ function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { 
           updatedAt: row.feedback.updatedAt.toISOString()
         }
       : null
+  };
+}
+
+async function loadPortfolioSnapshot(userId: string, capital: number): Promise<PortfolioSnapshot> {
+  const [portfolioItems, tradeExecutions] = await Promise.all([
+    prisma.watchlistItem.findMany({
+      where: { watchlist: { userId }, isHolding: true },
+      select: {
+        symbol: true,
+        holdingPrice: true,
+        holdingShares: true
+      }
+    }),
+    prisma.tradeExecution.findMany({
+      where: { userId },
+      select: { realizedPnl: true }
+    })
+  ]);
+  const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
+  const quotes = portfolioSymbols.length ? await getQuotesBatch(portfolioSymbols, { allowStale: true }) : {};
+  const investedCost = calculateInvestedCost(portfolioItems);
+  const realizedPnl = calculateRealizedPnl(tradeExecutions);
+  const availableCash = Number(Math.max(0, capital - investedCost + realizedPnl).toFixed(2));
+  const marketValue = calculatePortfolioMarketValue(portfolioItems, quotes);
+  const unrealizedPnl = Number((marketValue.value - investedCost).toFixed(2));
+  const totalAssets = Number((availableCash + marketValue.value).toFixed(2));
+
+  return {
+    investedCost,
+    availableCash,
+    currentMarketValue: marketValue.value,
+    unrealizedPnl,
+    realizedPnl,
+    totalAssets,
+    portfolioValuationStatus: marketValue.status,
+    portfolioSnapshotAt: new Date().toISOString()
   };
 }
 
@@ -1240,15 +1306,41 @@ function calculateCurrentMarketValue(
   items: Array<{ symbol: string; holdingPrice?: unknown; holdingShares: unknown }>,
   quotes: Record<string, { price?: number | null } | null | undefined>
 ) {
+  return calculatePortfolioMarketValue(items, quotes).value;
+}
+
+function calculatePortfolioMarketValue(
+  items: Array<{ symbol: string; holdingPrice?: unknown; holdingShares: unknown }>,
+  quotes: Record<string, { price?: number | null; status?: string } | null | undefined>
+) {
+  if (!items.length) return { value: 0, status: "empty" as const };
+  let usedStaleQuote = 0;
+  let usedCostFallback = 0;
   const total = items.reduce((sum, item) => {
     const shares = toNumber(item.holdingShares) ?? 0;
     if (shares <= 0) return sum;
     const quote = quotes[item.symbol] ?? quotes[symbolVariants(item.symbol).find((symbol) => quotes[symbol]) ?? item.symbol];
-    const price = quote?.price ?? toNumber(item.holdingPrice) ?? null;
+    const quotePrice = quote?.price ?? null;
+    const price = quotePrice ?? toNumber(item.holdingPrice) ?? null;
     if (!price || price <= 0) return sum;
+    if (quotePrice && quotePrice > 0) {
+      if (quote?.status === "stale") usedStaleQuote += 1;
+    } else {
+      usedCostFallback += 1;
+    }
     return sum + price * shares;
   }, 0);
-  return Number(total.toFixed(2));
+  const value = Number(total.toFixed(2));
+  const activeItems = items.filter((item) => (toNumber(item.holdingShares) ?? 0) > 0).length;
+  if (activeItems === 0) return { value, status: "empty" as const };
+  const status: PortfolioValuationStatus = usedCostFallback >= activeItems
+    ? "cost_fallback"
+    : usedCostFallback > 0
+      ? "partial_fallback"
+      : usedStaleQuote > 0
+        ? "stale"
+        : "live";
+  return { value, status };
 }
 
 function calculateRealizedPnl(items: Array<{ realizedPnl: unknown }>) {
