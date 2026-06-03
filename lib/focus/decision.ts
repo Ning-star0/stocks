@@ -814,7 +814,7 @@ function withRequiredQuantSellOrders(
   input: DecisionInput,
   ranking: DecisionSchemaValue["ranking"]
 ): DecisionSchemaValue["sellOrders"] {
-  const output = [...orders];
+  const output = orders.filter((order) => (order.shares ?? 0) > 0 || (order.amount ?? 0) > 0);
   const existing = new Set(output.flatMap((order) => symbolVariants(order.symbol)));
   for (const candidate of input.candidates) {
     const rankingClaimsSell = aiRankingClaimsSell(ranking, candidate);
