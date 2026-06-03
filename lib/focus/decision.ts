@@ -1083,7 +1083,13 @@ function quantAllowsBuy(candidate?: Candidate | null) {
 
 function quantAllowsSell(candidate?: Candidate | null) {
   if (!candidate?.quantSignal) return false;
-  return candidate.quantSignal.action === "sell" || candidate.quantSignal.action === "reduce" || candidate.quantSignal.sellScore >= 62;
+  return (
+    candidate.quantSignal.action === "sell" ||
+    candidate.quantSignal.action === "reduce" ||
+    candidate.quantSignal.sellScore >= 62 ||
+    (candidate.quantSignal.suggestedSellRatioPct ?? 0) > 0 ||
+    (candidate.quantSignal.suggestedSellShares ?? 0) >= 100
+  );
 }
 
 function candidateHasFreshQuote(candidate?: Candidate | null) {
