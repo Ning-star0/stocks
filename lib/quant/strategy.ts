@@ -316,13 +316,13 @@ function estimateSellRatioPct(input: {
 
 function estimateSellShares(holdingShares: number | null | undefined, ratioPct: number) {
   const shares = validNumber(holdingShares);
-  if (!shares || shares <= 0 || ratioPct <= 0) return 0;
+  if (!shares || shares < 100 || ratioPct <= 0) return 0;
   if (ratioPct >= 100) return Math.floor(shares);
   const target = Math.floor((shares * ratioPct) / 100);
-  if (target <= 0) return shares < 100 ? Math.floor(shares) : 0;
+  if (target <= 0) return 0;
   const lotShares = Math.floor(target / 100) * 100;
   if (lotShares > 0) return Math.min(lotShares, Math.floor(shares));
-  return shares < 100 ? Math.floor(shares) : 100;
+  return 100;
 }
 
 function buildExitPlan(input: {

@@ -21,7 +21,7 @@ const TRADING_FEE_RULE = {
   minimumFeeBase: 10000,
   minimumFee: 5,
   lotSize: 100,
-  description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 按 100 股/份整数手买入，卖出可按持仓余量一次性清掉零碎持仓。"
+  description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 买入和卖出都按 100 股/份整数手执行，低于 100 股/份的买卖计划一律无效。"
 };
 
 const decisionSchema = z.object({
@@ -601,13 +601,14 @@ ${JSON.stringify(input.dataScope, null, 2)}
 5. 使用“趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
 6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
 7. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数或触发条件。
-8. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-9. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares；如果 suggestedSellRatioPct=100，应给出清仓计划；如果 suggestedSellRatioPct=25/50，应给出对应比例的减仓计划；如果剩余持仓不足 100，可一次性卖出剩余数量。
-10. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-11. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
-12. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
-13. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
-14. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
+8. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders，只能写入 ranking 的风险原因。
+9. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+10. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
+11. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+12. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
+13. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
+14. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
+15. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -680,7 +681,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       };
     })
     .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
-  const sellOrders = value.sellOrders
+  const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input);
+  const sellOrders = sellOrderCandidates
     .filter((order) => order.action === "sell" || order.action === "reduce")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
@@ -703,6 +705,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       });
       return {
         ...order,
+        action: shares >= holdingShares ? ("sell" as const) : order.action,
         symbol: candidate?.symbol ?? order.symbol,
         name: candidate?.name ?? null,
         estimatedPrice: price || null,
@@ -720,6 +723,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
   const buyFee = Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
   const sellFee = Number(sellOrders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
   const totalSellNetProceeds = Number(sellOrders.reduce((sum, order) => sum + order.netProceeds, 0).toFixed(2));
+  const ranking = normalizeRankingItems(value.ranking, input, orders, sellOrders);
 
   return {
     ...value,
@@ -727,6 +731,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     summary,
     orders,
     sellOrders,
+    ranking,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalSellAmount: Number(sellOrders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number((buyFee + sellFee).toFixed(2)),
@@ -743,6 +748,98 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     fallbackReason,
     generatedAt: new Date().toISOString()
   };
+}
+
+function normalizeRankingItems(
+  ranking: DecisionSchemaValue["ranking"],
+  input: DecisionInput,
+  orders: Array<{ symbol: string }>,
+  sellOrders: Array<{ symbol: string }>
+) {
+  const candidatesBySymbol = new Map(input.candidates.flatMap((candidate) => symbolVariants(candidate.symbol).map((symbol) => [symbol, candidate] as const)));
+  const buySymbols = new Set(orders.flatMap((order) => symbolVariants(order.symbol)));
+  const sellSymbols = new Set(sellOrders.flatMap((order) => symbolVariants(order.symbol)));
+  const covered = new Set(ranking.flatMap((item) => symbolVariants(item.symbol)));
+  const normalized = ranking.map((item) => {
+    const candidate = candidatesBySymbol.get(item.symbol.toUpperCase());
+    if (!candidate) return item;
+    const variants = symbolVariants(candidate.symbol);
+    const hasBuy = variants.some((symbol) => buySymbols.has(symbol));
+    const hasSell = variants.some((symbol) => sellSymbols.has(symbol));
+    if (hasBuy || hasSell) return { ...item, symbol: candidate.symbol };
+
+    const claimedBuy = /买入|增持|加仓|优先/.test(`${item.view} ${item.reason}`);
+    const claimedSell = /卖出|减仓|止盈|止损|离场/.test(`${item.view} ${item.reason}`);
+    if (claimedBuy || claimedSell || !candidateHasFreshQuote(candidate)) {
+      return {
+        ...item,
+        symbol: candidate.symbol,
+        view: candidate.isHolding ? "持有观察" : "观察",
+        reason: normalizeBlockedRankingReason(candidate, claimedBuy, claimedSell)
+      };
+    }
+    return { ...item, symbol: candidate.symbol };
+  });
+
+  for (const candidate of input.candidates) {
+    if (symbolVariants(candidate.symbol).some((symbol) => covered.has(symbol))) continue;
+    normalized.push({
+      symbol: candidate.symbol,
+      rank: normalized.length + 1,
+      view: candidateHasFreshQuote(candidate) ? quantView(candidate) : "观察",
+      reason: candidateHasFreshQuote(candidate) ? quantReason(candidate) : normalizeBlockedRankingReason(candidate, true, false)
+    });
+  }
+
+  return normalized
+    .sort((a, b) => a.rank - b.rank)
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean, claimedSell: boolean) {
+  if (!candidateHasFreshQuote(candidate)) {
+    return `行情不新鲜或报价不可用（status=${candidate.status}，quoteTime=${candidate.quoteTime ?? "无"}），已禁止生成买入/增持计划。${quantReason(candidate)}`;
+  }
+  if (claimedSell && !quantAllowsSell(candidate)) {
+    return `卖出/减仓未通过本地量化阈值，已降级为观察。${quantReason(candidate)}`;
+  }
+  if (claimedBuy && !quantAllowsBuy(candidate)) {
+    return `买入/增持未通过本地量化、现金、行情新鲜度或交易单位校验，已降级为观察。${quantReason(candidate)}`;
+  }
+  return quantReason(candidate);
+}
+
+function withRequiredQuantSellOrders(orders: DecisionSchemaValue["sellOrders"], input: DecisionInput): DecisionSchemaValue["sellOrders"] {
+  const output = [...orders];
+  const existing = new Set(output.flatMap((order) => symbolVariants(order.symbol)));
+  for (const candidate of input.candidates) {
+    if (!candidateSupportsSell(candidate)) continue;
+    if (symbolVariants(candidate.symbol).some((symbol) => existing.has(symbol))) continue;
+    const shares = candidate.quantSignal?.suggestedSellShares || fallbackSellShares(candidate.holdingShares ?? 0, stringifyAdvice(candidate.latestAnalysis?.holdAdvice));
+    if (!shares || shares <= 0) continue;
+    output.push({
+      symbol: candidate.symbol,
+      action: candidate.quantSignal?.action === "sell" ? "sell" : "reduce",
+      amount: candidate.price && candidate.price > 0 ? Number((shares * candidate.price).toFixed(2)) : 0,
+      shares,
+      reason: buildRequiredSellReason(candidate),
+      riskControl: candidate.quantSignal?.exitPlan || "若风险信号消失、价格重新站回关键支撑并且量化卖出分回落，可取消减仓观察。",
+      invalidIf: "最新行情或单股分析显示卖出分低于阈值，且价格重新回到安全趋势区间。"
+    });
+    for (const symbol of symbolVariants(candidate.symbol)) existing.add(symbol);
+  }
+  return output;
+}
+
+function buildRequiredSellReason(candidate: Candidate) {
+  const signal = candidate.quantSignal;
+  const parts = [
+    "本地量化规则触发持仓风控，AI 未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。",
+    signal ? `卖出分 ${signal.sellScore}，建议卖出比例 ${signal.suggestedSellRatioPct}%，建议股数 ${signal.suggestedSellShares} 股/份。` : "",
+    signal?.holdingReturnPct !== null && signal?.holdingReturnPct !== undefined ? `当前持仓收益约 ${signal.holdingReturnPct}%。` : "",
+    signal?.risks?.length ? `主要风险：${signal.risks.slice(0, 2).join("；")}` : ""
+  ];
+  return parts.filter(Boolean).join(" ");
 }
 
 function alignSummaryWithStructuredPlan(
@@ -979,6 +1076,7 @@ function actionLabel(action: QuantSignal["action"]) {
 }
 
 function quantAllowsBuy(candidate?: Candidate | null) {
+  if (!candidateHasFreshQuote(candidate)) return false;
   if (!candidate?.quantSignal) return true;
   return candidate.quantSignal.action === "buy" || candidate.quantSignal.action === "add" || candidate.quantSignal.buyScore >= 68;
 }
@@ -986,6 +1084,13 @@ function quantAllowsBuy(candidate?: Candidate | null) {
 function quantAllowsSell(candidate?: Candidate | null) {
   if (!candidate?.quantSignal) return false;
   return candidate.quantSignal.action === "sell" || candidate.quantSignal.action === "reduce" || candidate.quantSignal.sellScore >= 62;
+}
+
+function candidateHasFreshQuote(candidate?: Candidate | null) {
+  if (!candidate?.price || candidate.price <= 0) return false;
+  if (["stale", "unavailable", "error", "failed"].includes(candidate.status)) return false;
+  if (!candidate.quoteTime) return false;
+  return true;
 }
 
 function stringifyAdvice(value: unknown) {
@@ -1036,8 +1141,9 @@ function normalizeShares(shares: number, price: number, availableCash: number) {
 function normalizeSellShares(shares: number, holdingShares: number) {
   if (!Number.isFinite(holdingShares) || holdingShares <= 0) return 0;
   const capped = Math.min(Math.max(0, shares), holdingShares);
-  if (capped >= TRADING_FEE_RULE.lotSize) return Math.floor(capped / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
-  return Math.floor(capped);
+  if (capped <= 0 || holdingShares < TRADING_FEE_RULE.lotSize) return 0;
+  if (capped < TRADING_FEE_RULE.lotSize) return TRADING_FEE_RULE.lotSize;
+  return Math.floor(capped / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
 }
 
 function fallbackSellShares(holdingShares: number, adviceText: string) {
