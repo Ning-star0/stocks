@@ -297,6 +297,9 @@ type StoredFocusDecisionWithFeedback = StoredFocusDecision & {
     note: string | null;
     executedPrice: unknown;
     executedShares: unknown;
+    tradeSymbol: string | null;
+    tradeSide: string | null;
+    positionSyncedAt: Date | null;
     updatedAt: Date;
   } | null;
 };
@@ -317,6 +320,9 @@ function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { 
           note: row.feedback.note,
           executedPrice: toNumber(row.feedback.executedPrice),
           executedShares: toNumber(row.feedback.executedShares),
+          tradeSymbol: row.feedback.tradeSymbol,
+          tradeSide: row.feedback.tradeSide,
+          positionSyncedAt: row.feedback.positionSyncedAt?.toISOString() ?? null,
           updatedAt: row.feedback.updatedAt.toISOString()
         }
       : null
@@ -838,9 +844,20 @@ function withRequiredQuantSellOrders(
 
 function aiRankingClaimsSell(ranking: DecisionSchemaValue["ranking"], candidate?: Candidate | null) {
   if (!candidate?.isHolding || !candidate.holdingShares || candidate.holdingShares < TRADING_FEE_RULE.lotSize) return false;
+  const signal = candidate.quantSignal;
+  if (
+    signal?.action === "sell" ||
+    signal?.action === "reduce" ||
+    (signal?.suggestedSellShares ?? 0) >= TRADING_FEE_RULE.lotSize ||
+    (signal?.suggestedSellRatioPct ?? 0) > 0
+  ) {
+    return true;
+  }
   return ranking.some((item) => {
     if (!sameSymbol(item.symbol, candidate.symbol)) return false;
-    return /卖出|减仓|止盈|止损|离场|分批兑现|锁定利润|降低仓位/.test(`${item.view} ${item.reason}`);
+    const text = `${item.view} ${item.reason}`;
+    if (/未触发|建议股数\s*0|建议卖出比例\s*0|卖出比例\s*0|继续观察|持有观察/.test(text)) return false;
+    return /止损|离场|清仓|全部卖出|强制风控|跌破止损|破位退出/.test(text);
   });
 }
 

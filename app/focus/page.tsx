@@ -80,6 +80,16 @@ type FocusDecision = {
     note?: string | null;
     executedPrice?: number | null;
     executedShares?: number | null;
+    tradeSymbol?: string | null;
+    tradeSide?: "buy" | "sell" | string | null;
+    positionSyncedAt?: string | null;
+    position?: {
+      symbol: string;
+      isHolding: boolean;
+      holdingPrice: number | null;
+      holdingShares: number | null;
+      positionOpenedAt: string | null;
+    } | null;
     updatedAt?: string;
   } | null;
   dataScope?: {
@@ -118,6 +128,16 @@ type FocusDecision = {
   }>;
   ranking: Array<{ symbol: string; rank: number; view: string; reason: string }>;
   disclaimer: string;
+};
+
+type TradeOption = {
+  key: string;
+  symbol: string;
+  name?: string | null;
+  side: "buy" | "sell";
+  label: string;
+  price?: number | null;
+  shares?: number | null;
 };
 
 type AnalysisRunResponse = {
@@ -606,6 +626,26 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
     ...decision.orders.map((item) => item.name || item.symbol),
     ...sellOrders.map((item) => item.name || item.symbol)
   ]);
+  const tradeOptions: TradeOption[] = [
+    ...decision.orders.map((order) => ({
+      key: `buy:${order.symbol}`,
+      symbol: order.symbol,
+      name: order.name,
+      side: "buy" as const,
+      label: `${order.name || order.symbol} · ${order.action === "add" ? "增持" : "买入"}`,
+      price: order.estimatedPrice,
+      shares: order.shares
+    })),
+    ...sellOrders.map((order) => ({
+      key: `sell:${order.symbol}`,
+      symbol: order.symbol,
+      name: order.name,
+      side: "sell" as const,
+      label: `${order.name || order.symbol} · ${order.action === "sell" ? "卖出" : "减仓"}`,
+      price: order.estimatedPrice,
+      shares: order.shares
+    }))
+  ];
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
@@ -699,6 +739,7 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
         feedback={decision.feedback}
         hasBuy={hasBuy}
         hasSell={shouldSell}
+        tradeOptions={tradeOptions}
       />
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
     </div>
@@ -709,27 +750,38 @@ function DecisionFeedbackPanel({
   decisionId,
   feedback,
   hasBuy,
-  hasSell
+  hasSell,
+  tradeOptions
 }: {
   decisionId?: string;
   feedback?: FocusDecision["feedback"];
   hasBuy: boolean;
   hasSell: boolean;
+  tradeOptions: TradeOption[];
 }) {
-  const [action, setAction] = useState(feedback?.feedbackAction ?? (hasBuy ? "bought" : hasSell ? "sold" : "watched"));
+  const initialAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
+  const [action, setAction] = useState(initialAction);
+  const [tradeKey, setTradeKey] = useState(defaultTradeKey(feedback, tradeOptions, initialAction));
   const [executedPrice, setExecutedPrice] = useState(feedback?.executedPrice ? String(feedback.executedPrice) : "");
   const [executedShares, setExecutedShares] = useState(feedback?.executedShares ? String(feedback.executedShares) : "");
   const [note, setNote] = useState(feedback?.note ?? "");
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(feedback ? `已记录：${feedbackActionLabel(feedback.feedbackAction)}` : null);
+  const [message, setMessage] = useState<string | null>(feedback ? feedbackMessage(feedback) : null);
+
+  const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
+  const shouldSyncTrade = action === "bought" || action === "sold";
 
   useEffect(() => {
-    setAction(feedback?.feedbackAction ?? (hasBuy ? "bought" : hasSell ? "sold" : "watched"));
-    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : "");
-    setExecutedShares(feedback?.executedShares ? String(feedback.executedShares) : "");
+    const nextAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
+    const nextTradeKey = defaultTradeKey(feedback, tradeOptions, nextAction);
+    const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
+    setAction(nextAction);
+    setTradeKey(nextTradeKey);
+    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.price));
+    setExecutedShares(feedback?.executedShares ? String(feedback.executedShares) : numberInputValue(nextTrade?.shares));
     setNote(feedback?.note ?? "");
-    setMessage(feedback ? `已记录：${feedbackActionLabel(feedback.feedbackAction)}` : null);
-  }, [decisionId, feedback, hasBuy, hasSell]);
+    setMessage(feedback ? feedbackMessage(feedback) : null);
+  }, [decisionId, feedback, hasBuy, hasSell, tradeOptions]);
 
   const options = [
     ...(hasBuy ? [{ value: "bought", label: "已买入/增持" }] : []),
@@ -738,6 +790,27 @@ function DecisionFeedbackPanel({
     { value: "skipped", label: "未采纳/暂不操作" },
     { value: "other", label: "其他决策" }
   ];
+
+  function selectAction(nextAction: string) {
+    setAction(nextAction);
+    const nextTradeKey = defaultTradeKey(null, tradeOptions, nextAction);
+    if (nextTradeKey) {
+      setTradeKey(nextTradeKey);
+      const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
+      setExecutedPrice(numberInputValue(nextTrade?.price));
+      setExecutedShares(numberInputValue(nextTrade?.shares));
+    }
+  }
+
+  function selectTrade(nextTradeKey: string) {
+    setTradeKey(nextTradeKey);
+    const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
+    if (nextTrade) {
+      setExecutedPrice(numberInputValue(nextTrade.price));
+      setExecutedShares(numberInputValue(nextTrade.shares));
+      setAction(nextTrade.side === "buy" ? "bought" : "sold");
+    }
+  }
 
   async function submitFeedback() {
     if (!decisionId) {
@@ -755,11 +828,13 @@ function DecisionFeedbackPanel({
           feedbackAction: action,
           executedPrice,
           executedShares,
+          tradeSymbol: shouldSyncTrade ? selectedTrade?.symbol : null,
+          tradeSide: shouldSyncTrade ? selectedTrade?.side : null,
           note
         })
       });
-      const json = await readJsonResponse<{ feedback?: { label?: string } }>(response);
-      setMessage(`已记录：${json.feedback?.label ?? feedbackActionLabel(action)}`);
+      const json = await readJsonResponse<{ feedback?: NonNullable<FocusDecision["feedback"]> & { label?: string } }>(response);
+      setMessage(json.feedback ? feedbackMessage(json.feedback) : `已记录：${feedbackActionLabel(action)}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "反馈保存失败。");
     } finally {
@@ -772,7 +847,7 @@ function DecisionFeedbackPanel({
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-sm font-semibold">记录你的最终决策</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">用于复盘 AI 策略观察和你的真实操作，不会自动改动持仓。</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">填写实际成交价和数量后会同步持仓；继续观察、未采纳或其他决策不会改动持仓。</p>
         </div>
         {feedback?.updatedAt ? <span className="text-xs text-muted-foreground">上次记录：{formatDateTime(feedback.updatedAt)}</span> : null}
       </div>
@@ -782,7 +857,7 @@ function DecisionFeedbackPanel({
           <button
             key={option.value}
             type="button"
-            onClick={() => setAction(option.value)}
+            onClick={() => selectAction(option.value)}
             className={cn(
               "rounded-full border px-3 py-1.5 text-xs transition-colors",
               action === option.value
@@ -795,9 +870,29 @@ function DecisionFeedbackPanel({
         ))}
       </div>
 
+      {tradeOptions.length ? (
+        <div className="mt-3 grid gap-2">
+          <label className="text-xs font-medium text-muted-foreground">同步交易标的</label>
+          <select
+            value={tradeKey}
+            onChange={(event) => selectTrade(event.target.value)}
+            disabled={!shouldSyncTrade}
+            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-55"
+          >
+            <option value="">不同步持仓</option>
+            {tradeOptions.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label} · {option.symbol}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">实际买卖按 100 股/份整数手记录；保存后会更新自选股里的持仓成本和持仓数量。</p>
+        </div>
+      ) : null}
+
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <Input value={executedPrice} onChange={(event) => setExecutedPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，可选" />
-        <Input value={executedShares} onChange={(event) => setExecutedShares(event.target.value)} inputMode="decimal" placeholder="实际数量，可选" />
+        <Input value={executedShares} onChange={(event) => setExecutedShares(event.target.value)} inputMode="numeric" placeholder="实际数量，按 100 的整数倍" />
       </div>
       <textarea
         value={note}
@@ -815,6 +910,34 @@ function DecisionFeedbackPanel({
       </div>
     </div>
   );
+}
+
+function defaultFeedbackAction(feedback: FocusDecision["feedback"] | undefined, hasBuy: boolean, hasSell: boolean) {
+  return feedback?.feedbackAction ?? (hasBuy ? "bought" : hasSell ? "sold" : "watched");
+}
+
+function defaultTradeKey(feedback: FocusDecision["feedback"] | null | undefined, tradeOptions: TradeOption[], action: string) {
+  if (feedback?.tradeSymbol && feedback.tradeSide) {
+    const side = feedback.tradeSide === "sell" ? "sell" : "buy";
+    const key = `${side}:${feedback.tradeSymbol.toUpperCase()}`;
+    if (tradeOptions.some((option) => option.key === key)) return key;
+  }
+  const side = action === "sold" ? "sell" : action === "bought" ? "buy" : null;
+  if (!side) return "";
+  return tradeOptions.find((option) => option.side === side)?.key ?? "";
+}
+
+function numberInputValue(value?: number | null) {
+  return value && Number.isFinite(value) ? String(value) : "";
+}
+
+function feedbackMessage(feedback: NonNullable<FocusDecision["feedback"]> & { label?: string }) {
+  const label = feedback.label ?? feedbackActionLabel(feedback.feedbackAction);
+  if (feedback.positionSyncedAt && feedback.tradeSymbol) {
+    const position = feedback.position?.holdingShares ? `，当前持仓 ${feedback.position.holdingShares} 股/份` : "";
+    return `已记录并同步持仓：${feedback.tradeSymbol}${position}`;
+  }
+  return `已记录：${label}`;
 }
 
 function NotificationBadge({ notification }: { notification?: FocusDecision["notification"] }) {

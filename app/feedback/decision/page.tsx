@@ -49,7 +49,13 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
   const currentAction = normalizeFeedbackAction(decision.feedback?.feedbackAction ?? action);
   const json = asRecord(decision.decisionJson);
   const summary = String(json.summary ?? "暂无摘要。");
-  const orders = [...normalizeOrders(json.orders, "买入/增持"), ...normalizeOrders(json.sellOrders, "卖出/减仓")].slice(0, 4);
+  const tradeOptions = [...normalizeOrders(json.orders, "买入/增持", "buy"), ...normalizeOrders(json.sellOrders, "卖出/减仓", "sell")];
+  const orders = tradeOptions.slice(0, 4);
+  const selectedTrade = decision.feedback?.tradeSymbol && decision.feedback.tradeSide
+    ? `${decision.feedback.tradeSide}:${decision.feedback.tradeSymbol}`
+    : tradeOptions[0]
+      ? `${tradeOptions[0].side}:${tradeOptions[0].symbol}`
+      : "";
 
   return (
     <PageContainer className="max-w-2xl">
@@ -93,6 +99,24 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              {tradeOptions.length ? (
+                <div className="space-y-2 sm:col-span-2">
+                  <span className="block text-sm font-medium">同步交易标的</span>
+                  <select
+                    name="tradeSymbol"
+                    defaultValue={selectedTrade}
+                    className="h-10 w-full rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+                  >
+                    <option value="">不同步持仓</option>
+                    {tradeOptions.map((order) => (
+                      <option key={`${order.side}-${order.symbol}`} value={`${order.side}:${order.symbol}`}>
+                        {order.name || order.symbol} · {order.type} · {order.symbol}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">填写实际成交价和数量后会同步自选股持仓；数量必须按 100 股/份整数手填写。</p>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <span className="block text-sm font-medium">实际成交价，可选</span>
                 <Input name="executedPrice" inputMode="decimal" placeholder="例如 2.16" defaultValue={decimalToString(decision.feedback?.executedPrice)} />
@@ -130,10 +154,11 @@ function FeedbackOption({ value, label, current }: { value: string; label: strin
   );
 }
 
-function normalizeOrders(value: unknown, type: string) {
+function normalizeOrders(value: unknown, type: string, side: "buy" | "sell") {
   if (!Array.isArray(value)) return [];
   return value.filter(isRecord).map((order) => ({
     type,
+    side,
     symbol: String(order.symbol ?? ""),
     name: typeof order.name === "string" ? order.name : "",
     amount: Number(order.amount ?? 0),
