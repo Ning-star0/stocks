@@ -54,6 +54,10 @@ type FocusDecision = {
   capital: number;
   investedCost?: number;
   availableCash?: number;
+  currentMarketValue?: number;
+  unrealizedPnl?: number;
+  realizedPnl?: number;
+  totalAssets?: number;
   totalBudgetToUse: number;
   totalEstimatedFee: number;
   totalEstimatedCost: number;
@@ -617,6 +621,10 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
   const hasBuy = decision.orders.length > 0;
   const investedCost = decision.investedCost ?? 0;
   const availableCash = decision.availableCash ?? decision.capital;
+  const currentMarketValue = decision.currentMarketValue ?? 0;
+  const unrealizedPnl = decision.unrealizedPnl ?? 0;
+  const realizedPnl = decision.realizedPnl ?? 0;
+  const totalAssets = decision.totalAssets ?? Number((availableCash + currentMarketValue).toFixed(2));
   const hasAddOnly = hasBuy && decision.orders.every((order) => order.action === "add");
   const actionLabel = hasBuy && shouldSell ? "买入 + 卖出/减仓" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "形成卖出/减仓计划" : "等待 / 暂不行动";
   const conclusionLabel = hasBuy && shouldSell ? "调仓观察" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "风险处理 / 减仓观察" : "不建议交易";
@@ -674,14 +682,20 @@ function FocusDecisionPanel({ decision, nextObserveAt, names }: { decision: Focu
           <HighlightedText text={decision.summary} highlights={highlightNames} />
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-        <StatCard label="总本金" value={formatMoney(decision.capital)} delayIndex={0} />
-        <StatCard label="已持仓成本" value={formatMoney(investedCost)} delayIndex={1} className={investedCost === 0 ? "opacity-45" : ""} />
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
+        <StatCard label="总资产" value={formatMoney(totalAssets)} delayIndex={0} />
+        <StatCard label="投入本金" value={formatMoney(decision.capital)} delayIndex={0} />
         <StatCard label="当前现金" value={formatMoney(availableCash)} delayIndex={1} />
-        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} delayIndex={2} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
-        <StatCard label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} delayIndex={2} className={(decision.totalSellAmount ?? 0) === 0 ? "opacity-45" : ""} />
-        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={3} className={decision.totalEstimatedFee === 0 ? "opacity-45" : ""} />
+        <StatCard label="持仓市值" value={formatMoney(currentMarketValue)} delayIndex={1} className={currentMarketValue === 0 ? "opacity-45" : ""} />
+        <StatCard label="持仓浮盈" value={formatMoney(unrealizedPnl)} tone={unrealizedPnl >= 0 ? "warning" : "success"} delayIndex={2} className={unrealizedPnl === 0 ? "opacity-45" : ""} />
+        <StatCard label="已实现盈亏" value={formatMoney(realizedPnl)} tone={realizedPnl >= 0 ? "warning" : "success"} delayIndex={2} className={realizedPnl === 0 ? "opacity-45" : ""} />
+        <StatCard label="已持仓成本" value={formatMoney(investedCost)} delayIndex={3} className={investedCost === 0 ? "opacity-45" : ""} />
         <StatCard label="计划后现金" value={formatMoney(decision.cashReserve)} delayIndex={3} />
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <StatCard label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} delayIndex={0} className={decision.totalBudgetToUse === 0 ? "opacity-45" : ""} />
+        <StatCard label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} delayIndex={1} className={(decision.totalSellAmount ?? 0) === 0 ? "opacity-45" : ""} />
+        <StatCard label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} delayIndex={2} className={decision.totalEstimatedFee === 0 ? "opacity-45" : ""} />
       </div>
       {decision.orders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">

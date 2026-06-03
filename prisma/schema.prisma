@@ -38,6 +38,7 @@ model User {
   notificationConfig NotificationConfig?
   apiUsageLogs ApiUsageLog[]
   decisionFeedbacks DecisionFeedback[]
+  tradeExecutions TradeExecution[]
 }
 
 model Watchlist {
@@ -346,6 +347,7 @@ model DecisionFeedback {
   tradeSymbol      String?
   tradeSide        String?
   positionSyncedAt DateTime?
+  tradeExecution TradeExecution?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -354,6 +356,30 @@ model DecisionFeedback {
   @@index([userId, createdAt])
   @@index([feedbackAction])
   @@index([tradeSymbol])
+}
+
+model TradeExecution {
+  id             String   @id @default(cuid())
+  userId         String
+  feedbackId     String?  @unique
+  symbol         String
+  side           String
+  price          Decimal  @db.Decimal(18, 4)
+  shares         Decimal  @db.Decimal(18, 4)
+  amount         Decimal  @db.Decimal(18, 2)
+  fee            Decimal  @db.Decimal(18, 2)
+  netCashChange  Decimal  @db.Decimal(18, 2)
+  realizedPnl    Decimal? @db.Decimal(18, 2)
+  executedAt     DateTime @default(now())
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedback       DecisionFeedback? @relation(fields: [feedbackId], references: [id], onDelete: SetNull)
+
+  @@index([userId, executedAt])
+  @@index([symbol, executedAt])
+  @@index([side])
 }
 
 model AnalysisRun {

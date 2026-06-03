@@ -108,6 +108,10 @@ type DecisionInput = {
   capital: number;
   investedCost: number;
   availableCash: number;
+  currentMarketValue: number;
+  unrealizedPnl: number;
+  realizedPnl: number;
+  totalAssets: number;
   candidates: Candidate[];
   dataScope: {
     latestQuoteTime: string | null;
@@ -404,21 +408,32 @@ async function loadDecisionSeed(userId: string) {
 }
 
 async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSeed>>) {
-  const [watchlistItems, portfolioItems, quotes] = await Promise.all([
+  const [watchlistItems, portfolioItems, tradeExecutions] = await Promise.all([
     prisma.watchlistItem.findMany({
       where: { watchlist: { userId: seed.userId }, symbol: { in: seed.allSymbolVariants } }
     }),
     prisma.watchlistItem.findMany({
       where: { watchlist: { userId: seed.userId }, isHolding: true },
       select: {
+        symbol: true,
         holdingPrice: true,
         holdingShares: true
       }
     }),
-    getQuotesBatch(seed.symbols, { allowStale: true })
+    prisma.tradeExecution.findMany({
+      where: { userId: seed.userId },
+      select: { realizedPnl: true }
+    })
   ]);
+  const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
+  const quoteSymbols = [...new Set([...seed.symbols, ...portfolioSymbols])];
+  const quotes = await getQuotesBatch(quoteSymbols, { allowStale: true });
   const investedCost = calculateInvestedCost(portfolioItems);
-  const availableCash = Number(Math.max(0, seed.capital - investedCost).toFixed(2));
+  const realizedPnl = calculateRealizedPnl(tradeExecutions);
+  const availableCash = Number(Math.max(0, seed.capital - investedCost + realizedPnl).toFixed(2));
+  const currentMarketValue = calculateCurrentMarketValue(portfolioItems, quotes);
+  const unrealizedPnl = Number((currentMarketValue - investedCost).toFixed(2));
+  const totalAssets = Number((availableCash + currentMarketValue).toFixed(2));
 
   const candidates = seed.symbols.map((symbol) => {
     const variants = symbolVariants(symbol);
@@ -506,6 +521,10 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     capital: seed.capital,
     investedCost,
     availableCash,
+    currentMarketValue,
+    unrealizedPnl,
+    realizedPnl,
+    totalAssets,
     candidates,
     dataScope: buildDecisionDataScope(candidates),
     focusUpdatedAt: seed.focusUpdatedAt,
@@ -589,9 +608,13 @@ function buildDecisionPrompt(input: DecisionInput) {
   return `请基于今日关注股票生成“今日 AI 策略观察”。返回严格 JSON，不要 Markdown。
 
 账户资金：
-- 总本金：${input.capital} 元
+- 投入本金：${input.capital} 元
 - 已持仓占用成本（按持仓成本价 + 估算买入手续费）：${input.investedCost} 元
 - 当前可用现金：${input.availableCash} 元
+- 当前持仓市值：${input.currentMarketValue} 元
+- 持仓浮盈浮亏：${input.unrealizedPnl} 元
+- 已实现盈亏：${input.realizedPnl} 元
+- 当前总资产估算（现金 + 持仓市值）：${input.totalAssets} 元
 
 交易手续费规则：
 ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
@@ -749,6 +772,10 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     capital: input.capital,
     investedCost: input.investedCost,
     availableCash: input.availableCash,
+    currentMarketValue: input.currentMarketValue,
+    unrealizedPnl: input.unrealizedPnl,
+    realizedPnl: input.realizedPnl,
+    totalAssets: input.totalAssets,
     dataScope: input.dataScope,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
@@ -1206,6 +1233,26 @@ function calculateInvestedCost(items: Array<{ holdingPrice: unknown; holdingShar
     const amount = price * shares;
     return sum + amount + calculateFee(amount);
   }, 0);
+  return Number(total.toFixed(2));
+}
+
+function calculateCurrentMarketValue(
+  items: Array<{ symbol: string; holdingShares: unknown }>,
+  quotes: Record<string, { price?: number | null } | null | undefined>
+) {
+  const total = items.reduce((sum, item) => {
+    const shares = toNumber(item.holdingShares) ?? 0;
+    if (shares <= 0) return sum;
+    const quote = quotes[item.symbol] ?? quotes[symbolVariants(item.symbol).find((symbol) => quotes[symbol]) ?? item.symbol];
+    const price = quote?.price ?? null;
+    if (!price || price <= 0) return sum;
+    return sum + price * shares;
+  }, 0);
+  return Number(total.toFixed(2));
+}
+
+function calculateRealizedPnl(items: Array<{ realizedPnl: unknown }>) {
+  const total = items.reduce((sum, item) => sum + (toNumber(item.realizedPnl) ?? 0), 0);
   return Number(total.toFixed(2));
 }
 
