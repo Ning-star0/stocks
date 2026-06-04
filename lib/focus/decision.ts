@@ -12,7 +12,7 @@ import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { notifyFocusDecision } from "@/lib/notifications/send";
 import { prisma } from "@/lib/prisma";
-import { buildQuantSignal, type QuantSignal } from "@/lib/quant/strategy";
+import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantSignal, type QuantStrategyContext } from "@/lib/quant/strategy";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { toNumber } from "@/lib/utils";
 
@@ -73,6 +73,7 @@ type DecisionSchemaValue = z.infer<typeof decisionSchema>;
 type Candidate = {
   symbol: string;
   name?: string | null;
+  sectorKey?: string | null;
   price: number | null;
   changePct: number | null;
   quoteTime?: string | null;
@@ -97,6 +98,10 @@ type Candidate = {
     trend?: string;
     confidence?: number;
     summary?: string;
+    newsSummary?: string;
+    newsSentiment?: string;
+    newsReferences?: unknown;
+    sectorRisks?: unknown;
     holdAdvice?: unknown;
     entryAdvice?: unknown;
     riskFactors?: unknown;
@@ -112,6 +117,7 @@ type DecisionInput = {
   unrealizedPnl: number;
   realizedPnl: number;
   totalAssets: number;
+  marketContext: QuantStrategyContext;
   candidates: Candidate[];
   dataScope: {
     latestQuoteTime: string | null;
@@ -501,7 +507,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
   const unrealizedPnl = Number((currentMarketValue - investedCost).toFixed(2));
   const totalAssets = Number((availableCash + currentMarketValue).toFixed(2));
 
-  const candidates = seed.symbols.map((symbol) => {
+  const candidateDrafts = seed.symbols.map((symbol) => {
     const variants = symbolVariants(symbol);
     const quote = quotes[symbol] ?? quotes[symbolVariants(symbol).find((item) => quotes[item]) ?? symbol] ?? null;
     const item = watchlistItems.find((row) => variants.includes(row.symbol));
@@ -517,8 +523,12 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       support: numberArray(analysisKeyLevels.support),
       resistance: numberArray(analysisKeyLevels.resistance)
     };
-    const quantSignal = buildQuantSignal({
+    const sectorKey = inferSectorKey({ symbol, name: quote?.name ?? null, note: item?.note ?? null, latestAnalysis: output });
+    const quantInput: QuantInput = {
       price: quote?.price ?? null,
+      symbol: quote?.symbol ?? symbol,
+      name: quote?.name ?? null,
+      sectorKey,
       changePct: quote?.changePct ?? null,
       indicators: {
         rsi14: toNumber(analysisIndicators.rsi14),
@@ -543,12 +553,14 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       isHolding: item?.isHolding ?? false,
       holdingPrice,
       holdingShares: toNumber(item?.holdingShares),
+      positionOpenedAt: item?.positionOpenedAt ?? null,
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss)
-    });
+    };
     return {
       symbol: quote?.symbol ?? symbol,
       name: quote?.name ?? null,
+      sectorKey,
       price: quote?.price ?? null,
       changePct: quote?.changePct ?? null,
       quoteTime: quote?.updatedAt ?? null,
@@ -574,14 +586,27 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
             trend: output.trend,
             confidence: output.confidence,
             summary: output.summary,
+            newsSummary: typeof asRecord(output).newsSummary === "string" ? String(asRecord(output).newsSummary) : undefined,
+            newsSentiment: typeof asRecord(output).newsSentiment === "string" ? String(asRecord(output).newsSentiment) : undefined,
+            newsReferences: asRecord(output).newsReferences,
+            sectorRisks: asRecord(output).sectorRisks,
             holdAdvice: output.holdAdvice,
             entryAdvice: output.entryAdvice,
             riskFactors: output.riskFactors
           }
         : null,
-      quantSignal
-    } satisfies Candidate;
+      quantSignal: null,
+      quantInput
+    } satisfies Candidate & { quantInput: QuantInput };
   });
+  const marketContext = buildDecisionMarketContext(candidateDrafts);
+  const candidates = candidateDrafts.map(({ quantInput, ...candidate }) => ({
+    ...candidate,
+    quantSignal: buildQuantSignal({
+      ...quantInput,
+      strategyContext: marketContext
+    })
+  }));
 
   return {
     capital: seed.capital,
@@ -591,6 +616,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     unrealizedPnl,
     realizedPnl,
     totalAssets,
+    marketContext,
     candidates,
     dataScope: buildDecisionDataScope(candidates),
     focusUpdatedAt: seed.focusUpdatedAt,
@@ -619,6 +645,137 @@ function buildDecisionDataScope(candidates: Candidate[]): DecisionInput["dataSco
     quoteTimes,
     historyTimes
   };
+}
+
+function buildDecisionMarketContext(candidates: Array<Candidate & { quantInput?: QuantInput }>): QuantStrategyContext {
+  const usable = candidates.filter((candidate) => candidate.price && candidate.price > 0);
+  const avgChange = average(usable.map((candidate) => candidate.changePct).filter(isFiniteNumber));
+  const bullishCount = candidates.filter((candidate) => candidate.latestAnalysis?.trend === "bullish").length;
+  const bearishCount = candidates.filter((candidate) => candidate.latestAnalysis?.trend === "bearish").length;
+  const positiveNewsCount = candidates.filter((candidate) => isPositiveSentiment(candidate.latestAnalysis?.newsSentiment)).length;
+  const negativeNewsCount = candidates.filter((candidate) => isNegativeSentiment(candidate.latestAnalysis?.newsSentiment)).length;
+  const overheatedCount = candidates.filter((candidate) => {
+    const text = stringifyAdvice(candidate.latestAnalysis?.summary) + stringifyAdvice(candidate.latestAnalysis?.riskFactors);
+    return /超买|追高|过热|短期涨幅|获利回吐|泡沫|兑现/.test(text);
+  }).length;
+
+  const marketRegime =
+    negativeNewsCount >= positiveNewsCount + 2 || (avgChange !== null && avgChange <= -2) || bearishCount > bullishCount + 1
+      ? "risk_off"
+      : bullishCount >= bearishCount + 2 && positiveNewsCount >= negativeNewsCount && (avgChange === null || avgChange >= -0.8)
+        ? "risk_on"
+        : "neutral";
+
+  const sectorBiases: Record<string, QuantSectorBias> = {};
+  const bySector = groupBy(candidates, (candidate) => candidate.sectorKey ?? "unknown");
+  for (const [sector, rows] of Object.entries(bySector)) {
+    const sectorChange = average(rows.map((candidate) => candidate.changePct).filter(isFiniteNumber));
+    const sectorBullish = rows.filter((candidate) => candidate.latestAnalysis?.trend === "bullish").length;
+    const sectorBearish = rows.filter((candidate) => candidate.latestAnalysis?.trend === "bearish").length;
+    const sectorPositive = rows.filter((candidate) => isPositiveSentiment(candidate.latestAnalysis?.newsSentiment)).length;
+    const sectorNegative = rows.filter((candidate) => isNegativeSentiment(candidate.latestAnalysis?.newsSentiment)).length;
+    const sectorOverheated = rows.some((candidate) => {
+      const text = [
+        candidate.latestAnalysis?.summary,
+        candidate.latestAnalysis?.newsSummary,
+        stringifyAdvice(candidate.latestAnalysis?.riskFactors)
+      ].filter(Boolean).join(" ");
+      return /超买|过热|追高|大涨|短期涨幅|获利回吐|兑现/.test(text);
+    });
+    sectorBiases[sector] =
+      sectorNegative > sectorPositive || sectorBearish > sectorBullish
+        ? "bearish"
+        : sectorOverheated && sectorBullish >= sectorBearish
+          ? "overheated"
+          : sectorBullish > sectorBearish || sectorPositive > sectorNegative || (sectorChange !== null && sectorChange >= 1.2)
+            ? "bullish"
+            : "neutral";
+  }
+
+  const notes = [
+    `市场环境：${marketRegimeLabel(marketRegime)}，候选平均涨跌幅 ${avgChange === null ? "--" : `${avgChange.toFixed(2)}%`}。`,
+    `趋势分布：偏多 ${bullishCount}，偏空 ${bearishCount}；新闻情绪：正面 ${positiveNewsCount}，负面 ${negativeNewsCount}。`,
+    overheatedCount ? `有 ${overheatedCount} 只标的出现追高/过热/兑现风险，买入需等待回调或突破确认。` : "未检测到明显集中过热风险。"
+  ];
+
+  if (marketRegime === "risk_off") {
+    return {
+      marketRegime,
+      buyThresholdDelta: 8,
+      sellThresholdDelta: -6,
+      maxPositionPct: 20,
+      allowAdd: false,
+      avoidChasing: true,
+      notes,
+      sectorBiases
+    };
+  }
+  if (marketRegime === "risk_on") {
+    return {
+      marketRegime,
+      buyThresholdDelta: -3,
+      sellThresholdDelta: 3,
+      maxPositionPct: 35,
+      allowAdd: true,
+      avoidChasing: true,
+      notes,
+      sectorBiases
+    };
+  }
+  return {
+    marketRegime,
+    buyThresholdDelta: 0,
+    sellThresholdDelta: 0,
+    maxPositionPct: 30,
+    allowAdd: true,
+    avoidChasing: true,
+    notes,
+    sectorBiases
+  };
+}
+
+function inferSectorKey(input: { symbol: string; name?: string | null; note?: string | null; latestAnalysis?: unknown }) {
+  const text = `${input.symbol} ${input.name ?? ""} ${input.note ?? ""} ${JSON.stringify(input.latestAnalysis ?? {})}`;
+  if (/半导体|芯片|集成电路|晶圆|存储|AI芯片|中韩/.test(text)) return "semiconductor";
+  if (/纳指|NASDAQ|纳斯达克|美股|QDII/i.test(text)) return "nasdaq";
+  if (/通信|5G|光模块|光通信|算力网络|数据中心/.test(text)) return "telecom_ai";
+  if (/电网|电力设备|特高压|输变电|配电网|国家电网|南方电网/.test(text)) return "power_grid";
+  if (/黄金|金价|贵金属|避险/.test(text)) return "gold";
+  if (/卫星|航天|军工|商业航天|低空/.test(text)) return "satellite";
+  if (/新能源|电池|宁德|汽车|电动车/.test(text)) return "new_energy";
+  return "unknown";
+}
+
+function marketRegimeLabel(value: QuantStrategyContext["marketRegime"]) {
+  if (value === "risk_on") return "偏进攻";
+  if (value === "risk_off") return "偏防守";
+  return "中性";
+}
+
+function isPositiveSentiment(value?: string | null) {
+  return /positive|bullish|利好|正面|偏正/.test(String(value ?? ""));
+}
+
+function isNegativeSentiment(value?: string | null) {
+  return /negative|bearish|利空|负面|偏负/.test(String(value ?? ""));
+}
+
+function average(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function groupBy<T>(items: T[], keyFn: (item: T) => string) {
+  return items.reduce<Record<string, T[]>>((acc, item) => {
+    const key = keyFn(item);
+    acc[key] = acc[key] ?? [];
+    acc[key].push(item);
+    return acc;
+  }, {});
 }
 
 function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSeed>>) {
@@ -688,22 +845,27 @@ ${JSON.stringify(TRADING_FEE_RULE, null, 2)}
 本次决策数据截止：
 ${JSON.stringify(input.dataScope, null, 2)}
 
+市场/行业动态上下文：
+${JSON.stringify(input.marketContext, null, 2)}
+
 决策要求：
 1. 必须明确 recommendedAction，只能是 buy、sell、mixed 或 wait。buy 表示只有买入/增持计划；sell 表示只有卖出/减仓计划；mixed 表示同时有买入和卖出/减仓计划；wait 表示今日只观察。
 2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，买入只能代表“增持/加仓”，卖出只能代表“减仓/止盈/止损/离场”；isHolding=false 不能生成 sellOrders。
 3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
 4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
-5. 使用“趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
-6. 每个候选都带有 quantSignal，这是本地量化规则已经计算好的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
-7. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数或触发条件。
-8. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders，只能写入 ranking 的风险原因。
-9. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-10. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
-11. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-12. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
-13. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio 和手续费性价比排序。
-14. ranking 必须覆盖所有候选，并在 reason 里体现“量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
-15. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
+5. 先判断“市场/行业动态上下文”，再判断单股/ETF。marketContext 是系统根据今日候选、新闻情绪、行业线索和走势生成的动态策略环境：risk_on 可以降低买入阈值并允许小仓试探；risk_off 必须提高买入阈值、降低减仓阈值、控制仓位；sectorBias=overheated 时不能追高，只能等待回调或突破确认。
+6. 使用“市场/行业上下文 + 趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
+7. 每个候选都带有 quantSignal，这是本地量化规则结合市场/行业上下文计算出的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
+8. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、adjustedBuyThreshold、adjustedReduceThreshold、adjustedSellThreshold、marketRegime、sectorBias、newPositionProtection、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数、动态阈值或触发条件。
+9. newPositionProtection=true 表示新建仓保护期内。除非已经触发硬止损、严重利空或卖出分达到强制卖出级别，否则不要直接卖出刚买入的仓位，只能写继续观察、移动止损或不加仓。
+10. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders 或 sellOrders，只能写入 ranking 的风险原因。
+11. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
+12. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
+13. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
+14. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
+15. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias 和手续费性价比排序。
+16. ranking 必须覆盖所有候选，并在 reason 里体现“市场/行业上下文 + 量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
+17. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
@@ -843,6 +1005,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     realizedPnl: input.realizedPnl,
     totalAssets: input.totalAssets,
     dataScope: input.dataScope,
+    marketContext: input.marketContext,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
     generatedAt: new Date().toISOString()
@@ -1158,8 +1321,11 @@ function candidateSupportsBuy(candidate: Candidate) {
 
 function candidateSupportsSell(candidate: Candidate) {
   if (!candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
+  if (!candidateHasFreshQuote(candidate)) return false;
   if (quantAllowsSell(candidate)) return true;
   const text = stringifyAdvice(candidate.latestAnalysis?.holdAdvice);
+  const hardExit = /止损|离场|清仓|全部卖出|跌破止损|破位|重大利空/.test(text);
+  if (candidate.quantSignal?.newPositionProtection && !hardExit) return false;
   return /减仓|止损|离场|回避|风险规避|止盈|分批兑现|降低仓位/.test(text);
 }
 
@@ -1175,12 +1341,13 @@ function quantView(candidate: Candidate) {
 function quantReason(candidate: Candidate) {
   const signal = candidate.quantSignal;
   if (!signal) return candidate.latestAnalysis?.summary ?? "暂无量化信号。";
-  const scores = `量化信号：${actionLabel(signal.action)}，买入分 ${signal.buyScore}，卖出分 ${signal.sellScore}，趋势分 ${signal.trendScore}，动量分 ${signal.momentumScore}，风险分 ${signal.riskScore}。`;
+  const scores = `量化信号：${actionLabel(signal.action)}，买入分 ${signal.buyScore}/${signal.adjustedBuyThreshold}，卖出分 ${signal.sellScore}/${signal.adjustedReduceThreshold}，趋势分 ${signal.trendScore}，动量分 ${signal.momentumScore}，风险分 ${signal.riskScore}。`;
   const sizing = `仓位建议：买入资金 ${signal.suggestedBuyCapitalPct}%；卖出比例 ${signal.suggestedSellRatioPct}%${signal.suggestedSellShares ? `，约 ${signal.suggestedSellShares} 股/份` : ""}。`;
   const metrics = `风险收益比 ${signal.riskRewardRatio ?? "--"}，止损距离 ${formatPct(signal.stopDistancePct)}，止盈距离 ${formatPct(signal.takeProfitDistancePct)}。`;
+  const context = `环境：${signal.marketRegime} / ${signal.sectorBias}${signal.newPositionProtection ? "，新仓保护中" : ""}。`;
   const reason = signal.reasons.slice(0, 2).join("；");
   const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, sizing, metrics, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
+  return [scores, sizing, metrics, context, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
 }
 
 function formatPct(value: number | null | undefined) {
@@ -1203,17 +1370,24 @@ function actionLabel(action: QuantSignal["action"]) {
 function quantAllowsBuy(candidate?: Candidate | null) {
   if (!candidateHasFreshQuote(candidate)) return false;
   if (!candidate?.quantSignal) return true;
-  return candidate.quantSignal.action === "buy" || candidate.quantSignal.action === "add" || candidate.quantSignal.buyScore >= 68;
+  return (
+    candidate.quantSignal.action === "buy" ||
+    candidate.quantSignal.action === "add" ||
+    candidate.quantSignal.buyScore >= candidate.quantSignal.adjustedBuyThreshold
+  );
 }
 
 function quantAllowsSell(candidate?: Candidate | null) {
+  if (!candidateHasFreshQuote(candidate)) return false;
   if (!candidate?.quantSignal) return false;
+  const signal = candidate.quantSignal;
+  if (signal.newPositionProtection && signal.action !== "sell" && signal.sellScore < signal.adjustedSellThreshold) return false;
   return (
-    candidate.quantSignal.action === "sell" ||
-    candidate.quantSignal.action === "reduce" ||
-    candidate.quantSignal.sellScore >= 62 ||
-    (candidate.quantSignal.suggestedSellRatioPct ?? 0) > 0 ||
-    (candidate.quantSignal.suggestedSellShares ?? 0) >= 100
+    signal.action === "sell" ||
+    signal.action === "reduce" ||
+    signal.sellScore >= signal.adjustedReduceThreshold ||
+    (signal.suggestedSellRatioPct ?? 0) > 0 ||
+    (signal.suggestedSellShares ?? 0) >= 100
   );
 }
 
