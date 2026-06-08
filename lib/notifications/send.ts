@@ -65,41 +65,26 @@ export async function sendTestNotification(input: { userId: string; title?: stri
 }
 
 function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders: DecisionOrder[], sellOrders: DecisionOrder[]) {
-  const title = "股票 AI 策略观察";
-  const generatedAt = input.generatedAt ? new Date(input.generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
   const hasBuy = orders.length > 0;
   const hasSell = sellOrders.length > 0;
+  const title = hasBuy && hasSell ? "调仓提醒：买入 + 卖出" : hasSell ? "卖出提醒：减仓/卖出" : "买入提醒：买入/增持";
+  const generatedAt = input.generatedAt ? new Date(input.generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
   const conclusion = hasBuy && hasSell ? "形成买入与卖出/减仓观察计划" : hasSell ? "形成卖出/减仓观察计划" : "形成观察买入计划";
+  const buyLines = compactOrderLines(orders, "buy");
+  const sellLines = compactOrderLines(sellOrders, "sell");
   const lines = [
     `## ${title}`,
     "",
-    `时间：${generatedAt}`,
-    `来源：${input.source === "scheduled" ? "定时分析" : "手动分析"}`,
-    "",
+    `时间：${generatedAt}｜${input.source === "scheduled" ? "定时分析" : "手动分析"}`,
     `结论：${conclusion}`,
-    input.summary ? `核心原因：${input.summary}` : "",
+    input.summary ? `原因：${truncateText(input.summary, 70)}` : "",
+    ...sellLines,
+    ...buyLines,
     "",
-    ...orders.flatMap((order, index) => [
-      `### 买入 ${index + 1}. ${order.name || order.symbol || "标的"} ${order.symbol ? `(${order.symbol})` : ""}`,
-      `计划金额：${formatMoney(order.amount)}，数量：${Number(order.shares ?? 0)} 股/份`,
-      order.reason ? `原因：${order.reason}` : "",
-      order.riskControl ? `风控：${order.riskControl}` : "",
-      order.invalidIf ? `失效：${order.invalidIf}` : "",
-      ""
-    ]),
-    ...sellOrders.flatMap((order, index) => [
-      `### 卖出/减仓 ${index + 1}. ${order.name || order.symbol || "标的"} ${order.symbol ? `(${order.symbol})` : ""}`,
-      `计划市值：${formatMoney(order.amount)}，数量：${Number(order.shares ?? 0)} 股/份，净回收：${formatMoney(order.netProceeds)}`,
-      order.estimatedPnl !== undefined && order.estimatedPnl !== null ? `估算盈亏：${formatMoney(order.estimatedPnl)}` : "",
-      order.reason ? `原因：${order.reason}` : "",
-      order.riskControl ? `风控：${order.riskControl}` : "",
-      order.invalidIf ? `失效：${order.invalidIf}` : "",
-      ""
-    ]),
-    `计划买入：${formatMoney(input.totalBudgetToUse)}，计划卖出：${formatMoney(input.totalSellAmount)}，手续费：${formatMoney(input.totalEstimatedFee)}，卖出净回收：${formatMoney(input.totalSellNetProceeds)}，预计现金：${formatMoney(input.cashReserve)}`,
+    `资金：买入 ${formatMoney(input.totalBudgetToUse)}｜卖出 ${formatMoney(input.totalSellAmount)}｜手续费 ${formatMoney(input.totalEstimatedFee)}｜现金 ${formatMoney(input.cashReserve)}`,
     ...buildFeedbackLines(input, hasBuy, hasSell),
     "",
-    "仅供研究和辅助分析，不构成投资建议。"
+    "仅供研究参考。"
   ].filter(Boolean);
 
   return {
@@ -107,6 +92,37 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
     markdown: lines.join("\n"),
     text: lines.map((line) => line.replace(/^#+\s*/, "")).join("\n")
   };
+}
+
+function compactOrderLines(orders: DecisionOrder[], side: "buy" | "sell") {
+  const visible = orders.slice(0, 3);
+  const lines = visible.map((order) => {
+    const name = order.name || order.symbol || "标的";
+    const symbol = order.symbol ? `(${order.symbol})` : "";
+    const action = side === "buy" ? buyActionLabel(order.action) : sellActionLabel(order.action);
+    const shares = Number(order.shares ?? 0);
+    const price = formatPrice(order.estimatedPrice);
+    if (side === "sell") {
+      const pnl = order.estimatedPnl !== undefined && order.estimatedPnl !== null ? `，盈亏 ${formatMoney(order.estimatedPnl)}` : "";
+      return `- ${action}：${name}${symbol} ${shares}股 @ ${price}，净回收 ${formatMoney(order.netProceeds)}${pnl}`;
+    }
+    return `- ${action}：${name}${symbol} ${shares}股 @ ${price}，总成本 ${formatMoney(Number(order.amount ?? 0) + Number(order.estimatedFee ?? 0))}`;
+  });
+  if (orders.length > visible.length) lines.push(`- 还有 ${orders.length - visible.length} 条，打开网站查看。`);
+  return lines;
+}
+
+function buyActionLabel(action?: string | null) {
+  return action === "add" ? "增持" : "买入";
+}
+
+function sellActionLabel(action?: string | null) {
+  return action === "sell" ? "卖出" : "减仓";
+}
+
+function truncateText(value: string, maxLength: number) {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function buildFeedbackLines(input: FocusDecisionNotificationInput, hasBuy: boolean, hasSell: boolean) {
@@ -255,6 +271,12 @@ function formatMoney(value?: number | null) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
   return `¥${number.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
+}
+
+function formatPrice(value?: number | null) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "--";
+  return `¥${number.toLocaleString("zh-CN", { maximumFractionDigits: 4 })}`;
 }
 
 function numberEnv(name: string, fallback: number) {
