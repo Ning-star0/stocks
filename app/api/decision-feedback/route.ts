@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { feedbackActionLabel, normalizeFeedbackAction, verifyDecisionFeedbackToken } from "@/lib/decisionFeedback";
 import { apiError, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { rebuildUserPositions } from "@/lib/trades/ledger";
 import type { Prisma } from "@prisma/client";
 
 const TRADING_LOT_SIZE = 100;
@@ -269,7 +270,8 @@ async function syncWatchlistPositionAndCreateExecution(
     holdingPrice: Number(positionBefore?.holdingPrice ?? 0),
     note: input.note
   });
-  return { position, execution };
+  const rebuiltPositions = await rebuildUserPositions(tx, input.userId, [input.symbol]);
+  return { position: rebuiltPositions[0] ?? position, execution };
 }
 
 async function createTradeExecutionMarker(

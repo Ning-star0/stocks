@@ -364,6 +364,27 @@ export default function FocusPage() {
     if (historyResponse.status === "fulfilled" && historyResponse.value.records) setHistory(historyResponse.value.records);
   }, []);
 
+  const refreshWatchlist = useCallback(async () => {
+    const wlData = await fetch("/api/watchlist", { cache: "no-store" }).then((response) => readJsonResponse<{ watchlists?: Array<{ items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }>; items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }>(response));
+    const rawItems = Array.isArray(wlData.watchlists)
+      ? wlData.watchlists.flatMap((watchlist: { items?: Array<{ id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }> }) => watchlist.items ?? [])
+      : wlData.items || [];
+    const items = rawItems.map((item: { id: string; symbol: string; note?: string | null; isHolding?: boolean | null; holdingPrice?: number | null; holdingShares?: number | null; positionOpenedAt?: string | null; quote?: { name?: string | null; price?: number | null; changePct?: number | null } | null; latestAnalysis?: StockItem["latestAnalysis"] }) => ({
+      id: item.id,
+      symbol: item.symbol,
+      name: item.quote?.name ?? undefined,
+      note: item.note,
+      isHolding: item.isHolding ?? false,
+      holdingPrice: item.holdingPrice ?? null,
+      holdingShares: item.holdingShares ?? null,
+      quote: item.quote ? { price: item.quote.price ?? null, changePct: item.quote.changePct ?? null } : null,
+      latestAnalysis: item.latestAnalysis ?? null,
+      positionOpenedAt: item.positionOpenedAt ?? null
+    }));
+    setWatchlist(items);
+    setNames(Object.fromEntries(items.filter((item: StockItem) => item.name).map((item: StockItem) => [item.symbol, item.name as string])));
+  }, []);
+
   const loadDecision = useCallback(async (method: "GET" | "POST") => {
     setDecisionLoading(true);
     setDecisionError(null);
@@ -450,7 +471,9 @@ export default function FocusPage() {
               decision={decision}
               nextObserveAt={resolveNextObserveAt(runs?.summary.nextRunAt, focus.analysisTimes)}
               names={names}
+              watchlist={watchlist}
               onFeedbackSaved={() => {
+                void refreshWatchlist();
                 void loadDecision("GET");
                 void refreshTrackingData();
               }}
@@ -629,11 +652,13 @@ function FocusDecisionPanel({
   decision,
   nextObserveAt,
   names,
+  watchlist,
   onFeedbackSaved
 }: {
   decision: FocusDecision;
   nextObserveAt: string;
   names: Record<string, string>;
+  watchlist: StockItem[];
   onFeedbackSaved?: () => void;
 }) {
   const sellOrders = decision.sellOrders ?? [];
@@ -799,6 +824,7 @@ function FocusDecisionPanel({
         hasBuy={hasBuy}
         hasSell={shouldSell}
         tradeOptions={tradeOptions}
+        watchlist={watchlist}
         onFeedbackSaved={onFeedbackSaved}
       />
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
@@ -812,6 +838,7 @@ function DecisionFeedbackPanel({
   hasBuy,
   hasSell,
   tradeOptions,
+  watchlist,
   onFeedbackSaved
 }: {
   decisionId?: string;
@@ -819,6 +846,7 @@ function DecisionFeedbackPanel({
   hasBuy: boolean;
   hasSell: boolean;
   tradeOptions: TradeOption[];
+  watchlist: StockItem[];
   onFeedbackSaved?: () => void;
 }) {
   const initialAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
@@ -829,9 +857,31 @@ function DecisionFeedbackPanel({
   const [note, setNote] = useState(feedback?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(feedback ? feedbackMessage(feedback) : null);
+  const manualSymbols = useMemo(() => {
+    const bySymbol = new Map<string, { symbol: string; name: string }>();
+    for (const item of watchlist) {
+      bySymbol.set(item.symbol, { symbol: item.symbol, name: item.name || item.symbol });
+    }
+    for (const option of tradeOptions) {
+      bySymbol.set(option.symbol, { symbol: option.symbol, name: option.name || option.symbol });
+    }
+    return Array.from(bySymbol.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [tradeOptions, watchlist]);
+  const [manualSymbol, setManualSymbol] = useState(manualSymbols[0]?.symbol ?? "");
+  const [manualSide, setManualSide] = useState<"buy" | "sell">("sell");
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualShares, setManualShares] = useState("");
+  const [manualExecutedAt, setManualExecutedAt] = useState(datetimeLocalValue());
+  const [manualNote, setManualNote] = useState("");
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualMessage, setManualMessage] = useState<string | null>(null);
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
+
+  useEffect(() => {
+    if (!manualSymbol && manualSymbols[0]?.symbol) setManualSymbol(manualSymbols[0].symbol);
+  }, [manualSymbol, manualSymbols]);
 
   useEffect(() => {
     const nextAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
@@ -905,6 +955,35 @@ function DecisionFeedbackPanel({
     }
   }
 
+  async function submitManualTrade() {
+    setManualSaving(true);
+    setManualMessage(null);
+    try {
+      const response = await fetch("/api/trades", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: manualSymbol,
+          side: manualSide,
+          price: manualPrice,
+          shares: manualShares,
+          executedAt: manualExecutedAt ? new Date(manualExecutedAt).toISOString() : undefined,
+          note: manualNote
+        })
+      });
+      const json = await readJsonResponse<{ execution?: { symbol: string; side: string; shares: number; price: number }; position?: { holdingShares?: number | null } }>(response);
+      const execution = json.execution;
+      const sideText = execution?.side === "buy" ? "买入" : "卖出";
+      setManualMessage(execution ? `已补录 ${execution.symbol} ${sideText} ${execution.shares} 股/份，并重算持仓。` : "已补录并重算持仓。");
+      setManualNote("");
+      onFeedbackSaved?.();
+    } catch (error) {
+      setManualMessage(error instanceof Error ? error.message : "补录交易失败。");
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-border bg-background/35 p-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -971,6 +1050,50 @@ function DecisionFeedbackPanel({
         </Button>
         {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
       </div>
+
+      <div className="mt-5 border-t border-border pt-4">
+        <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-sm font-semibold">补录历史买卖</div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">适合补填之前忘记记录的买入或卖出；保存后会按全部交易流水重新统计持仓、成本、现金和已实现盈亏。</p>
+          </div>
+          <span className="text-xs text-muted-foreground">规则：最低 100 股/份，按整数手</span>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.2fr)_140px_1fr_1fr]">
+          <select
+            value={manualSymbol}
+            onChange={(event) => setManualSymbol(event.target.value)}
+            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+          >
+            {manualSymbols.map((item) => (
+              <option key={item.symbol} value={item.symbol}>
+                {item.name} · {item.symbol}
+              </option>
+            ))}
+          </select>
+          <select
+            value={manualSide}
+            onChange={(event) => setManualSide(event.target.value === "buy" ? "buy" : "sell")}
+            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+          >
+            <option value="buy">买入/增持</option>
+            <option value="sell">卖出/减仓</option>
+          </select>
+          <Input value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价" />
+          <Input value={manualShares} onChange={(event) => setManualShares(event.target.value)} inputMode="numeric" placeholder="实际数量" />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
+          <Input type="datetime-local" value={manualExecutedAt} onChange={(event) => setManualExecutedAt(event.target.value)} />
+          <Input value={manualNote} onChange={(event) => setManualNote(event.target.value)} placeholder="备注，可选，例如：补录上周卖出。" />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button type="button" size="sm" variant="outline" onClick={submitManualTrade} disabled={manualSaving || !manualSymbol}>
+            {manualSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            补录并重算
+          </Button>
+          {manualMessage ? <span className="text-xs text-muted-foreground">{manualMessage}</span> : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1007,6 +1130,11 @@ function defaultTradeKey(feedback: FocusDecision["feedback"] | null | undefined,
 
 function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
+}
+
+function datetimeLocalValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function feedbackMessage(feedback: NonNullable<FocusDecision["feedback"]> & { label?: string }) {
