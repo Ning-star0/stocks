@@ -7,12 +7,14 @@ import {
   createManualTradeAndRebuild,
   parsePositiveNumber,
   parseTradeSide,
+  reconcileAndRebuildUserPositions,
   rebuildUserPositions
 } from "@/lib/trades/ledger";
 
 export async function GET() {
   try {
     const user = await getCurrentUser();
+    await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, user.id));
     const executions = await prisma.tradeExecution.findMany({
       where: { userId: user.id },
       orderBy: [{ executedAt: "desc" }, { createdAt: "desc" }],

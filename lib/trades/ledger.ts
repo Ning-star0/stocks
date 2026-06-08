@@ -17,6 +17,15 @@ type LedgerPosition = {
   openedAt: Date | null;
 };
 
+type WatchlistPositionRow = {
+  id: string;
+  symbol: string;
+  isHolding: boolean;
+  holdingPrice: unknown;
+  holdingShares: unknown;
+  positionOpenedAt: Date | null;
+};
+
 export function roundMoney(value: number) {
   return Number(value.toFixed(2));
 }
@@ -82,6 +91,8 @@ export async function createManualTradeAndRebuild(
   const item = await findWatchlistItemBySymbol(tx, input.userId, symbol);
   if (!item) throw new AppError("BAD_REQUEST", `自选股中找不到 ${symbol}，无法同步持仓。`);
 
+  await reconcileLegacyPositions(tx, input.userId, [item.symbol]);
+
   if (input.side === "sell") {
     const current = await calculateLedgerPosition(tx, input.userId, symbol);
     if (input.shares > current.shares + 0.0001) {
@@ -112,6 +123,153 @@ export async function createManualTradeAndRebuild(
     execution,
     position: positions.find((position) => baseSymbol(position.symbol) === baseSymbol(item.symbol)) ?? null
   };
+}
+
+export async function upsertFeedbackTradeAndRebuild(
+  tx: TransactionClient,
+  input: {
+    userId: string;
+    feedbackId: string;
+    symbol: string;
+    side: TradeSide;
+    price: number;
+    shares: number;
+    note: string | null;
+  }
+) {
+  const symbol = normalizeTradeSymbol(input.symbol);
+  if (!symbol) throw new AppError("BAD_REQUEST", "请选择交易标的。");
+  assertValidTradeShares(input.shares);
+
+  const item = await findWatchlistItemBySymbol(tx, input.userId, symbol);
+  if (!item) throw new AppError("BAD_REQUEST", `自选股中找不到 ${symbol}，无法同步持仓。`);
+
+  await reconcileLegacyPositions(tx, input.userId, [item.symbol]);
+
+  if (input.side === "sell") {
+    const current = await calculateLedgerPosition(tx, input.userId, item.symbol);
+    if (input.shares > current.shares + 0.0001) {
+      throw new AppError("BAD_REQUEST", `卖出数量不能超过当前流水持仓。当前 ${current.shares || 0} 股/份，计划卖出 ${input.shares} 股/份。`);
+    }
+  }
+
+  const amount = roundMoney(input.price * input.shares);
+  const fee = calculateTradeFee(amount);
+  const execution = await tx.tradeExecution.upsert({
+    where: { feedbackId: input.feedbackId },
+    create: {
+      userId: input.userId,
+      feedbackId: input.feedbackId,
+      symbol: item.symbol,
+      side: input.side,
+      price: input.price,
+      shares: input.shares,
+      amount,
+      fee,
+      netCashChange: input.side === "buy" ? -roundMoney(amount + fee) : roundMoney(amount - fee),
+      realizedPnl: null,
+      note: input.note
+    },
+    update: {
+      symbol: item.symbol,
+      side: input.side,
+      price: input.price,
+      shares: input.shares,
+      amount,
+      fee,
+      netCashChange: input.side === "buy" ? -roundMoney(amount + fee) : roundMoney(amount - fee),
+      realizedPnl: null,
+      note: input.note
+    }
+  });
+
+  const positions = await rebuildUserPositions(tx, input.userId, [item.symbol]);
+  return {
+    execution,
+    position: positions.find((position) => baseSymbol(position.symbol) === baseSymbol(item.symbol)) ?? null
+  };
+}
+
+export async function deleteTradeExecutionAndRebuild(
+  tx: TransactionClient,
+  input: {
+    userId: string;
+    executionId: string;
+  }
+) {
+  const execution = await tx.tradeExecution.findFirst({
+    where: { id: input.executionId, userId: input.userId },
+    select: { id: true, symbol: true }
+  });
+  if (!execution) throw new AppError("BAD_REQUEST", "交易记录不存在。");
+  await tx.tradeExecution.delete({ where: { id: execution.id } });
+  const positions = await rebuildUserPositions(tx, input.userId, [execution.symbol]);
+  return { deletedId: execution.id, position: positions[0] ?? null, symbol: execution.symbol };
+}
+
+export async function reconcileLegacyPositions(tx: TransactionClient, userId: string, symbols?: string[]) {
+  const targetBases = symbols?.map(baseSymbol).filter(Boolean);
+  const [watchlistItems, executions] = await Promise.all([
+    tx.watchlistItem.findMany({
+      where: { watchlist: { userId } },
+      select: {
+        id: true,
+        symbol: true,
+        isHolding: true,
+        holdingPrice: true,
+        holdingShares: true,
+        positionOpenedAt: true
+      }
+    }),
+    tx.tradeExecution.findMany({
+      where: { userId },
+      orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
+    })
+  ]);
+
+  const itemByBase = new Map(watchlistItems.map((item) => [baseSymbol(item.symbol), item]));
+  const bases = new Set<string>();
+  for (const item of watchlistItems) bases.add(baseSymbol(item.symbol));
+  for (const execution of executions) bases.add(baseSymbol(execution.symbol));
+
+  for (const base of bases) {
+    if (targetBases?.length && !targetBases.includes(base)) continue;
+    const item = itemByBase.get(base);
+    if (!item) continue;
+
+    const group = executions.filter((execution) => baseSymbol(execution.symbol) === base);
+    const buyShares = sumShares(group.filter((execution) => String(execution.side).toLowerCase() === "buy"));
+    const sellShares = sumShares(group.filter((execution) => String(execution.side).toLowerCase() === "sell"));
+    const currentShares = item.isHolding ? Number(item.holdingShares ?? 0) : 0;
+    const missingShares = roundPrice(sellShares + currentShares - buyShares);
+    if (missingShares <= 0.0001) continue;
+
+    const openingPrice = inferOpeningPrice(item, group);
+    if (!openingPrice || openingPrice <= 0) continue;
+
+    const amount = roundMoney(openingPrice * missingShares);
+    const fee = calculateTradeFee(amount);
+    await tx.tradeExecution.create({
+      data: {
+        userId,
+        symbol: item.symbol,
+        side: "buy",
+        price: openingPrice,
+        shares: missingShares,
+        amount,
+        fee,
+        netCashChange: -roundMoney(amount + fee),
+        realizedPnl: null,
+        executedAt: legacyOpeningTime(item, group),
+        note: "系统迁移补齐：根据旧持仓或历史卖出记录生成期初持仓。"
+      }
+    });
+  }
+}
+
+export async function reconcileAndRebuildUserPositions(tx: TransactionClient, userId: string, symbols?: string[]) {
+  await reconcileLegacyPositions(tx, userId, symbols);
+  return rebuildUserPositions(tx, userId, symbols);
 }
 
 export async function rebuildUserPositions(tx: TransactionClient, userId: string, symbols?: string[]) {
@@ -242,4 +400,47 @@ async function findWatchlistItemBySymbol(tx: TransactionClient, userId: string, 
     select: { id: true, symbol: true }
   });
   return items.find((item) => baseSymbol(item.symbol) === targetBase) ?? null;
+}
+
+function sumShares(executions: Array<{ shares: unknown }>) {
+  return executions.reduce((sum, execution) => sum + Number(execution.shares ?? 0), 0);
+}
+
+function inferOpeningPrice(item: WatchlistPositionRow, executions: Array<{ side: unknown; price: unknown; shares: unknown; amount: unknown; fee: unknown; realizedPnl: unknown }>) {
+  const holdingPrice = Number(item.holdingPrice ?? 0);
+  if (holdingPrice > 0) return roundPrice(holdingPrice);
+
+  const sellCosts = executions
+    .filter((execution) => String(execution.side).toLowerCase() === "sell")
+    .map((execution) => inferCostBasisFromSell(execution))
+    .filter((value): value is { cost: number; shares: number } => Boolean(value));
+  const totalShares = sellCosts.reduce((sum, item) => sum + item.shares, 0);
+  const totalCost = sellCosts.reduce((sum, item) => sum + item.cost, 0);
+  if (totalShares > 0 && totalCost > 0) return roundPrice(totalCost / totalShares);
+
+  const firstSellPrice = Number(executions.find((execution) => String(execution.side).toLowerCase() === "sell")?.price ?? 0);
+  return firstSellPrice > 0 ? roundPrice(firstSellPrice) : null;
+}
+
+function inferCostBasisFromSell(execution: { amount: unknown; fee: unknown; realizedPnl: unknown; shares: unknown }) {
+  const amount = Number(execution.amount ?? 0);
+  const fee = Number(execution.fee ?? 0);
+  const realizedPnl = Number(execution.realizedPnl ?? NaN);
+  const shares = Number(execution.shares ?? 0);
+  if (!Number.isFinite(realizedPnl) || amount <= 0 || shares <= 0) return null;
+
+  const grossCostBeforeBuyFee = amount - fee - realizedPnl;
+  if (grossCostBeforeBuyFee <= 0) return null;
+  const minFeeCost = grossCostBeforeBuyFee - calculateTradeFee(0);
+  const cost = minFeeCost < TRADING_FEE_MIN_BASE
+    ? minFeeCost
+    : grossCostBeforeBuyFee / (1 + TRADING_FEE_RATE);
+  return cost > 0 ? { cost, shares } : null;
+}
+
+function legacyOpeningTime(item: WatchlistPositionRow, executions: Array<{ executedAt: Date; createdAt: Date }>) {
+  if (item.positionOpenedAt) return item.positionOpenedAt;
+  const firstExecution = executions[0];
+  if (firstExecution?.executedAt) return new Date(firstExecution.executedAt.getTime() - 60_000);
+  return new Date();
 }

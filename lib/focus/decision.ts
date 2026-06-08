@@ -14,6 +14,7 @@ import { notifyFocusDecision } from "@/lib/notifications/send";
 import { prisma } from "@/lib/prisma";
 import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantSignal, type QuantStrategyContext } from "@/lib/quant/strategy";
 import { getQuotesBatch } from "@/lib/services/quoteService";
+import { reconcileAndRebuildUserPositions } from "@/lib/trades/ledger";
 import { toNumber } from "@/lib/utils";
 
 const TRADING_FEE_RULE = {
@@ -138,6 +139,7 @@ type GenerateFocusDecisionOptions = {
 };
 
 export async function getLatestStoredFocusDecision(userId: string) {
+  await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, userId));
   const seed = await loadDecisionSeed(userId);
   const inputHash = createDecisionSignature(seed);
   const portfolioSnapshot = await loadPortfolioSnapshot(userId, seed.capital);
@@ -158,6 +160,7 @@ export async function getLatestStoredFocusDecision(userId: string) {
 
 export async function generateAndStoreFocusDecision(options: GenerateFocusDecisionOptions) {
   const source = options.source ?? "manual";
+  await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, options.userId));
   const seed = await loadDecisionSeed(options.userId);
   const inputHash = createDecisionSignature(seed);
   const cacheKey = `focus_decision:${options.userId}:${inputHash}`;
