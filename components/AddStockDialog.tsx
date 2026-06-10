@@ -5,6 +5,7 @@ import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { readJsonResponse } from "@/lib/clientApi";
 
@@ -25,7 +26,7 @@ export function AddStockDialog({ onAdded }: AddStockDialogProps) {
     const form = new FormData(event.currentTarget);
     const payload = {
       symbol: String(form.get("symbol") ?? "").toUpperCase(),
-      market: "CN",
+      market: String(form.get("market") ?? "CN").toUpperCase(),
       note: String(form.get("note") ?? ""),
       timeHorizon: "swing_trade",
       riskLevel: "medium"
@@ -66,10 +67,20 @@ export function AddStockDialog({ onAdded }: AddStockDialogProps) {
               </Button>
             </div>
             <form className="space-y-4 p-4" onSubmit={onSubmit}>
-              <label className="space-y-1.5 text-sm">
-                <span className="text-muted-foreground">股票 / ETF 代码</span>
-                <Input name="symbol" placeholder="例如 561380、600519.SH、000001.SZ" required autoFocus />
-              </label>
+              <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+                <label className="space-y-1.5 text-sm">
+                  <span className="text-muted-foreground">市场</span>
+                  <Select name="market" defaultValue="CN">
+                    <option value="CN">A 股</option>
+                    <option value="HK">港股</option>
+                    <option value="US">美股</option>
+                  </Select>
+                </label>
+                <label className="space-y-1.5 text-sm">
+                  <span className="text-muted-foreground">股票 / ETF 代码</span>
+                  <Input name="symbol" placeholder="例如 561380、600519.SH、0700.HK、NVDA" required autoFocus />
+                </label>
+              </div>
               <label className="space-y-1.5 text-sm">
                 <span className="text-muted-foreground">备注，可选</span>
                 <Textarea name="note" placeholder="例如：电网设备方向观察" />

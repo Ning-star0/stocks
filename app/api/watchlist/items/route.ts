@@ -9,12 +9,13 @@ import { prisma } from "@/lib/prisma";
 import { readRequestJson } from "@/lib/serverApi";
 import { createWatchlistItemSchema } from "@/lib/schemas";
 import { serializeWatchlistItem } from "@/lib/serializers";
+import { normalizeStockSymbolForMarket } from "@/lib/symbols";
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     const body = createWatchlistItemSchema.parse(await readRequestJson(request));
-    const symbol = normalizeSymbolForStorage(body.symbol, body.market);
+    const symbol = normalizeStockSymbolForMarket(body.symbol, body.market);
     const watchlist = await getDefaultWatchlist(user.id);
 
     const item = await prisma.watchlistItem.upsert({
@@ -70,14 +71,4 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return apiError(error);
   }
-}
-
-function normalizeSymbolForStorage(symbol: string, market: string) {
-  const normalized = symbol.trim().toUpperCase();
-  if (market.toUpperCase() !== "CN" && !/^\d{6}(\.(SH|SZ|BJ))?$/.test(normalized)) return normalized;
-  const code = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  if (!/^\d{6}$/.test(code)) return normalized;
-  if (normalized.endsWith(".SH") || normalized.endsWith(".SZ") || normalized.endsWith(".BJ")) return normalized;
-  if (/^(5|6|9)/.test(code)) return `${code}.SH`;
-  return `${code}.SZ`;
 }
