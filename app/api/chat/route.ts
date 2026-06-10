@@ -92,6 +92,7 @@ ${context}`;
       if (!reader) throw new AppError("DATA_PROVIDER_ERROR", "无法读取 AI 响应流。");
 
       const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
       // 收集完整回复文本，流结束后从里面提取 [MEMORY:...] 标签
       let fullContent = "";
 
@@ -99,32 +100,26 @@ ${context}`;
       const stream = new ReadableStream({
         async start(controller) {
           try {
+            let buffer = "";
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split("\n");
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/\r?\n/);
+              buffer = lines.pop() ?? "";
 
               for (const line of lines) {
-                // DeepSeek SSE 格式：每行 "data: {...json}"，空行分隔
-                if (!line.startsWith("data: ")) continue;
-                const data = line.slice(6).trim();
-                if (data === "[DONE]") continue; // 流结束信号
-
-                try {
-                  const parsed = JSON.parse(data) as {
-                    choices?: Array<{ delta?: { content?: string } }>;
-                  };
-                  const content = parsed.choices?.[0]?.delta?.content ?? "";
-                  if (content) {
-                    fullContent += content;
-                    controller.enqueue(new TextEncoder().encode(content));
-                  }
-                } catch {
-                  // skip unparseable lines
-                }
+                const content = parseStreamContentLine(line);
+                if (!content) continue;
+                fullContent += content;
+                controller.enqueue(encoder.encode(content));
               }
+            }
+            const trailing = parseStreamContentLine(buffer + decoder.decode());
+            if (trailing) {
+              fullContent += trailing;
+              controller.enqueue(encoder.encode(trailing));
             }
             controller.close();
 
@@ -387,4 +382,18 @@ function dedupeMemoryTexts(values: string[]) {
     output.push(cleaned);
   }
   return output;
+}
+
+function parseStreamContentLine(line: string) {
+  if (!line.startsWith("data: ")) return "";
+  const data = line.slice(6).trim();
+  if (!data || data === "[DONE]") return "";
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{ delta?: { content?: string } }>;
+    };
+    return parsed.choices?.[0]?.delta?.content ?? "";
+  } catch {
+    return "";
+  }
 }

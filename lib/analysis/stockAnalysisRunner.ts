@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
+import { stockSymbolVariants } from "@/lib/symbols";
 import { toNumber } from "@/lib/utils";
 
 export type StockAnalysisRunInput = {
@@ -100,11 +101,12 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
 
   const quote = quoteStatus.raw;
   const canonicalSymbol = quote.symbol;
+  const symbolVariants = uniqueSymbols([...stockSymbolVariants(symbol), ...stockSymbolVariants(canonicalSymbol)]);
   const history = await provider.getHistory(canonicalSymbol, "1y", "1d").catch((error) => {
     throw parseProviderError(error);
   });
   const [watchlistItem, sectorWatches, memory, focusGroup] = await Promise.all([
-    prisma.watchlistItem.findFirst({ where: { symbol: { in: [symbol, canonicalSymbol] }, watchlist: { userId } } }),
+    prisma.watchlistItem.findFirst({ where: { symbol: { in: symbolVariants }, watchlist: { userId } } }),
     prisma.sectorWatch.findMany({ where: { userId } }),
     getMemoryContent(userId),
     prisma.focusGroup.findUnique({ where: { userId } })
@@ -308,4 +310,8 @@ function cleanChinaSymbol(symbol: string): string | null {
   const cleaned = symbol.trim().toUpperCase().replace(/\.(SH|SZ|BJ)$/, "");
   if (cleaned === symbol.trim().toUpperCase()) return null;
   return cleaned;
+}
+
+function uniqueSymbols(symbols: string[]) {
+  return [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
 }

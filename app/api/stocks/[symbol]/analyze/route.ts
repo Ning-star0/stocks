@@ -13,6 +13,7 @@ import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { prisma } from "@/lib/prisma";
 import { readOptionalRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
+import { stockSymbolVariants } from "@/lib/symbols";
 import { toNumber } from "@/lib/utils";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ symbol: string }> }) {
@@ -24,12 +25,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     const forceRefresh = Boolean(body.forceRefresh);
     const analysisContext = await buildStockAnalysisContext(user.id, normalized);
     const canonicalSymbol = analysisContext.quote.symbol;
+    const symbolVariants = uniqueSymbols([...stockSymbolVariants(normalized), ...stockSymbolVariants(canonicalSymbol)]);
     const latestAnalysis = await prisma.aiAnalysis.findFirst({
-      where: { userId: user.id, symbol: { in: [normalized, canonicalSymbol] } },
+      where: { userId: user.id, symbol: { in: symbolVariants } },
       orderBy: { createdAt: "desc" }
     });
     const watchlistItem = await prisma.watchlistItem.findFirst({
-      where: { symbol: { in: [normalized, canonicalSymbol] }, watchlist: { userId: user.id } }
+      where: { symbol: { in: symbolVariants }, watchlist: { userId: user.id } }
     });
     const contextHash = createAnalysisContextHash({
       symbol: canonicalSymbol,
@@ -200,7 +202,7 @@ async function hasImportantAlertTriggered(userId: string, symbol: string) {
   const recent = await prisma.alert.findFirst({
     where: {
       userId,
-      symbol,
+      symbol: { in: stockSymbolVariants(symbol) },
       triggeredAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }
     }
   });
@@ -209,7 +211,7 @@ async function hasImportantAlertTriggered(userId: string, symbol: string) {
 
 async function findAnalysisByContextHash(userId: string, symbol: string, contextHash: string) {
   const rows = await prisma.aiAnalysis.findMany({
-    where: { userId, symbol },
+    where: { userId, symbol: { in: stockSymbolVariants(symbol) } },
     orderBy: { createdAt: "desc" },
     take: 20
   });
@@ -217,6 +219,10 @@ async function findAnalysisByContextHash(userId: string, symbol: string, context
     const input = row.inputJson as { contextHash?: string } | null;
     return input?.contextHash === contextHash && !isFallbackAnalysis(row.outputJson);
   }) ?? null;
+}
+
+function uniqueSymbols(symbols: string[]) {
+  return [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
 }
 
 function isFallbackAnalysis(outputJson: unknown) {

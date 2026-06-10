@@ -16,6 +16,7 @@ import { saveNewsAnalysis } from "@/lib/news/store";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getQuotesBatch } from "@/lib/services/quoteService";
+import { stockSymbolVariants } from "@/lib/symbols";
 
 const workerId = `${process.pid}-${randomUUID()}`;
 let lastTimeoutSweepAt = 0;
@@ -351,7 +352,7 @@ async function analyzeStockAndRecord(input: {
     forceRefresh: input.forceRefresh
   });
   const watchlistItem = await prisma.watchlistItem.findFirst({
-    where: { symbol: input.symbol, watchlist: { userId: input.userId } }
+    where: { symbol: { in: stockSymbolVariants(input.symbol) }, watchlist: { userId: input.userId } }
   });
   const history = await createDecisionHistoryFromAnalysis({
     userId: input.userId,
@@ -421,7 +422,7 @@ async function waitForFocusStockAnalyses(jobId: string, runId?: string | null) {
 async function saveFallbackAnalysisForFailedStock(userId: string, symbol: string, errorMessage: string) {
   try {
     const existing = await prisma.aiAnalysis.findFirst({
-      where: { userId, symbol },
+      where: { userId, symbol: { in: stockSymbolVariants(symbol) } },
       orderBy: { createdAt: "desc" }
     });
 

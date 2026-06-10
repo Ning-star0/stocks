@@ -16,6 +16,7 @@ import { calculateIndicators } from "@/lib/indicators";
 import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
+import { stockSymbolVariants } from "@/lib/symbols";
 import type { AiAnalysisResult, Candle, IndicatorSnapshot } from "@/lib/types";
 import { formatNumber, formatPercent, formatPriceValue, isIndexSymbol, toNumber } from "@/lib/utils";
 
@@ -52,8 +53,7 @@ export default async function StockDetailPage({
   const provider = getStockDataProvider();
   const quote = await getQuote(normalized, { allowStale: true });
   const quoteSymbol = quote.raw?.symbol ?? quote.symbol;
-  // A 股代码可能带 .SH/.SZ/.BJ 后缀，查询时把几种格式都覆盖
-  const symbolVariants = [normalized, quoteSymbol, ...expandChinaSymbol(normalized)];
+  const symbolVariants = uniqueSymbols([...stockSymbolVariants(normalized), ...stockSymbolVariants(quoteSymbol)]);
   const candles = quote.raw ? await safeGetHistory(provider, quoteSymbol, range, interval) : [];
 
   const [latestAnalysis, watchlistItem] = await Promise.all([
@@ -82,7 +82,7 @@ export default async function StockDetailPage({
     ? await prisma.decisionHistory.findFirst({
         where: {
           userId: user.id,
-          symbol: latestDecisionHistory.symbol,
+          symbol: { in: stockSymbolVariants(latestDecisionHistory.symbol) },
           decisionTime: { lt: latestDecisionHistory.decisionTime }
         },
         orderBy: { decisionTime: "desc" }
@@ -337,9 +337,6 @@ function isIntraday(interval: string) {
   return ["1m", "5m", "15m", "30m", "60m", "1h"].includes(interval);
 }
 
-// 6 位纯数字代码展开成可能的 A 股格式，让 DB 查询能匹配上各种后缀
-function expandChinaSymbol(normalized: string): string[] {
-  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  if (!/^\d{6}$/.test(base)) return [];
-  return [base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
+function uniqueSymbols(symbols: string[]) {
+  return [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
 }

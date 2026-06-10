@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { getAiConfig } from "@/lib/ai/config";
 import { buildDecisionChange } from "@/lib/decision/change";
 import { prisma } from "@/lib/prisma";
+import { sameStockSymbol, stockSymbolVariants } from "@/lib/symbols";
 
 type RunStatus = "running" | "success" | "partial_failed" | "failed";
 type RunItemStatus = "running" | "success" | "failed" | "skipped";
@@ -195,7 +196,7 @@ export async function createDecisionHistoryFromAnalysis(input: {
   const actionText = stringValue(firstAction?.action) || stringValue(output.entryAdvice?.action) || stringValue(output.holdAdvice?.action);
   const action = normalizeAction(actionText);
   const previous = await prisma.decisionHistory.findFirst({
-    where: { userId: input.userId, symbol: input.symbol },
+    where: { userId: input.userId, symbol: { in: stockSymbolVariants(input.symbol) } },
     orderBy: { decisionTime: "desc" }
   });
   const strategyDirection = normalizeTrend(output.trend);
@@ -253,12 +254,12 @@ export async function createDecisionHistoryFromFocusDecision(input: {
   for (const row of ranking) {
     const symbol = stringValue(row.symbol);
     if (!symbol) continue;
-    const candidate = input.candidates?.find((item) => sameSymbol(item.symbol, symbol));
-    const order = orders.find((item) => sameSymbol(stringValue(item.symbol), symbol));
-    const sellOrder = sellOrders.find((item) => sameSymbol(stringValue(item.symbol), symbol));
+    const candidate = input.candidates?.find((item) => sameStockSymbol(item.symbol, symbol));
+    const order = orders.find((item) => sameStockSymbol(stringValue(item.symbol), symbol));
+    const sellOrder = sellOrders.find((item) => sameStockSymbol(stringValue(item.symbol), symbol));
     const action = normalizeAction(stringValue(sellOrder?.action) || stringValue(order?.action) || stringValue(row.view));
     const previous = await prisma.decisionHistory.findFirst({
-      where: { userId: input.userId, symbol },
+      where: { userId: input.userId, symbol: { in: stockSymbolVariants(symbol) } },
       orderBy: { decisionTime: "desc" }
     });
     const strategyDirection = normalizeTrend(candidate?.latestAnalysis?.trend ?? stringValue(row.view));
@@ -367,11 +368,7 @@ function stringValue(value: unknown) {
 }
 
 function sameSymbol(a?: string | null, b?: string | null) {
-  return normalizeSymbol(a) === normalizeSymbol(b);
-}
-
-function normalizeSymbol(value?: string | null) {
-  return (value || "").toUpperCase().replace(/\.(SH|SZ|BJ)$/, "");
+  return sameStockSymbol(a, b);
 }
 
 function toDecisionSnapshot(value?: { action?: string | null; strategyDirection?: string | null; riskLevel?: string | null; confidence?: Prisma.Decimal | number | null } | null) {
