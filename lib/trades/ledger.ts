@@ -26,6 +26,10 @@ type WatchlistPositionRow = {
   positionOpenedAt: Date | null;
 };
 
+type LedgerPositionOptions = {
+  excludeExecutionId?: string | null;
+};
+
 export function roundMoney(value: number) {
   return Number(value.toFixed(2));
 }
@@ -145,9 +149,15 @@ export async function upsertFeedbackTradeAndRebuild(
   if (!item) throw new AppError("BAD_REQUEST", `自选股中找不到 ${symbol}，无法同步持仓。`);
 
   await reconcileLegacyPositions(tx, input.userId, [item.symbol]);
+  const existingExecution = await tx.tradeExecution.findUnique({
+    where: { feedbackId: input.feedbackId },
+    select: { id: true }
+  });
 
   if (input.side === "sell") {
-    const current = await calculateLedgerPosition(tx, input.userId, item.symbol);
+    const current = await calculateLedgerPosition(tx, input.userId, item.symbol, {
+      excludeExecutionId: existingExecution?.id ?? null
+    });
     if (input.shares > current.shares + 0.0001) {
       throw new AppError("BAD_REQUEST", `卖出数量不能超过当前流水持仓。当前 ${current.shares || 0} 股/份，计划卖出 ${input.shares} 股/份。`);
     }
@@ -351,7 +361,7 @@ export async function rebuildUserPositions(tx: TransactionClient, userId: string
   return serialized;
 }
 
-export async function calculateLedgerPosition(tx: TransactionClient, userId: string, symbol: string) {
+export async function calculateLedgerPosition(tx: TransactionClient, userId: string, symbol: string, options: LedgerPositionOptions = {}) {
   const symbolBase = baseSymbol(symbol);
   const executions = await tx.tradeExecution.findMany({
     where: { userId },
@@ -360,6 +370,7 @@ export async function calculateLedgerPosition(tx: TransactionClient, userId: str
   const position: LedgerPosition = { baseSymbol: symbolBase, shares: 0, avgPrice: 0, openedAt: null };
 
   for (const execution of executions) {
+    if (options.excludeExecutionId && execution.id === options.excludeExecutionId) continue;
     if (baseSymbol(execution.symbol) !== symbolBase) continue;
     const side = String(execution.side).toLowerCase();
     const price = Number(execution.price);

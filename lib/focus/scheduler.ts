@@ -22,8 +22,7 @@ export async function checkFocusSchedules() {
     });
 
     for (const group of groups) {
-      // A 股代码统一去掉后缀，避免数据源查不到
-      const symbols = group.symbols.map((s) => s.replace(/\.(SH|SZ|BJ)$/, "").toUpperCase());
+      const symbols = normalizeFocusSymbols(group.symbols);
       // 先刷新行情
       try {
         await getQuotesBatch(symbols, { cacheOnly: false, forceRefresh: true, allowStale: true });
@@ -164,6 +163,10 @@ function attachSymbol(item: NewsItem, symbol: string): NewsItem {
     symbols: [...new Set([...(item.symbols ?? []), symbol].map((s) => s.trim().toUpperCase()).filter(Boolean))],
     sectors: item.sectors ?? []
   };
+}
+
+function normalizeFocusSymbols(symbols: string[]) {
+  return [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
 }
 
 function isScheduledTimeDue(time: string | null, lastRun: Date | null, now: Date) {
