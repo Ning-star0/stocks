@@ -132,16 +132,13 @@ async function finishRunItemByRunAndSymbol(input: {
 }
 
 async function findRunItemToFinish(runId: string, symbol: string) {
-  const running = await prisma.analysisRunItem.findFirst({
-    where: { runId, symbol, status: "running" },
+  const rows = await prisma.analysisRunItem.findMany({
+    where: { runId },
     orderBy: { createdAt: "desc" }
   });
-  if (running) return running;
-
-  return prisma.analysisRunItem.findFirst({
-    where: { runId, symbol },
-    orderBy: { createdAt: "desc" }
-  });
+  return rows.find((item) => item.status === "running" && sameSymbol(item.symbol, symbol))
+    ?? rows.find((item) => sameSymbol(item.symbol, symbol))
+    ?? null;
 }
 
 export async function refreshAnalysisRun(runId?: string | null) {

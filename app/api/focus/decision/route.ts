@@ -3,7 +3,7 @@ import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRun
 import { getFocusStockAnalysisConcurrency } from "@/lib/ai/config";
 import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
-import { apiError } from "@/lib/errors";
+import { apiError, AppError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
 import { prisma } from "@/lib/prisma";
 
@@ -27,12 +27,15 @@ export async function POST() {
   try {
     const user = await getCurrentUser();
     const focus = await prisma.focusGroup.findUnique({ where: { userId: user.id } });
+    const symbols = focus?.symbols ?? [];
+    if (!symbols.length) throw new AppError("BAD_REQUEST", "请先在今日关注中选择股票。");
+
     const run = await createAnalysisRun({
       userId: user.id,
       runType: "manual",
-      totalSymbols: focus?.symbols.length ?? 0
+      totalSymbols: symbols.length
     });
-    await mapWithConcurrency(focus?.symbols ?? [], await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
+    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
       forceRefresh: true,
