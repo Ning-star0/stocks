@@ -5,6 +5,7 @@ import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuotesBatch } from "@/lib/services/quoteService";
+import { stockSymbolVariants } from "@/lib/symbols";
 
 export async function GET() {
   try {
@@ -41,7 +42,7 @@ export async function GET() {
 }
 
 async function loadLatestAnalyses(userId: string, symbols: string[]) {
-  const variants = [...new Set(symbols.flatMap(symbolVariants))];
+  const variants = [...new Set(symbols.flatMap(stockSymbolVariants))];
   const analyses = await prisma.aiAnalysis.findMany({
     where: { userId, symbol: { in: variants } },
     orderBy: { createdAt: "desc" },
@@ -49,7 +50,7 @@ async function loadLatestAnalyses(userId: string, symbols: string[]) {
   });
   const output: Record<string, { id: string; createdAt: Date; outputJson: unknown } | null> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
   for (const symbol of symbols) {
-    const match = analyses.find((analysis) => symbolVariants(symbol).includes(analysis.symbol));
+    const match = analyses.find((analysis) => stockSymbolVariants(symbol).includes(analysis.symbol));
     if (!match) continue;
     output[symbol] = {
       id: match.id,
@@ -58,11 +59,4 @@ async function loadLatestAnalyses(userId: string, symbols: string[]) {
     };
   }
   return output;
-}
-
-function symbolVariants(symbol: string) {
-  const normalized = symbol.toUpperCase();
-  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  if (!/^\d{6}$/.test(base)) return [normalized];
-  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }

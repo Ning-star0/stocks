@@ -9,6 +9,7 @@ import { MARKET_INDICES } from "@/lib/marketIndices";
 import { prisma } from "@/lib/prisma";
 import { serializeAlert, serializeWatchlistItem } from "@/lib/serializers";
 import { getQuoteProviderInfo, getQuotesBatch } from "@/lib/services/quoteService";
+import { stockSymbolVariants } from "@/lib/symbols";
 
 export async function GET(request: NextRequest) {
   try {
@@ -101,7 +102,7 @@ async function loadLatestAnalyses(userId: string, symbols: string[]) {
   const output: Record<string, { id: string; createdAt: Date; outputJson: Prisma.JsonValue } | null> = Object.fromEntries(symbols.map((symbol) => [symbol, null]));
   if (!symbols.length) return output;
 
-  const variants = [...new Set(symbols.flatMap(symbolVariants))];
+  const variants = [...new Set(symbols.flatMap(stockSymbolVariants))];
   const rows = await prisma.aiAnalysis.findMany({
     where: { userId, symbol: { in: variants } },
     orderBy: { createdAt: "desc" },
@@ -109,7 +110,7 @@ async function loadLatestAnalyses(userId: string, symbols: string[]) {
   });
 
   for (const symbol of symbols) {
-    const match = rows.find((row) => symbolVariants(symbol).includes(row.symbol));
+    const match = rows.find((row) => stockSymbolVariants(symbol).includes(row.symbol));
     if (!match) continue;
     output[symbol] = {
       id: match.id,
@@ -118,13 +119,6 @@ async function loadLatestAnalyses(userId: string, symbols: string[]) {
     };
   }
   return output;
-}
-
-function symbolVariants(symbol: string) {
-  const normalized = symbol.toUpperCase();
-  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  if (!/^\d{6}$/.test(base)) return [normalized];
-  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }
 
 function numberEnv(name: string, fallback: number) {

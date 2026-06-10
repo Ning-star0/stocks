@@ -3,6 +3,7 @@ import { logApiUsage } from "@/lib/apiUsage";
 import { getCache, setCache } from "@/lib/cache";
 import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { getStockDataProvider } from "@/lib/stock-data";
+import { stockSymbolVariants } from "@/lib/symbols";
 import type { Quote } from "@/lib/types";
 
 export type QuoteStatus = "normal" | "cached" | "stale" | "unavailable" | "error";
@@ -40,7 +41,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
   if (options.cacheOnly) {
     if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale");
     if (options.allowStale) {
-      const snapshot = await readLatestSnapshotForSymbols(symbolVariants(normalized));
+      const snapshot = await readLatestSnapshotForSymbols(stockSymbolVariants(normalized));
       if (snapshot) return snapshot;
     }
     return unavailableQuote(normalized, cached ? "stale" : "unavailable");
@@ -65,7 +66,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
     });
     if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale", errorMessage(error));
     if (options.allowStale) {
-      const snapshot = await readLatestSnapshotForSymbols(symbolVariants(normalized));
+      const snapshot = await readLatestSnapshotForSymbols(stockSymbolVariants(normalized));
       if (snapshot) return { ...snapshot, error: errorMessage(error) };
     }
     return unavailableQuote(normalized, "error", errorMessage(error));
@@ -146,20 +147,7 @@ async function readLatestSnapshotForSymbols(symbols: string[]): Promise<QuoteWit
 }
 
 function quoteCacheKeys(symbol: string) {
-  return symbolVariants(symbol).map((item) => `quote:${item}`);
-}
-
-function symbolVariants(symbol: string) {
-  const normalized = symbol.toUpperCase();
-  const compact = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  const variants = [normalized];
-  if (/^\d{6}$/.test(compact)) {
-    variants.push(compact);
-    if (/^(5|6|9)/.test(compact)) variants.push(`${compact}.SH`);
-    else if (/^(0|1|2|3)/.test(compact)) variants.push(`${compact}.SZ`);
-    else variants.push(`${compact}.BJ`);
-  }
-  return [...new Set(variants)];
+  return stockSymbolVariants(symbol).map((item) => `quote:${item}`);
 }
 
 function toQuoteWithStatus(quote: Quote, status: QuoteStatus, error?: string): QuoteWithStatus {
