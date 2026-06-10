@@ -7,6 +7,19 @@ import { prisma } from "@/lib/prisma";
 type RunStatus = "running" | "success" | "partial_failed" | "failed";
 type RunItemStatus = "running" | "success" | "failed" | "skipped";
 type RunType = "manual" | "scheduled";
+type AnalysisRunItemFinishData = {
+  status: RunItemStatus;
+  decisionId: string | null;
+  aiStatus: string | null;
+  quoteStatus: string | null;
+  newsStatus: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+  aiDurationMs: number | null;
+  quoteDurationMs: number | null;
+  newsDurationMs: number | null;
+  fallbackUsed: boolean;
+};
 
 type AnalysisOutput = {
   trend?: string;
@@ -86,28 +99,49 @@ export async function finishAnalysisRunItem(input: {
 
   const row = input.itemId
     ? await prisma.analysisRunItem.update({ where: { id: input.itemId }, data })
-    : await prisma.analysisRunItem.upsert({
-        where: {
-          id: "__never__"
-        },
-        update: data,
-        create: {
-          runId: input.runId as string,
-          symbol: input.symbol as string,
-          ...data
-        }
-      }).catch(async () => {
-        return prisma.analysisRunItem.create({
-          data: {
-            runId: input.runId as string,
-            symbol: input.symbol as string,
-            ...data
-          }
-        });
+    : await finishRunItemByRunAndSymbol({
+        runId: input.runId as string,
+        symbol: input.symbol as string,
+        data
       });
 
   await refreshAnalysisRun(row.runId);
   return row;
+}
+
+async function finishRunItemByRunAndSymbol(input: {
+  runId: string;
+  symbol: string;
+  data: AnalysisRunItemFinishData;
+}) {
+  const existing = await findRunItemToFinish(input.runId, input.symbol);
+  if (existing) {
+    return prisma.analysisRunItem.update({
+      where: { id: existing.id },
+      data: input.data
+    });
+  }
+
+  return prisma.analysisRunItem.create({
+    data: {
+      runId: input.runId,
+      symbol: input.symbol,
+      ...input.data
+    }
+  });
+}
+
+async function findRunItemToFinish(runId: string, symbol: string) {
+  const running = await prisma.analysisRunItem.findFirst({
+    where: { runId, symbol, status: "running" },
+    orderBy: { createdAt: "desc" }
+  });
+  if (running) return running;
+
+  return prisma.analysisRunItem.findFirst({
+    where: { runId, symbol },
+    orderBy: { createdAt: "desc" }
+  });
 }
 
 export async function refreshAnalysisRun(runId?: string | null) {
