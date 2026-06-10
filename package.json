@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=\"--dns-result-order=ipv4first\" next dev",
     "build": "NODE_OPTIONS=\"--dns-result-order=ipv4first\" next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public",
-    "start": "NODE_OPTIONS=\"--dns-result-order=ipv4first\" next start",
+    "start": "HOSTNAME=0.0.0.0 PORT=${PORT:-3000} NODE_OPTIONS=\"--dns-result-order=ipv4first\" node .next/standalone/server.js",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

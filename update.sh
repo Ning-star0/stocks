@@ -13,7 +13,7 @@ pm2 delete stocks 2>/dev/null || true
 fuser -k 3000/tcp 2>/dev/null || true
 sleep 1
 cp .env .next/standalone/.env
-pm2 start node --name "stocks" -- .next/standalone/server.js
+pm2 start npm --name "stocks" -- run start
 pm2 restart worker 2>/dev/null || pm2 start npm --name "worker" -- run worker
 pm2 save
 echo "=== 完成 ===" && pm2 list
