@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, MouseEvent } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { motionClassNames } from "@/lib/motion";
 import type { Candle } from "@/lib/types";
@@ -57,6 +57,7 @@ export function StockChart({
   unit?: string;
   interval?: string;
 }) {
+  const clipPathBaseId = useId().replace(/:/g, "");
   const [cursor, setCursor] = useState<CursorPoint | null>(null);
   const pendingCursorRef = useRef<CursorPoint | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -70,6 +71,15 @@ export function StockChart({
   const scale = useMemo(() => buildScale(data, showMovingAverages), [data, showMovingAverages]);
   const candleWidth = Math.max(2, Math.min(9, scale.step * 0.58));
   const latestPriceLabel = isTimeSharing ? intradayLatestPriceLabel(latest) : "收盘价";
+  const priceClipId = `${clipPathBaseId}-price`;
+  const volumeClipId = `${clipPathBaseId}-volume`;
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+  }, []);
 
   function handleMove(event: MouseEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -166,10 +176,10 @@ export function StockChart({
             style={{ fontFamily: SVG_FONT_FAMILY }}
           >
             <defs>
-              <clipPath id="price-clip">
+              <clipPath id={priceClipId}>
                 <rect x={CHART_LEFT} y={PRICE_TOP} width={CHART_WIDTH} height={PRICE_HEIGHT} />
               </clipPath>
-              <clipPath id="volume-clip">
+              <clipPath id={volumeClipId}>
                 <rect x={CHART_LEFT} y={VOLUME_TOP} width={CHART_WIDTH} height={VOLUME_HEIGHT} />
               </clipPath>
             </defs>
@@ -177,7 +187,7 @@ export function StockChart({
             <rect x={0} y={0} width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} className="fill-white dark:fill-[#0d1118]" />
             <Grid scale={scale} />
 
-            <g clipPath="url(#price-clip)">
+            <g clipPath={`url(#${priceClipId})`}>
               {isTimeSharing ? (
                 <>
                   <path d={buildAreaPath(data, scale)} fill="rgba(20,184,166,0.12)" />
@@ -195,7 +205,7 @@ export function StockChart({
               )}
             </g>
 
-            <g clipPath="url(#volume-clip)">
+            <g clipPath={`url(#${volumeClipId})`}>
               {data.map((point, index) => (
                 <VolumeBar key={`${point.timestamp}-volume-${index}`} point={point} index={index} scale={scale} />
               ))}
@@ -211,7 +221,10 @@ export function StockChart({
 }
 
 function buildChartData(candles: Candle[], isIntraday: boolean): ChartPoint[] {
-  const ordered = [...candles].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const ordered = candles
+    .map(normalizeCandle)
+    .filter((item): item is Candle => item !== null)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const closes = ordered.map((item) => item.close);
   const ma5 = buildMovingAverageSeries(closes, 5);
   const ma10 = buildMovingAverageSeries(closes, 10);
@@ -227,6 +240,27 @@ function buildChartData(candles: Candle[], isIntraday: boolean): ChartPoint[] {
     ma20: ma20[index],
     ma60: ma60[index]
   }));
+}
+
+function normalizeCandle(candle: Candle): Candle | null {
+  const timestampMs = new Date(candle.timestamp).getTime();
+  const open = finiteNumber(candle.open);
+  const high = finiteNumber(candle.high);
+  const low = finiteNumber(candle.low);
+  const close = finiteNumber(candle.close);
+  if (!Number.isFinite(timestampMs) || open === null || high === null || low === null || close === null) return null;
+  return {
+    ...candle,
+    open,
+    high,
+    low,
+    close,
+    volume: Math.max(0, finiteNumber(candle.volume) ?? 0)
+  };
+}
+
+function finiteNumber(value: number) {
+  return Number.isFinite(value) ? value : null;
 }
 
 function formatDataDateRange(data: ChartPoint[], isIntraday: boolean) {

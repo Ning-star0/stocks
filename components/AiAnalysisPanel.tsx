@@ -268,9 +268,9 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 
 function ScopeLine({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="flex justify-between gap-3">
-      <span>{label}</span>
-      <span className="text-right text-foreground">{value || "--"}</span>
+    <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words text-right text-foreground">{value || "--"}</span>
     </div>
   );
 }
@@ -296,9 +296,9 @@ function LevelList({ title, values, currency, symbol, unit }: { title: string; v
 
 function AdviceRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-2 rounded-md bg-background/40 px-3 py-2">
+    <div className="grid gap-1 rounded-md bg-background/40 px-3 py-2 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value}</span>
+      <span className="min-w-0 break-words font-medium sm:text-right">{value}</span>
     </div>
   );
 }
