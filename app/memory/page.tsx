@@ -6,7 +6,9 @@ import { Bot, Loader2, Plus, Save, Trash2, UserRoundPen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageContainer, SectionHeader } from "@/components/ui/layout";
 import { Textarea } from "@/components/ui/textarea";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type MemoryEntry = {
   id: string;
@@ -41,8 +43,7 @@ export default function MemoryPage() {
     setMessage(null);
     try {
       const response = await fetch("/api/memory", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message ?? "加载失败");
+      const data = await readJsonResponse<MemoryState>(response);
       setState(data);
       setRawContent(data.content ?? "");
     } catch (error) {
@@ -63,8 +64,7 @@ export default function MemoryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text })
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message ?? "添加失败");
+      await readJsonResponse(response);
       setNewMemory("");
       await load();
       setMessage("已添加");
@@ -81,8 +81,7 @@ export default function MemoryPage() {
     setMessage(null);
     try {
       const response = await fetch(`/api/memory?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message ?? "删除失败");
+      await readJsonResponse(response);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除失败");
@@ -100,8 +99,7 @@ export default function MemoryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: rawContent })
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error?.message ?? "保存失败");
+      await readJsonResponse(response);
       await load();
       setMessage("已保存");
       setTimeout(() => setMessage(null), 2500);
@@ -121,22 +119,18 @@ export default function MemoryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 py-4">
-      <div className="rounded-lg border border-border/80 bg-card/80 px-5 py-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-normal">交易记忆</h1>
-              <Badge variant="secondary">{state.entries.length} 条</Badge>
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              AI 会在对话中自动沉淀你的偏好；你也可以手动添加明确规则。所有股票分析、聊天和策略观察都会参考这些记忆。
-            </p>
-            {state.updatedAt ? <p className="mt-2 text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</p> : null}
-          </div>
-          {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
-        </div>
-      </div>
+    <PageContainer className="max-w-5xl">
+      <SectionHeader
+        title="交易记忆"
+        description="AI 会在对话中自动沉淀你的偏好；你也可以手动添加明确规则。所有股票分析、聊天和策略观察都会参考这些记忆。"
+        action={
+          <>
+            <Badge variant="secondary">{state.entries.length} 条</Badge>
+            {state.updatedAt ? <span className="text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</span> : null}
+            {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
+          </>
+        }
+      />
 
       <Card className="bg-card/90">
         <CardHeader>
@@ -189,7 +183,7 @@ export default function MemoryPage() {
           </CardContent>
         ) : null}
       </Card>
-    </div>
+    </PageContainer>
   );
 }
 

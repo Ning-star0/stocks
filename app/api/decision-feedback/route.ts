@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { feedbackActionLabel, normalizeFeedbackAction, verifyDecisionFeedbackToken } from "@/lib/decisionFeedback";
 import { apiError, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import {
   assertValidTradeShares,
   baseSymbol,
@@ -141,7 +142,7 @@ async function assertCanWriteFeedback(input: { userId: string; decisionId: strin
 async function parseFeedbackInput(request: NextRequest) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
-    const body = await request.json().catch(() => ({}));
+    const body = await readRequestJson<Record<string, unknown>>(request);
     return {
       decisionId: String(body.decisionId ?? ""),
       token: String(body.token ?? ""),
@@ -150,7 +151,7 @@ async function parseFeedbackInput(request: NextRequest) {
       executedPrice: body.executedPrice,
       executedShares: body.executedShares,
       tradeSymbol: body.tradeSymbol,
-      tradeSide: body.tradeSide ?? body.tradeSymbol,
+      tradeSide: body.tradeSide,
       respondWithJson: true
     };
   }
@@ -163,7 +164,7 @@ async function parseFeedbackInput(request: NextRequest) {
     executedPrice: form.get("executedPrice"),
     executedShares: form.get("executedShares"),
     tradeSymbol: form.get("tradeSymbol"),
-    tradeSide: form.get("tradeSide") ?? form.get("tradeSymbol"),
+    tradeSide: form.get("tradeSide"),
     respondWithJson: false
   };
 }

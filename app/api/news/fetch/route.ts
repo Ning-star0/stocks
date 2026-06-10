@@ -19,6 +19,7 @@ import {
 import { searchRelatedNews } from "@/lib/news/webSearch";
 import { serializeNewsItem, upsertNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
+import { readOptionalRequestJson } from "@/lib/serverApi";
 import { getQuote } from "@/lib/services/quoteService";
 import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
@@ -26,7 +27,7 @@ import type { NewsItem } from "@/lib/types";
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json().catch(() => ({}));
+    const body = await readOptionalRequestJson<Record<string, unknown>>(request);
     const requestedSymbol = typeof body.symbol === "string" ? body.symbol.trim().toUpperCase() : null;
     const scope = typeof body.scope === "string" ? body.scope : "all";
     const provider = getNewsProvider();

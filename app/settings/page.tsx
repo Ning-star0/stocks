@@ -12,6 +12,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageContainer, SectionHeader } from "@/components/ui/layout";
 import { Select } from "@/components/ui/select";
+import { readJsonResponse } from "@/lib/clientApi";
+
+type AiSettingsResponse = {
+  apiKeyMasked?: string | null;
+  baseUrl?: string;
+  model?: string;
+  flagshipModel?: string;
+  provider?: string;
+  standardModel?: string;
+  costCurrency?: string;
+  flagshipInputPricePerMillion?: number;
+  flagshipOutputPricePerMillion?: number;
+  standardInputPricePerMillion?: number;
+  standardOutputPricePerMillion?: number;
+  focusStockAnalysisConcurrency?: number;
+};
+
+type NotificationSettingsResponse = {
+  enabled?: boolean;
+  provider?: string;
+  hasWebhook?: boolean;
+  corpId?: string;
+  agentId?: string;
+  toUser?: string;
+  hasAppSecret?: boolean;
+};
 
 export default function SettingsPage() {
   // 密钥输入框始终为空，不存掩码值——之前把 "sk-abc***xyz" 写进 DB 的 bug 就出在这
@@ -57,10 +83,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetch("/api/settings/ai")
-      .then((r) => r.json())
+      .then((response) => readJsonResponse<AiSettingsResponse>(response))
       .then((data) => {
         if (data.baseUrl) setBaseUrl(data.baseUrl);
-        if (data.flagshipModel || data.model) setModel(data.flagshipModel || data.model);
+        const nextFlagshipModel = data.flagshipModel || data.model;
+        if (nextFlagshipModel) setModel(nextFlagshipModel);
         if (data.provider) setAiProvider(data.provider);
         if (data.standardModel) setStandardModel(data.standardModel);
         if (data.costCurrency) setCostCurrency(data.costCurrency);
@@ -73,7 +100,7 @@ export default function SettingsPage() {
       })
       .catch(() => {});
     fetch("/api/settings/notifications")
-      .then((r) => r.json())
+      .then((response) => readJsonResponse<NotificationSettingsResponse>(response))
       .then((data) => {
         setPushEnabled(Boolean(data.enabled));
         if (data.provider) setPushProvider(data.provider);
@@ -109,7 +136,7 @@ export default function SettingsPage() {
           focusStockAnalysisConcurrency: focusConcurrency
         })
       });
-      if (!res.ok) throw new Error((await res.json()).error?.message ?? "保存失败");
+      await readJsonResponse(res);
       setSaved(true);
       setApiKey("");
       setTimeout(() => setSaved(false), 3000);
@@ -130,8 +157,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: apiKey || undefined, baseUrl, model })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message ?? "连接测试失败");
+      const data = await readJsonResponse<{ model: string; baseUrl: string; latencyMs: number }>(res);
       setTestResult(`连接成功：${data.model} | ${data.baseUrl} | ${data.latencyMs}ms`);
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : "连接测试失败");
@@ -157,8 +183,7 @@ export default function SettingsPage() {
           toUser: pushToUser || undefined
         })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message ?? "保存推送配置失败");
+      const data = await readJsonResponse<NotificationSettingsResponse>(res);
       setPushHasWebhook(Boolean(data.hasWebhook));
       setPushHasAppSecret(Boolean(data.hasAppSecret));
       setPushWebhook("");
@@ -176,8 +201,7 @@ export default function SettingsPage() {
     setPushMessage(null);
     try {
       const res = await fetch("/api/settings/notifications", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message ?? "测试推送失败");
+      await readJsonResponse(res);
       setPushMessage("测试推送已发送");
     } catch (err) {
       setPushMessage(err instanceof Error ? err.message : "测试推送失败");

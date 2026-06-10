@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
 import { AppError, apiError } from "@/lib/errors";
 import { addMemoryEntries, deleteMemoryEntry, getMemoryState, updateMemory } from "@/lib/memory";
+import { readRequestJson } from "@/lib/serverApi";
 
 export async function GET() {
   try {
@@ -17,7 +18,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json();
+    const body = await readRequestJson<{ text?: unknown }>(request);
     const text = String(body.text ?? "").trim();
     if (!text) throw new AppError("BAD_REQUEST", "记忆内容不能为空。");
     if (text.length > 1000) throw new AppError("BAD_REQUEST", "单条记忆不能超过 1000 字。");
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json();
+    const body = await readRequestJson<{ content?: unknown }>(request);
     const content = String(body.content ?? "").trim();
     if (content.length > 20000) throw new AppError("BAD_REQUEST", "记忆原文不能超过 20000 字。");
     await updateMemory(user.id, content);

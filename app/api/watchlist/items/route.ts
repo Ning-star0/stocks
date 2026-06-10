@@ -6,13 +6,14 @@ import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { createWatchlistItemSchema } from "@/lib/schemas";
 import { serializeWatchlistItem } from "@/lib/serializers";
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = createWatchlistItemSchema.parse(await request.json());
+    const body = createWatchlistItemSchema.parse(await readRequestJson(request));
     const symbol = normalizeSymbolForStorage(body.symbol, body.market);
     const watchlist = await getDefaultWatchlist(user.id);
 

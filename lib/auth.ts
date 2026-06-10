@@ -3,11 +3,10 @@ import { promisify } from "node:util";
 
 import { cookies } from "next/headers";
 
+import { AUTH_COOKIE_NAME } from "@/lib/authConstants";
 import { AppError } from "@/lib/errors";
 
 const scrypt = promisify(scryptCallback);
-
-export const AUTH_COOKIE_NAME = "stock_ai_session";
 
 type SessionPayload = {
   email: string;

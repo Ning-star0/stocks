@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StockChart } from "@/components/StockChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { readJsonResponse } from "@/lib/clientApi";
 import type { Candle } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -82,8 +83,7 @@ export function StockChartPanel({
       const response = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/history?${params.toString()}`, {
         cache: "no-store"
       });
-      const json = await readJsonResponse(response);
-      if (!response.ok) throw new Error(json?.error?.message ?? "行情数据加载失败。");
+      const json = await readJsonResponse<{ candles?: Candle[] }>(response);
       if (requestId === requestIdRef.current) {
         const nextCandles = Array.isArray(json.candles) ? json.candles : [];
         if (nextCandles.length) {
@@ -209,13 +209,4 @@ function shouldRefreshIntradayChart() {
   if (day === 0 || day === 6) return false;
   const minutes = now.getHours() * 60 + now.getMinutes();
   return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 35) || (minutes >= 12 * 60 + 55 && minutes <= 15 * 60 + 5);
-}
-
-async function readJsonResponse(response: Response) {
-  const text = await response.text();
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return { error: { message: response.ok ? "行情数据格式异常。" : `行情接口返回异常（HTTP ${response.status}）。` } };
-  }
 }

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/currentUser";
-import { AppError, apiError } from "@/lib/errors";
+import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
+import { focusGroupSchema } from "@/lib/schemas";
 
 export async function GET() {
   try {
@@ -18,38 +20,25 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json();
-
-    const capital = body.capital != null ? Number(body.capital) : null;
-    if (capital !== null && (!Number.isFinite(capital) || capital <= 0)) throw new AppError("BAD_REQUEST", "本金须为正数。");
-
-    const symbols = Array.isArray(body.symbols) ? body.symbols.map((s: string) => String(s).trim().toUpperCase()).filter(Boolean) : [];
-    if (!symbols.length) throw new AppError("BAD_REQUEST", "请至少选择一只股票。");
-
-    const analysisTimes = Array.isArray(body.analysisTimes)
-      ? body.analysisTimes.map((t: string) => String(t).trim()).filter((t: string) => /^\d{1,2}:\d{2}$/.test(t))
-      : [];
-
-    const newsFetchTime = String(body.newsFetchTime ?? "09:30").trim();
-    if (!/^\d{1,2}:\d{2}$/.test(newsFetchTime)) throw new AppError("BAD_REQUEST", "新闻抓取时间格式应为 HH:mm。");
+    const body = focusGroupSchema.parse(await readRequestJson(request));
 
     const group = await prisma.focusGroup.upsert({
       where: { userId: user.id },
       update: {
-        name: String(body.name ?? "今日关注").trim() || "今日关注",
-        symbols,
-        capital: capital ?? null,
-        newsFetchTime,
-        analysisTimes,
+        name: body.name,
+        symbols: body.symbols,
+        capital: body.capital ?? null,
+        newsFetchTime: body.newsFetchTime,
+        analysisTimes: body.analysisTimes,
         updatedAt: new Date()
       },
       create: {
         userId: user.id,
-        name: String(body.name ?? "今日关注").trim() || "今日关注",
-        symbols,
-        capital: capital ?? null,
-        newsFetchTime,
-        analysisTimes
+        name: body.name,
+        symbols: body.symbols,
+        capital: body.capital ?? null,
+        newsFetchTime: body.newsFetchTime,
+        analysisTimes: body.analysisTimes
       }
     });
 

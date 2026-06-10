@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
 
@@ -106,7 +107,7 @@ export class TavilyNewsProvider implements NewsProvider {
       throw new AppError("DATA_PROVIDER_ERROR", `Tavily 搜索失败：HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as TavilyResponse;
+    const payload = await readProviderJsonResponse<TavilyResponse>(response, "Tavily 搜索");
     return payload.results ?? [];
   }
 }

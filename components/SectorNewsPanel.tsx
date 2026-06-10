@@ -7,6 +7,7 @@ import { NewsCard, type NewsCardData } from "@/components/NewsCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type SectorWatch = {
   id: string;
@@ -26,8 +27,7 @@ export function SectorNewsPanel() {
 
   const loadWatches = useCallback(async () => {
     const response = await fetch("/api/sectors/watch", { cache: "no-store" });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.error?.message ?? "加载行业关注失败。");
+    const json = await readJsonResponse<{ sectorWatches?: SectorWatch[] }>(response);
     setWatches(json.sectorWatches ?? []);
     if (!selectedSector && json.sectorWatches?.[0]) setSelectedSector(json.sectorWatches[0].sectorName);
   }, [selectedSector]);
@@ -38,8 +38,7 @@ export function SectorNewsPanel() {
       return;
     }
     const response = await fetch(`/api/news?sector=${encodeURIComponent(sector)}`, { cache: "no-store" });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.error?.message ?? "加载行业新闻失败。");
+    const json = await readJsonResponse<{ news?: NewsCardData[] }>(response);
     setNews(json.news ?? []);
   }, []);
 
@@ -66,34 +65,35 @@ export function SectorNewsPanel() {
     const sectorName = String(form.get("sectorName") ?? "");
     const keywords = splitList(String(form.get("keywords") ?? ""));
     const symbols = splitList(String(form.get("symbols") ?? ""));
-    const response = await fetch("/api/sectors/watch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sectorName, keywords, symbols })
-    });
-    const json = await response.json();
-    if (!response.ok) {
-      setError(json.error?.message ?? "添加行业关注失败。");
-      return;
+    try {
+      const response = await fetch("/api/sectors/watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectorName, keywords, symbols })
+      });
+      await readJsonResponse(response);
+      event.currentTarget.reset();
+      setSelectedSector(sectorName);
+      await loadWatches();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "添加行业关注失败。");
     }
-    event.currentTarget.reset();
-    setSelectedSector(sectorName);
-    await loadWatches();
   }
 
   async function fetchNews() {
     setError(null);
     setMessage(null);
     setFetching(true);
-    const response = await fetch("/api/news/fetch", { method: "POST" });
-    const json = await response.json();
-    setFetching(false);
-    if (!response.ok) {
-      setError(json.error?.message ?? "抓取新闻失败。");
-      return;
+    try {
+      const response = await fetch("/api/news/fetch", { method: "POST" });
+      const json = await readJsonResponse<{ saved?: number; queued?: number }>(response);
+      setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。`);
+      await loadNews(selectedSector);
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : "抓取新闻失败。");
+    } finally {
+      setFetching(false);
     }
-    setMessage(`抓取完成：保存 ${json.saved ?? 0} 条，新闻分析任务 ${json.queued ?? 0} 个。`);
-    await loadNews(selectedSector);
   }
 
   return (

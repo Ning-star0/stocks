@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
 
 const requestSchema = z.object({
@@ -15,7 +16,7 @@ const requestSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = requestSchema.parse(await request.json());
+    const body = requestSchema.parse(await readRequestJson(request));
     const symbols = [...new Set(body.symbols)];
     const analyses = await loadLatestAnalyses(user.id, symbols);
 

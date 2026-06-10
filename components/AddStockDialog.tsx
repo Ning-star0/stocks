@@ -6,6 +6,7 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type AddStockDialogProps = {
   onAdded?: () => void;
@@ -30,21 +31,20 @@ export function AddStockDialog({ onAdded }: AddStockDialogProps) {
       riskLevel: "medium"
     };
 
-    const response = await fetch("/api/watchlist/items", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    setSubmitting(false);
-
-    const json = await response.json();
-    if (!response.ok) {
-      setError(json.error?.message ?? "保存股票失败。");
-      return;
+    try {
+      const response = await fetch("/api/watchlist/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      await readJsonResponse(response);
+      setOpen(false);
+      onAdded?.();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "保存股票失败。");
+    } finally {
+      setSubmitting(false);
     }
-
-    setOpen(false);
-    onAdded?.();
   }
 
   return (

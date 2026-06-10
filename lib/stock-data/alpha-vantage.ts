@@ -1,5 +1,6 @@
 import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 
 type AlphaGlobalQuote = {
   "01. symbol": string;
@@ -32,7 +33,7 @@ export class AlphaVantageProvider implements StockDataProvider {
     const url = `${this.baseUrl}?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${key}`;
     const response = await fetch(url, { next: { revalidate: 60 } });
     if (!response.ok) throw new Error(`Alpha Vantage 报价请求失败：${response.status}`);
-    const data = (await response.json()) as { "Global Quote"?: AlphaGlobalQuote; Note?: string; Information?: string };
+    const data = await readProviderJsonResponse<{ "Global Quote"?: AlphaGlobalQuote; Note?: string; Information?: string }>(response, "Alpha Vantage 报价");
     if (data.Note) throw new AppError("RATE_LIMIT", "Alpha Vantage 触发限流。", { providerMessage: data.Note });
     if (data.Information) throw new AppError("RATE_LIMIT", "Alpha Vantage 请求额度已达上限。", { providerMessage: data.Information });
     const quote = data["Global Quote"];
@@ -63,7 +64,7 @@ export class AlphaVantageProvider implements StockDataProvider {
     const url = `${this.baseUrl}?function=${functionName}&symbol=${encodeURIComponent(symbol)}${intervalParam}&outputsize=${outputsize}&apikey=${key}`;
     const response = await fetch(url, options.forceRefresh ? { cache: "no-store" } : { next: { revalidate: 300 } });
     if (!response.ok) throw new Error(`Alpha Vantage 历史行情请求失败：${response.status}`);
-    const data = await response.json();
+    const data = await readProviderJsonResponse<Record<string, unknown> & { Note?: string; Information?: string }>(response, "Alpha Vantage 历史行情");
     if (data.Note) throw new AppError("RATE_LIMIT", "Alpha Vantage 触发限流。", { providerMessage: data.Note });
     if (data.Information) throw new AppError("RATE_LIMIT", "Alpha Vantage 请求额度已达上限。", { providerMessage: data.Information });
     const seriesKey = Object.keys(data).find((keyName) => keyName.includes("Time Series"));

@@ -14,6 +14,22 @@ import {
   updateAiConfig
 } from "@/lib/ai/config";
 import { AppError, apiError } from "@/lib/errors";
+import { readOptionalRequestJson, readRequestJson } from "@/lib/serverApi";
+
+type AiSettingsRequest = {
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  provider?: string | null;
+  flagshipModel?: string | null;
+  model?: string | null;
+  standardModel?: string | null;
+  flagshipInputPricePerMillion?: string | number | null;
+  flagshipOutputPricePerMillion?: string | number | null;
+  standardInputPricePerMillion?: string | number | null;
+  standardOutputPricePerMillion?: string | number | null;
+  costCurrency?: string | null;
+  focusStockAnalysisConcurrency?: string | number | null;
+};
 
 export async function GET() {
   try {
@@ -41,7 +57,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     await getCurrentUser();
-    const body = await request.json();
+    const body = await readRequestJson<AiSettingsRequest>(request);
     // 前端不填密钥时 newApiKey 为空，用 current.apiKey 保留之前的值
     const newApiKey = normalizeAiApiKey(body.apiKey);
     const current = await getAiConfig();
@@ -84,7 +100,7 @@ export async function PUT(request: Request) {
 export async function POST(request: Request) {
   try {
     await getCurrentUser();
-    const body = await request.json().catch(() => ({}));
+    const body = await readOptionalRequestJson<AiSettingsRequest>(request);
     const current = await getAiConfig();
     const config = {
       apiKey: normalizeAiApiKey(body.apiKey) || current.apiKey,

@@ -5,6 +5,24 @@ const optionalDateSchema = z.preprocess(
   z.coerce.date().nullable().optional()
 );
 
+const timeOfDaySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,2}:\d{2}$/, "时间格式应为 HH:mm。")
+  .transform((value, ctx) => {
+    const [hourText, minuteText] = value.split(":");
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "时间必须在 00:00 到 23:59 之间。"
+      });
+      return z.NEVER;
+    }
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  });
+
 export const symbolSchema = z
   .string()
   .trim()
@@ -46,6 +64,18 @@ export const alertRuleSchema = z.object({
   threshold: z.coerce.number().positive(),
   isActive: z.boolean().optional().default(true)
 });
+
+export const focusGroupSchema = z.object({
+  name: z.string().trim().min(1).max(40).default("今日关注"),
+  symbols: z.array(symbolSchema).min(1).max(30),
+  capital: z.coerce.number().positive().nullable().optional(),
+  newsFetchTime: timeOfDaySchema.default("09:30"),
+  analysisTimes: z.array(timeOfDaySchema).max(12).default([])
+}).transform((value) => ({
+  ...value,
+  symbols: [...new Set(value.symbols)],
+  analysisTimes: [...new Set(value.analysisTimes)].sort()
+}));
 
 export const newsQuerySchema = z.object({
   symbol: symbolSchema.optional(),

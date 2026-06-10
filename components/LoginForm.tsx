@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { readJsonResponse } from "@/lib/clientApi";
 
 export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
   const [error, setError] = useState<string | null>(null);
@@ -27,13 +28,7 @@ export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
           password: form.get("password")
         })
       });
-      const json = await response.json();
-
-      if (!response.ok) {
-        setError(json.error?.message ?? "登录失败。");
-        setLoading(false);
-        return;
-      }
+      await readJsonResponse(response);
 
       const params = new URLSearchParams(window.location.search);
       const next = params.get("next") || "/";

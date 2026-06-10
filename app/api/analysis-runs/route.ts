@@ -5,11 +5,12 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
+import { boundedIntParam } from "@/lib/queryParams";
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const limit = Math.min(Number(request.nextUrl.searchParams.get("limit") || 10), 30);
+    const limit = boundedIntParam(request.nextUrl.searchParams.get("limit"), 10, 1, 30);
     const runs = await prisma.analysisRun.findMany({
       where: { userId: user.id },
       include: { items: { orderBy: { createdAt: "asc" } } },

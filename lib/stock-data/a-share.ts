@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
 
 type EastMoneyQuoteResponse = {
@@ -58,7 +59,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     });
     if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富报价请求失败：${response.status}`);
 
-    const payload = (await response.json()) as EastMoneyQuoteResponse;
+    const payload = await readProviderJsonResponse<EastMoneyQuoteResponse>(response, "东方财富报价");
     const data = payload.data;
     if (!data || payload.rc !== 0) throw new AppError("SYMBOL_NOT_FOUND", `未找到 A 股代码 ${symbol}。`, { symbol });
 
@@ -117,7 +118,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
           });
       if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
 
-      const payload = (await response.json()) as EastMoneyKlineResponse;
+      const payload = await readProviderJsonResponse<EastMoneyKlineResponse>(response, "东方财富 K 线");
       const rows = payload.data?.klines;
       if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol });
 
@@ -173,7 +174,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
       cache: "no-store"
     });
     if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `腾讯分时 K 线请求失败：${response.status}`);
-    const payload = (await response.json()) as TencentKlineResponse;
+    const payload = await readProviderJsonResponse<TencentKlineResponse>(response, "腾讯分时 K 线");
     const rows = payload.data?.[marketSymbol]?.m1;
     if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯分时行情。`);
     const candles = rows.map((row) => tencentRowToCandle(target.symbol, row, true)).filter(isValidCandle);
@@ -191,7 +192,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
       cache: "no-store"
     });
     if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `腾讯日 K 线请求失败：${response.status}`);
-    const payload = (await response.json()) as TencentKlineResponse;
+    const payload = await readProviderJsonResponse<TencentKlineResponse>(response, "腾讯日 K 线");
     const rows = payload.data?.[marketSymbol]?.[period];
     if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯历史行情。`);
     return rows.map((row) => tencentRowToCandle(target.symbol, row, false)).filter(isValidCandle);

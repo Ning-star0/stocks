@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const AUTH_COOKIE_NAME = "stock_ai_session";
+import { AUTH_COOKIE_NAME } from "@/lib/authConstants";
+
+const PUBLIC_FILE_PATTERN = /\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$/i;
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname === "/login" || pathname.startsWith("/api/auth/");
-  const isPublicAsset = pathname.startsWith("/_next/") || pathname === "/favicon.ico";
+  const isPublicAsset = pathname.startsWith("/_next/") || PUBLIC_FILE_PATTERN.test(pathname);
   if (isAuthRoute || isPublicAsset) return NextResponse.next();
 
   const hasSessionCookie = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
@@ -22,5 +24,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!.*\\..*).*)"]
+  matcher: ["/:path*"]
 };

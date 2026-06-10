@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { sectorWatchSchema } from "@/lib/schemas";
 
 export async function GET() {
@@ -21,7 +22,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = sectorWatchSchema.parse(await request.json());
+    const body = sectorWatchSchema.parse(await readRequestJson(request));
     const sectorWatch = await prisma.sectorWatch.create({
       data: {
         userId: user.id,
@@ -35,4 +36,3 @@ export async function POST(request: NextRequest) {
     return apiError(error);
   }
 }
-

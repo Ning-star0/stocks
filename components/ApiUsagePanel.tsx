@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type UsageItem = {
   key: string;
@@ -67,8 +68,7 @@ export function ApiUsagePanel() {
     setError(null);
     try {
       const response = await fetch("/api/usage", { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "读取接口用量失败。");
+      const json = await readJsonResponse<UsageResponse>(response);
       setData(json);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "读取接口用量失败。");

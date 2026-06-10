@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 
 import { authenticateAdmin, createSessionCookieData } from "@/lib/auth";
 import { apiError } from "@/lib/errors";
+import { readRequestJson } from "@/lib/serverApi";
 import { loginSchema } from "@/lib/schemas";
 
 export async function POST(request: Request) {
   try {
-    const body = loginSchema.parse(await request.json());
+    const body = loginSchema.parse(await readRequestJson(request));
     const user = await authenticateAdmin(body.email, body.password);
     const response = NextResponse.json({ user });
     const cookie = createSessionCookieData(user.email);

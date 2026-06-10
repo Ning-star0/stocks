@@ -1,5 +1,6 @@
 import { logApiUsage } from "@/lib/apiUsage";
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
 
@@ -38,7 +39,7 @@ export class FinnhubNewsProvider implements NewsProvider {
       await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, symbol } });
       throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 新闻请求失败：${response.status}`);
     }
-    const rows = (await response.json()) as FinnhubCompanyNews[];
+    const rows = await readProviderJsonResponse<FinnhubCompanyNews[]>(response, "Finnhub 公司新闻");
     await logApiUsage({ provider: "finnhub", apiName: "news", status: "success", metadata: { symbol, count: rows.length } });
     return rows.map((row) => normalizeFinnhubNews(row, [symbol.toUpperCase()]));
   }
@@ -56,7 +57,7 @@ export class FinnhubNewsProvider implements NewsProvider {
       await logApiUsage({ provider: "finnhub", apiName: "news", status: "failed", metadata: { status: response.status, category } });
       throw new AppError("DATA_PROVIDER_ERROR", `Finnhub 主题新闻请求失败：${response.status}`);
     }
-    const rows = (await response.json()) as FinnhubCompanyNews[];
+    const rows = await readProviderJsonResponse<FinnhubCompanyNews[]>(response, "Finnhub 主题新闻");
     await logApiUsage({ provider: "finnhub", apiName: "news", status: "success", metadata: { category, count: rows.length } });
     const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase());
     const fromTime = new Date(from).getTime();

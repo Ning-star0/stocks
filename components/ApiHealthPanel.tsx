@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type HealthResponse = {
   ok: boolean;
@@ -30,8 +31,7 @@ export function ApiHealthPanel() {
     setError(null);
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "健康检查失败。");
+      const json = await readJsonResponse<HealthResponse>(response);
       setHealth(json);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "健康检查失败。");

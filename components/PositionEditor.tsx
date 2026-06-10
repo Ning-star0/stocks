@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type PositionEditorProps = {
   itemId: string;
@@ -66,13 +67,7 @@ export function PositionEditor({
         }),
         signal: controller.signal
       });
-      const json = await response.json();
-      setSaving(false);
-
-      if (!response.ok) {
-        setMessage(json.error?.message ?? "保存失败。");
-        return;
-      }
+      await readJsonResponse(response);
 
       setMessage("已保存，正在刷新数据...");
       setTimeout(() => window.location.reload(), 800);
@@ -84,6 +79,7 @@ export function PositionEditor({
         setMessage(err instanceof Error ? err.message : "保存失败，请重试。");
       }
     } finally {
+      setSaving(false);
       clearTimeout(timeout);
     }
   }

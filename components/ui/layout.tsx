@@ -10,6 +10,7 @@ export function PageContainer({ children, className }: { children: ReactNode; cl
 
 export function SectionHeader({
   title,
+  description,
   action,
   eyebrow,
   className
@@ -25,6 +26,7 @@ export function SectionHeader({
       <div className="min-w-0">
         {eyebrow ? <div className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-primary/80">{eyebrow}</div> : null}
         <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-3xl">{title}</h1>
+        {description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
       </div>
       {action ? <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div> : null}
     </div>

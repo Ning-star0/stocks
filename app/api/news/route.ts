@@ -5,13 +5,14 @@ import { apiError } from "@/lib/errors";
 import { isNewsRelevantToStock } from "@/lib/news/relevance";
 import { serializeNewsItem } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
+import { boundedIntParam } from "@/lib/queryParams";
 import { newsQuerySchema } from "@/lib/schemas";
 
 export async function GET(request: NextRequest) {
   try {
     const query = newsQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams.entries()));
-    const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") ?? 1));
-    const pageSize = Math.min(20, Math.max(1, Number(request.nextUrl.searchParams.get("pageSize") ?? 20)));
+    const page = boundedIntParam(request.nextUrl.searchParams.get("page"), 1, 1, 10_000);
+    const pageSize = boundedIntParam(request.nextUrl.searchParams.get("pageSize"), 20, 1, 20);
     const includeLow = request.nextUrl.searchParams.get("includeLow") === "1";
     const name = request.nextUrl.searchParams.get("name");
     const where = {

@@ -6,6 +6,7 @@ import { Brain } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingInsight } from "@/components/ui/layout";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type JobStatus = "idle" | "cached" | "queued" | "running" | "completed" | "failed";
 
@@ -45,8 +46,7 @@ export function AnalyzeStockButton({ symbol }: { symbol: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ forceRefresh })
       });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "创建分析任务失败。");
+      const json = await readJsonResponse<{ fromCache?: boolean; jobId?: string }>(response);
 
       if (json.fromCache && !json.jobId) {
         stopTimer();
@@ -109,8 +109,7 @@ async function pollJob(jobId: string) {
   for (let i = 0; i < 120; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.error?.message ?? "查询任务状态失败。");
+    const json = await readJsonResponse<{ status?: string; errorMessage?: string }>(response);
     if (json.status === "completed" || json.status === "skipped_cached") return;
     if (json.status === "failed") throw new Error(json.errorMessage ?? "分析任务失败。");
   }

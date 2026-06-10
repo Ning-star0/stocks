@@ -11,6 +11,7 @@ import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { prisma } from "@/lib/prisma";
+import { readOptionalRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
 import { toNumber } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     const { symbol } = await context.params;
     const normalized = symbolSchema.parse(symbol);
     const user = await getCurrentUser();
-    const body = await request.json().catch(() => ({}));
+    const body = await readOptionalRequestJson<Record<string, unknown>>(request);
     const forceRefresh = Boolean(body.forceRefresh);
     const analysisContext = await buildStockAnalysisContext(user.id, normalized);
     const canonicalSymbol = analysisContext.quote.symbol;

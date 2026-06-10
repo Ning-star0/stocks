@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import {
   createManualTradeAndRebuild,
   parsePositiveNumber,
@@ -43,7 +44,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json().catch(() => ({}));
+    const body = await readRequestJson<Record<string, unknown>>(request);
     const symbol = String(body.symbol ?? "").trim().toUpperCase();
     const side = parseTradeSide(body.side);
     const price = parsePositiveNumber(body.price);

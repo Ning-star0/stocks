@@ -1,8 +1,10 @@
 import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { getCurrentUser } from "@/lib/currentUser";
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import { addMemoryEntries, appendMemory, getMemoryContent } from "@/lib/memory";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { serializeWatchlistItem } from "@/lib/serializers";
 
 const MEMORY_TAG = /\[MEMORY:([\s\S]*?)\]/g;
@@ -11,7 +13,7 @@ const MEMORY_EXTRACTION_TIMEOUT_MS = 10_000;
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
-    const body = await request.json();
+    const body = await readRequestJson<{ message?: unknown }>(request);
     const message = String(body.message ?? "").trim();
     if (!message) throw new AppError("BAD_REQUEST", "请输入问题。");
 
@@ -241,7 +243,7 @@ async function extractAutoMemoriesWithAi(input: {
     });
 
     if (!response.ok) return [];
-    const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const json = await readProviderJsonResponse<{ choices?: Array<{ message?: { content?: string } }> }>(response, "AI 记忆抽取");
     const content = json.choices?.[0]?.message?.content ?? "";
     const parsed = parseJsonObject(content) as { memories?: unknown };
     if (!Array.isArray(parsed.memories)) return [];

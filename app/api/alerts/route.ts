@@ -4,6 +4,7 @@ import { evaluateAlertsForUser } from "@/lib/alerts/evaluateAlerts";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { alertRuleSchema } from "@/lib/schemas";
 import { serializeAlert } from "@/lib/serializers";
 
@@ -20,7 +21,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = alertRuleSchema.parse(await request.json());
+    const body = alertRuleSchema.parse(await readRequestJson(request));
     const alert = await prisma.alert.create({
       data: {
         userId: user.id,

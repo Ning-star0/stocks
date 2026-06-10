@@ -5,6 +5,7 @@ import { FileText, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type Brief = {
   id: string;
@@ -26,8 +27,7 @@ export function DailyMarketBriefPanel() {
     setError(null);
     try {
       const response = await fetch("/api/briefs/daily", { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "加载每日简报失败。");
+      const json = await readJsonResponse<{ brief: Brief | null }>(response);
       setBrief(json.brief);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载每日简报失败。");
@@ -45,8 +45,7 @@ export function DailyMarketBriefPanel() {
     setError(null);
     try {
       const response = await fetch("/api/briefs/daily/generate", { method: "POST" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "生成每日简报失败。");
+      const json = await readJsonResponse<{ brief: Brief | null }>(response);
       setBrief(json.brief);
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "生成每日简报失败。");

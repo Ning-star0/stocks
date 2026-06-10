@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { apiError } from "@/lib/errors";
+import { readRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 
@@ -11,7 +12,7 @@ const requestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const body = requestSchema.parse(await request.json());
+    const body = requestSchema.parse(await readRequestJson(request));
     const quotes = await getQuotesBatch(body.symbols, { allowStale: true });
     const cacheStatus = Object.fromEntries(Object.entries(quotes).map(([symbol, quote]) => [symbol, quote.status]));
 

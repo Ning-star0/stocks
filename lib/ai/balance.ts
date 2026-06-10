@@ -1,4 +1,5 @@
 import { getAiConfig } from "@/lib/ai/config";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 
 export type DeepSeekBalanceInfo = {
   currency: string;
@@ -53,7 +54,7 @@ export async function getDeepSeekBalance(): Promise<DeepSeekBalanceResult | null
       cache: "no-store",
       signal: controller.signal
     });
-    const payload = (await response.json().catch(() => ({}))) as DeepSeekBalancePayload;
+    const payload = await readProviderJsonResponse<DeepSeekBalancePayload>(response, "DeepSeek 余额查询", { fallbackOnHttpError: {} });
     if (!response.ok) {
       return {
         provider: "deepseek",

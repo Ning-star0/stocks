@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type AlertRow = {
   id: string;
@@ -32,8 +33,7 @@ export function AlertRuleForm() {
     setError(null);
     try {
       const response = await fetch("/api/alerts", { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "加载提醒规则失败。");
+      const json = await readJsonResponse<{ alerts?: AlertRow[] }>(response);
       setAlerts(json.alerts ?? []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载提醒规则失败。");
@@ -50,23 +50,23 @@ export function AlertRuleForm() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setError(null);
-    const response = await fetch("/api/alerts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol: String(form.get("symbol") ?? "").toUpperCase(),
-        alertType: String(form.get("alertType") ?? "price"),
-        operator: String(form.get("operator") ?? "gt"),
-        threshold: Number(form.get("threshold") ?? 0)
-      })
-    });
-    const json = await response.json();
-    if (!response.ok) {
-      setError(json.error?.message ?? "创建提醒规则失败。");
-      return;
+    try {
+      const response = await fetch("/api/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: String(form.get("symbol") ?? "").toUpperCase(),
+          alertType: String(form.get("alertType") ?? "price"),
+          operator: String(form.get("operator") ?? "gt"),
+          threshold: Number(form.get("threshold") ?? 0)
+        })
+      });
+      await readJsonResponse(response);
+      event.currentTarget.reset();
+      await load();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "创建提醒规则失败。");
     }
-    event.currentTarget.reset();
-    await load();
   }
 
   return (

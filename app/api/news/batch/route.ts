@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getCache, setCache } from "@/lib/cache";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
 import { serializeNewsItem } from "@/lib/news/store";
 
@@ -14,7 +15,7 @@ const requestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const body = requestSchema.parse(await request.json());
+    const body = requestSchema.parse(await readRequestJson(request));
     const news: Record<string, unknown[]> = {};
 
     for (const symbol of [...new Set(body.symbols)]) {

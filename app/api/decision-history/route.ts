@@ -5,12 +5,13 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { buildDecisionChange } from "@/lib/decision/change";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { boundedIntParam } from "@/lib/queryParams";
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     const params = request.nextUrl.searchParams;
-    const limit = Math.min(Number(params.get("limit") || 5), 50);
+    const limit = boundedIntParam(params.get("limit"), 5, 1, 50);
     const symbol = params.get("symbol");
     const action = params.get("action");
     const riskLevel = params.get("riskLevel");

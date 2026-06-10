@@ -3,140 +3,50 @@ import type { FocusDecision as StoredFocusDecision, Prisma } from "@prisma/clien
 
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
-import { z } from "zod";
 
 import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createDecisionHistoryFromFocusDecision, refreshAnalysisRun } from "@/lib/analysis/runRecords";
 import { createChatCompletion } from "@/lib/ai/deepseek";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
+import {
+  candidateHasFreshQuote,
+  candidateSupportsBuy,
+  candidateSupportsSell,
+  quantAllowsBuy,
+  quantAllowsSell,
+  quantReason,
+  quantView,
+  stringifyAdvice
+} from "@/lib/focus/decisionCandidate";
+import { buildDecisionPrompt, FOCUS_DECISION_SYSTEM_PROMPT } from "@/lib/focus/decisionPrompt";
+import { decisionSchema, type DecisionSchemaValue } from "@/lib/focus/decisionSchema";
+import type { Candidate, DecisionInput, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
+import {
+  buildPortfolioSnapshot,
+  calculateRealizedPnl,
+  type PortfolioSnapshot
+} from "@/lib/focus/portfolio";
+import {
+  latestFocusAnalysesForSymbols as latestAnalysesForSymbols,
+  focusSymbolVariants as symbolVariants,
+  sameFocusSymbol as sameSymbol
+} from "@/lib/focus/symbols";
+import {
+  calculateFocusTradeFee,
+  calculateSellPnl,
+  fallbackSellShares,
+  normalizeBuyShares as normalizeShares,
+  normalizeSellShares,
+  sharesFromAmount,
+  TRADING_FEE_RULE
+} from "@/lib/focus/trading";
 import { notifyFocusDecision } from "@/lib/notifications/send";
 import { prisma } from "@/lib/prisma";
-import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantSignal, type QuantStrategyContext } from "@/lib/quant/strategy";
+import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantStrategyContext } from "@/lib/quant/strategy";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { reconcileAndRebuildUserPositions } from "@/lib/trades/ledger";
 import { toNumber } from "@/lib/utils";
-
-const TRADING_FEE_RULE = {
-  rate: 0.0005,
-  minimumFeeBase: 10000,
-  minimumFee: 5,
-  lotSize: 100,
-  description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 买入和卖出都按 100 股/份整数手执行，低于 100 股/份的买卖计划一律无效。"
-};
-
-const decisionSchema = z.object({
-  summary: z.string().min(1),
-  recommendedAction: z.enum(["buy", "sell", "mixed", "wait"]),
-  totalBudgetToUse: z.coerce.number().min(0).default(0),
-  cashReserve: z.coerce.number().min(0).default(0),
-  orders: z
-    .array(
-      z.object({
-        symbol: z.string().min(1),
-        action: z.enum(["buy", "add", "watch", "avoid"]),
-        amount: z.coerce.number().min(0).default(0),
-        shares: z.coerce.number().int().min(0).default(0),
-        reason: z.string().min(1),
-        riskControl: z.string().default(""),
-        invalidIf: z.string().default("")
-      })
-    )
-    .default([]),
-  sellOrders: z
-    .array(
-      z.object({
-        symbol: z.string().min(1),
-        action: z.enum(["sell", "reduce", "watch", "avoid"]),
-        amount: z.coerce.number().min(0).default(0),
-        shares: z.coerce.number().int().min(0).default(0),
-        reason: z.string().min(1),
-        riskControl: z.string().default(""),
-        invalidIf: z.string().default("")
-      })
-    )
-    .default([]),
-  ranking: z
-    .array(
-      z.object({
-        symbol: z.string().min(1),
-        rank: z.coerce.number().int().positive(),
-        view: z.string().min(1),
-        reason: z.string().min(1)
-      })
-    )
-    .default([]),
-  disclaimer: z.string().default("本内容由 AI 生成，仅供研究参考，不构成投资建议。")
-});
-
-type DecisionSchemaValue = z.infer<typeof decisionSchema>;
-
-type Candidate = {
-  symbol: string;
-  name?: string | null;
-  sectorKey?: string | null;
-  price: number | null;
-  changePct: number | null;
-  quoteTime?: string | null;
-  analysisGeneratedAt?: string | null;
-  analysisDataScope?: {
-    quoteTime?: string | null;
-    historyTo?: string | null;
-    historyRange?: string | null;
-    historyInterval?: string | null;
-    historyCandles?: number | null;
-  } | null;
-  status: string;
-  note?: string | null;
-  riskLevel?: string;
-  isHolding?: boolean;
-  holdingPrice?: number | null;
-  holdingShares?: number | null;
-  positionOpenedAt?: Date | null;
-  targetPrice?: number | null;
-  stopLoss?: number | null;
-  latestAnalysis?: {
-    trend?: string;
-    confidence?: number;
-    summary?: string;
-    newsSummary?: string;
-    newsSentiment?: string;
-    newsReferences?: unknown;
-    sectorRisks?: unknown;
-    holdAdvice?: unknown;
-    entryAdvice?: unknown;
-    riskFactors?: unknown;
-  } | null;
-  quantSignal?: QuantSignal | null;
-};
-
-type DecisionInput = {
-  capital: number;
-  investedCost: number;
-  availableCash: number;
-  currentMarketValue: number;
-  unrealizedPnl: number;
-  realizedPnl: number;
-  totalAssets: number;
-  marketContext: QuantStrategyContext;
-  candidates: Candidate[];
-  dataScope: {
-    latestQuoteTime: string | null;
-    latestHistoryTo: string | null;
-    latestAnalysisGeneratedAt: string | null;
-    quoteTimes: Array<{ symbol: string; quoteTime: string | null; status: string }>;
-    historyTimes: Array<{ symbol: string; historyTo: string | null; historyRange: string | null; historyInterval: string | null; historyCandles: number | null }>;
-  };
-};
-
-type GenerateFocusDecisionOptions = {
-  userId: string;
-  forceRefresh?: boolean;
-  source?: "manual" | "scheduled";
-  scheduledFor?: Date | string | null;
-  runId?: string | null;
-  createRunItems?: boolean;
-};
 
 export async function getLatestStoredFocusDecision(userId: string) {
   await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, userId));
@@ -322,19 +232,6 @@ type StoredFocusDecisionWithFeedback = StoredFocusDecision & {
   } | null;
 };
 
-type PortfolioSnapshot = {
-  investedCost: number;
-  availableCash: number;
-  currentMarketValue: number;
-  unrealizedPnl: number;
-  realizedPnl: number;
-  totalAssets: number;
-  portfolioValuationStatus: "live" | "stale" | "partial_fallback" | "cost_fallback" | "empty";
-  portfolioSnapshotAt: string;
-};
-
-type PortfolioValuationStatus = PortfolioSnapshot["portfolioValuationStatus"];
-
 function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { fromCache: boolean; stale: boolean }, portfolioSnapshot?: PortfolioSnapshot) {
   const decision = isRecord(row.decisionJson) ? row.decisionJson : {};
   return {
@@ -384,28 +281,17 @@ async function loadPortfolioSnapshot(userId: string, capital: number): Promise<P
     }),
     prisma.tradeExecution.findMany({
       where: { userId },
-      select: { realizedPnl: true }
+      select: { symbol: true, netCashChange: true, realizedPnl: true }
     })
   ]);
   const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
   const quotes = portfolioSymbols.length ? await getQuotesBatch(portfolioSymbols, { allowStale: true }) : {};
-  const investedCost = calculateInvestedCost(portfolioItems);
-  const realizedPnl = calculateRealizedPnl(tradeExecutions);
-  const availableCash = Number(Math.max(0, capital - investedCost + realizedPnl).toFixed(2));
-  const marketValue = calculatePortfolioMarketValue(portfolioItems, quotes);
-  const unrealizedPnl = Number((marketValue.value - investedCost).toFixed(2));
-  const totalAssets = Number((availableCash + marketValue.value).toFixed(2));
-
-  return {
-    investedCost,
-    availableCash,
-    currentMarketValue: marketValue.value,
-    unrealizedPnl,
-    realizedPnl,
-    totalAssets,
-    portfolioValuationStatus: marketValue.status,
-    portfolioSnapshotAt: new Date().toISOString()
-  };
+  return buildPortfolioSnapshot({
+    capital,
+    portfolioItems,
+    tradeExecutions,
+    quotes
+  });
 }
 
 async function loadDecisionSeed(userId: string) {
@@ -417,7 +303,7 @@ async function loadDecisionSeed(userId: string) {
 
   const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
   const allSymbolVariants = symbols.flatMap(symbolVariants);
-  const [analyses, watchlistItems, portfolioItems] = await Promise.all([
+  const [analyses, watchlistItems, portfolioItems, tradeExecutions] = await Promise.all([
     prisma.aiAnalysis.findMany({
       where: { userId, symbol: { in: allSymbolVariants } },
       orderBy: { createdAt: "desc" },
@@ -443,6 +329,17 @@ async function loadDecisionSeed(userId: string) {
         holdingShares: true,
         positionOpenedAt: true
       }
+    }),
+    prisma.tradeExecution.findMany({
+      where: { userId },
+      select: {
+        symbol: true,
+        side: true,
+        shares: true,
+        netCashChange: true,
+        realizedPnl: true,
+        updatedAt: true
+      }
     })
   ]);
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
@@ -467,6 +364,7 @@ async function loadDecisionSeed(userId: string) {
       positionOpenedAt: item.positionOpenedAt?.toISOString() ?? null
     }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const ledgerSignature = buildLedgerSignature(tradeExecutions);
 
   return {
     userId,
@@ -478,7 +376,8 @@ async function loadDecisionSeed(userId: string) {
     analyses,
     latestAnalysisBySymbol,
     positionSignature,
-    portfolioSignature
+    portfolioSignature,
+    ledgerSignature
   };
 }
 
@@ -497,18 +396,19 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     }),
     prisma.tradeExecution.findMany({
       where: { userId: seed.userId },
-      select: { realizedPnl: true }
+      select: { symbol: true, netCashChange: true, realizedPnl: true }
     })
   ]);
   const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
   const quoteSymbols = [...new Set([...seed.symbols, ...portfolioSymbols])];
   const quotes = await getQuotesBatch(quoteSymbols, { allowStale: true });
-  const investedCost = calculateInvestedCost(portfolioItems);
-  const realizedPnl = calculateRealizedPnl(tradeExecutions);
-  const availableCash = Number(Math.max(0, seed.capital - investedCost + realizedPnl).toFixed(2));
-  const currentMarketValue = calculateCurrentMarketValue(portfolioItems, quotes);
-  const unrealizedPnl = Number((currentMarketValue - investedCost).toFixed(2));
-  const totalAssets = Number((availableCash + currentMarketValue).toFixed(2));
+  const portfolioSnapshot = buildPortfolioSnapshot({
+    capital: seed.capital,
+    portfolioItems,
+    tradeExecutions,
+    quotes
+  });
+  const { investedCost, realizedPnl, availableCash, currentMarketValue, unrealizedPnl, totalAssets } = portfolioSnapshot;
 
   const candidateDrafts = seed.symbols.map((symbol) => {
     const variants = symbolVariants(symbol);
@@ -791,6 +691,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         focusLastAnalysis: input.focusLastAnalysis,
         positionSignature: input.positionSignature,
         portfolioSignature: input.portfolioSignature,
+        ledgerSignature: input.ledgerSignature,
         latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )
@@ -811,8 +712,7 @@ async function generateFocusDecision(input: DecisionInput) {
     messages: [
       {
         role: "system",
-        content:
-          "你是一个谨慎的股票组合策略观察助手。你必须基于给定候选股票、最新单股分析、价格、持仓状态和手续费规则，生成今日策略观察、候选排序、条件触发型买入计划和卖出/减仓计划。策略框架参考成熟量化系统的做法：先用趋势过滤确认大方向，再用 RSI/MACD/均线/关键价位确认动量和风险，最后用止损、止盈、仓位和手续费约束控制执行。不能保证收益，不能编造数据，不能把观察计划写成确定性指令。输出必须是严格 JSON，所有自然语言字段使用简体中文。"
+        content: FOCUS_DECISION_SYSTEM_PROMPT
       },
       { role: "user", content: buildDecisionPrompt(input) }
     ]
@@ -830,84 +730,6 @@ async function generateFocusDecision(input: DecisionInput) {
   }
 }
 
-function buildDecisionPrompt(input: DecisionInput) {
-  return `请基于今日关注股票生成“今日 AI 策略观察”。返回严格 JSON，不要 Markdown。
-
-账户资金：
-- 投入本金：${input.capital} 元
-- 已持仓占用成本（按持仓成本价 + 估算买入手续费）：${input.investedCost} 元
-- 当前可用现金：${input.availableCash} 元
-- 当前持仓市值：${input.currentMarketValue} 元
-- 持仓浮盈浮亏：${input.unrealizedPnl} 元
-- 已实现盈亏：${input.realizedPnl} 元
-- 当前总资产估算（现金 + 持仓市值）：${input.totalAssets} 元
-
-交易手续费规则：
-${JSON.stringify(TRADING_FEE_RULE, null, 2)}
-
-本次决策数据截止：
-${JSON.stringify(input.dataScope, null, 2)}
-
-市场/行业动态上下文：
-${JSON.stringify(input.marketContext, null, 2)}
-
-决策要求：
-1. 必须明确 recommendedAction，只能是 buy、sell、mixed 或 wait。buy 表示只有买入/增持计划；sell 表示只有卖出/减仓计划；mixed 表示同时有买入和卖出/减仓计划；wait 表示今日只观察。
-2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，买入只能代表“增持/加仓”，卖出只能代表“减仓/止盈/止损/离场”；isHolding=false 不能生成 sellOrders。
-3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
-4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
-5. 先判断“市场/行业动态上下文”，再判断单股/ETF。marketContext 是系统根据今日候选、新闻情绪、行业线索和走势生成的动态策略环境：risk_on 可以降低买入阈值并允许小仓试探；risk_off 必须提高买入阈值、降低减仓阈值、控制仓位；sectorBias=overheated 时不能追高，只能等待回调或突破确认。
-6. 使用“市场/行业上下文 + 趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
-7. 每个候选都带有 quantSignal，这是本地量化规则结合市场/行业上下文计算出的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
-8. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、adjustedBuyThreshold、adjustedReduceThreshold、adjustedSellThreshold、marketRegime、sectorBias、newPositionProtection、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。不要只写“等待”，必须说明分数、动态阈值或触发条件。
-9. newPositionProtection=true 表示新建仓保护期内。除非已经触发硬止损、严重利空或卖出分达到强制卖出级别，否则不要直接卖出刚买入的仓位，只能写继续观察、移动止损或不加仓。
-10. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders 或 sellOrders，只能写入 ranking 的风险原因。
-11. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-12. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
-13. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
-14. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
-15. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias 和手续费性价比排序。
-16. ranking 必须覆盖所有候选，并在 reason 里体现“市场/行业上下文 + 量化信号 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
-17. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
-
-候选股票：
-${JSON.stringify(input.candidates, null, 2)}
-
-请只返回这个 JSON 结构：
-{
-  "summary": "",
-  "recommendedAction": "wait",
-  "totalBudgetToUse": 0,
-  "cashReserve": 0,
-  "orders": [
-    {
-      "symbol": "",
-      "action": "buy",
-      "amount": 0,
-      "shares": 0,
-      "reason": "",
-      "riskControl": "",
-      "invalidIf": ""
-    }
-  ],
-  "sellOrders": [
-    {
-      "symbol": "",
-      "action": "reduce",
-      "amount": 0,
-      "shares": 0,
-      "reason": "",
-      "riskControl": "",
-      "invalidIf": ""
-    }
-  ],
-  "ranking": [
-    { "symbol": "", "rank": 1, "view": "优先/观察/回避", "reason": "" }
-  ],
-  "disclaimer": "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
-}`;
-}
-
 function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fallbackReason: string | null) {
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
   let spent = 0;
@@ -919,12 +741,12 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     })
     .slice(0, 2)
     .map((order) => {
-      const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => item.symbol.replace(/\.(SH|SZ|BJ)$/, "") === order.symbol.replace(/\.(SH|SZ|BJ)$/, ""));
+      const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
       const remainingCash = Math.max(0, input.availableCash - spent);
       const shares = normalizeShares(order.shares || sharesFromAmount(order.amount, price), price, remainingCash);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
-      const fee = calculateFee(amount);
+      const fee = calculateFocusTradeFee(amount);
       if (amount + fee > remainingCash) return null;
       spent += amount + fee;
       return {
@@ -955,7 +777,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       const holdingShares = candidate?.isHolding ? candidate.holdingShares ?? 0 : 0;
       const shares = normalizeSellShares(order.shares || sharesFromAmount(order.amount, price) || candidate?.quantSignal?.suggestedSellShares || 0, holdingShares);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
-      const fee = calculateFee(amount);
+      const fee = calculateFocusTradeFee(amount);
       const netProceeds = Number((amount - fee).toFixed(2));
       const estimatedPnl = calculateSellPnl({
         sellAmount: amount,
@@ -1309,226 +1131,6 @@ function repairJsonText(text: string) {
     .replace(/,\s*([}\]])/g, "$1");
 }
 
-function candidateSupportsBuy(candidate: Candidate) {
-  if (!candidate.price || candidate.price <= 0) return false;
-  if (!quantAllowsBuy(candidate)) return false;
-  if (candidate.latestAnalysis?.trend === "bearish") return false;
-  if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
-
-  const advice = candidate.isHolding ? candidate.latestAnalysis?.holdAdvice : candidate.latestAnalysis?.entryAdvice;
-  const text = stringifyAdvice(advice);
-  if (/减仓|止损|离场|回避|不建议/.test(text)) return false;
-  if (candidate.isHolding) return /加仓|增持|逢低|提高仓位/.test(text);
-  return /买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) && !/仅观察|继续观察|观望/.test(text);
-}
-
-function candidateSupportsSell(candidate: Candidate) {
-  if (!candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
-  if (!candidateHasFreshQuote(candidate)) return false;
-  if (quantAllowsSell(candidate)) return true;
-  const text = stringifyAdvice(candidate.latestAnalysis?.holdAdvice);
-  const hardExit = /止损|离场|清仓|全部卖出|跌破止损|破位|重大利空/.test(text);
-  if (candidate.quantSignal?.newPositionProtection && !hardExit) return false;
-  return /减仓|止损|离场|回避|风险规避|止盈|分批兑现|降低仓位/.test(text);
-}
-
-function quantView(candidate: Candidate) {
-  const action = candidate.quantSignal?.action;
-  if (action === "buy" || action === "add") return "优先";
-  if (action === "sell" || action === "reduce") return "减仓/卖出";
-  if (action === "avoid") return "回避";
-  if (action === "hold") return "持有观察";
-  return "观察";
-}
-
-function quantReason(candidate: Candidate) {
-  const signal = candidate.quantSignal;
-  if (!signal) return candidate.latestAnalysis?.summary ?? "暂无量化信号。";
-  const scores = `量化信号：${actionLabel(signal.action)}，买入分 ${signal.buyScore}/${signal.adjustedBuyThreshold}，卖出分 ${signal.sellScore}/${signal.adjustedReduceThreshold}，趋势分 ${signal.trendScore}，动量分 ${signal.momentumScore}，风险分 ${signal.riskScore}。`;
-  const sizing = `仓位建议：买入资金 ${signal.suggestedBuyCapitalPct}%；卖出比例 ${signal.suggestedSellRatioPct}%${signal.suggestedSellShares ? `，约 ${signal.suggestedSellShares} 股/份` : ""}。`;
-  const metrics = `风险收益比 ${signal.riskRewardRatio ?? "--"}，止损距离 ${formatPct(signal.stopDistancePct)}，止盈距离 ${formatPct(signal.takeProfitDistancePct)}。`;
-  const context = `环境：${signal.marketRegime} / ${signal.sectorBias}${signal.newPositionProtection ? "，新仓保护中" : ""}。`;
-  const reason = signal.reasons.slice(0, 2).join("；");
-  const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, sizing, metrics, context, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
-}
-
-function formatPct(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "--";
-}
-
-function actionLabel(action: QuantSignal["action"]) {
-  const map: Record<QuantSignal["action"], string> = {
-    buy: "买入观察",
-    add: "增持观察",
-    hold: "持有观察",
-    watch: "继续观察",
-    reduce: "减仓观察",
-    sell: "卖出观察",
-    avoid: "回避"
-  };
-  return map[action];
-}
-
-function quantAllowsBuy(candidate?: Candidate | null) {
-  if (!candidateHasFreshQuote(candidate)) return false;
-  if (!candidate?.quantSignal) return true;
-  return (
-    candidate.quantSignal.action === "buy" ||
-    candidate.quantSignal.action === "add" ||
-    candidate.quantSignal.buyScore >= candidate.quantSignal.adjustedBuyThreshold
-  );
-}
-
-function quantAllowsSell(candidate?: Candidate | null) {
-  if (!candidateHasFreshQuote(candidate)) return false;
-  if (!candidate?.quantSignal) return false;
-  const signal = candidate.quantSignal;
-  if (signal.newPositionProtection && signal.action !== "sell" && signal.sellScore < signal.adjustedSellThreshold) return false;
-  return (
-    signal.action === "sell" ||
-    signal.action === "reduce" ||
-    signal.sellScore >= signal.adjustedReduceThreshold ||
-    (signal.suggestedSellRatioPct ?? 0) > 0 ||
-    (signal.suggestedSellShares ?? 0) >= 100
-  );
-}
-
-function candidateHasFreshQuote(candidate?: Candidate | null) {
-  if (!candidate?.price || candidate.price <= 0) return false;
-  if (["stale", "unavailable", "error", "failed"].includes(candidate.status)) return false;
-  if (!candidate.quoteTime) return false;
-  return true;
-}
-
-function stringifyAdvice(value: unknown) {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (isRecord(value)) return Object.values(value).filter((item) => typeof item === "string").join(" ");
-  return "";
-}
-
-function symbolVariants(symbol: string) {
-  const normalized = symbol.toUpperCase();
-  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
-  if (!/^\d{6}$/.test(base)) return [normalized];
-  return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
-}
-
-function sameSymbol(a?: string | null, b?: string | null) {
-  if (!a || !b) return false;
-  return symbolVariants(a).includes(b.toUpperCase()) || symbolVariants(b).includes(a.toUpperCase());
-}
-
-function latestAnalysesForSymbols<T extends { id: string; symbol: string; createdAt: Date }>(symbols: string[], analyses: T[]) {
-  const output = new Map<string, T>();
-  for (const symbol of symbols) {
-    const variants = symbolVariants(symbol);
-    const match = analyses.find((analysis) => variants.includes(analysis.symbol));
-    if (match) output.set(symbol, match);
-  }
-  return output;
-}
-
-function sharesFromAmount(amount: number, price: number | null) {
-  if (!price || price <= 0) return 0;
-  return Math.floor(amount / price / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
-}
-
-function normalizeShares(shares: number, price: number, availableCash: number) {
-  if (!price || price <= 0) return 0;
-  let nextShares = Math.floor(shares / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
-  while (nextShares > 0) {
-    const amount = nextShares * price;
-    if (amount + calculateFee(amount) <= availableCash) return nextShares;
-    nextShares -= TRADING_FEE_RULE.lotSize;
-  }
-  return 0;
-}
-
-function normalizeSellShares(shares: number, holdingShares: number) {
-  if (!Number.isFinite(holdingShares) || holdingShares <= 0) return 0;
-  const capped = Math.min(Math.max(0, shares), holdingShares);
-  if (capped <= 0 || holdingShares < TRADING_FEE_RULE.lotSize) return 0;
-  if (capped < TRADING_FEE_RULE.lotSize) return TRADING_FEE_RULE.lotSize;
-  return Math.floor(capped / TRADING_FEE_RULE.lotSize) * TRADING_FEE_RULE.lotSize;
-}
-
-function fallbackSellShares(holdingShares: number, adviceText: string) {
-  if (!Number.isFinite(holdingShares) || holdingShares <= 0) return 0;
-  if (/止损|离场|回避/.test(adviceText)) return normalizeSellShares(holdingShares, holdingShares);
-  return normalizeSellShares(Math.max(TRADING_FEE_RULE.lotSize, holdingShares * 0.5), holdingShares);
-}
-
-function calculateSellPnl(input: { sellAmount: number; sellFee: number; shares: number; holdingPrice?: number | null }) {
-  const holdingPrice = input.holdingPrice ?? 0;
-  if (!holdingPrice || holdingPrice <= 0 || input.shares <= 0) return null;
-  const costAmount = holdingPrice * input.shares;
-  const buyFeeShare = calculateFee(costAmount);
-  return Number((input.sellAmount - input.sellFee - costAmount - buyFeeShare).toFixed(2));
-}
-
-function calculateInvestedCost(items: Array<{ holdingPrice: unknown; holdingShares: unknown }>) {
-  const total = items.reduce((sum, item) => {
-    const price = toNumber(item.holdingPrice) ?? 0;
-    const shares = toNumber(item.holdingShares) ?? 0;
-    if (price <= 0 || shares <= 0) return sum;
-    const amount = price * shares;
-    return sum + amount + calculateFee(amount);
-  }, 0);
-  return Number(total.toFixed(2));
-}
-
-function calculateCurrentMarketValue(
-  items: Array<{ symbol: string; holdingPrice?: unknown; holdingShares: unknown }>,
-  quotes: Record<string, { price?: number | null } | null | undefined>
-) {
-  return calculatePortfolioMarketValue(items, quotes).value;
-}
-
-function calculatePortfolioMarketValue(
-  items: Array<{ symbol: string; holdingPrice?: unknown; holdingShares: unknown }>,
-  quotes: Record<string, { price?: number | null; status?: string } | null | undefined>
-) {
-  if (!items.length) return { value: 0, status: "empty" as const };
-  let usedStaleQuote = 0;
-  let usedCostFallback = 0;
-  const total = items.reduce((sum, item) => {
-    const shares = toNumber(item.holdingShares) ?? 0;
-    if (shares <= 0) return sum;
-    const quote = quotes[item.symbol] ?? quotes[symbolVariants(item.symbol).find((symbol) => quotes[symbol]) ?? item.symbol];
-    const quotePrice = quote?.price ?? null;
-    const price = quotePrice ?? toNumber(item.holdingPrice) ?? null;
-    if (!price || price <= 0) return sum;
-    if (quotePrice && quotePrice > 0) {
-      if (quote?.status === "stale") usedStaleQuote += 1;
-    } else {
-      usedCostFallback += 1;
-    }
-    return sum + price * shares;
-  }, 0);
-  const value = Number(total.toFixed(2));
-  const activeItems = items.filter((item) => (toNumber(item.holdingShares) ?? 0) > 0).length;
-  if (activeItems === 0) return { value, status: "empty" as const };
-  const status: PortfolioValuationStatus = usedCostFallback >= activeItems
-    ? "cost_fallback"
-    : usedCostFallback > 0
-      ? "partial_fallback"
-      : usedStaleQuote > 0
-        ? "stale"
-        : "live";
-  return { value, status };
-}
-
-function calculateRealizedPnl(items: Array<{ realizedPnl: unknown }>) {
-  const total = items.reduce((sum, item) => sum + (toNumber(item.realizedPnl) ?? 0), 0);
-  return Number(total.toFixed(2));
-}
-
-function calculateFee(amount: number) {
-  return Number((Math.max(amount, TRADING_FEE_RULE.minimumFeeBase) * TRADING_FEE_RULE.rate).toFixed(2));
-}
-
 function normalizeScheduledFor(value: Date | string | null | undefined) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -1564,6 +1166,35 @@ function latestIso(values: Array<string | null | undefined>) {
     }
   }
   return latest;
+}
+
+function buildLedgerSignature(
+  tradeExecutions: Array<{
+    symbol: string;
+    side: string;
+    shares: unknown;
+    netCashChange: unknown;
+    realizedPnl: unknown;
+    updatedAt: Date;
+  }>
+) {
+  const grouped = new Map<string, { symbol: string; side: string; shares: number }>();
+  for (const execution of tradeExecutions) {
+    const symbol = execution.symbol.toUpperCase();
+    const side = execution.side.toLowerCase();
+    const key = `${symbol}:${side}`;
+    const current = grouped.get(key) ?? { symbol, side, shares: 0 };
+    current.shares = Number((current.shares + (toNumber(execution.shares) ?? 0)).toFixed(4));
+    grouped.set(key, current);
+  }
+
+  return {
+    count: tradeExecutions.length,
+    latestUpdatedAt: latestIso(tradeExecutions.map((execution) => execution.updatedAt.toISOString())),
+    netCashChange: Number(tradeExecutions.reduce((sum, execution) => sum + (toNumber(execution.netCashChange) ?? 0), 0).toFixed(2)),
+    realizedPnl: calculateRealizedPnl(tradeExecutions),
+    positions: [...grouped.values()].sort((a, b) => `${a.symbol}:${a.side}`.localeCompare(`${b.symbol}:${b.side}`))
+  };
 }
 
 function numberEnv(name: string, fallback: number) {

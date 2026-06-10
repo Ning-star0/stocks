@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Bot, Loader2, MessageCircle, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { readJsonResponse } from "@/lib/clientApi";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -50,8 +51,8 @@ export function ChatPanel() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error?.message ?? "请求失败");
+        await readJsonResponse(res);
+        throw new Error("请求失败");
       }
       const memoryUpdatedByServer = res.headers.get("X-Memory-Updated") === "true";
 

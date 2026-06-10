@@ -4,6 +4,17 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { getNotificationConfig, maskSecret, maskWebhook, normalizeNotificationProvider, normalizeText, normalizeWebhookUrl, updateNotificationConfig } from "@/lib/notifications/config";
 import { sendTestNotification } from "@/lib/notifications/send";
+import { readRequestJson } from "@/lib/serverApi";
+
+type NotificationSettingsRequest = {
+  enabled?: boolean;
+  provider?: string | null;
+  webhookUrl?: string | null;
+  corpId?: string | null;
+  agentId?: string | null;
+  appSecret?: string | null;
+  toUser?: string | null;
+};
 
 export async function GET() {
   try {
@@ -19,7 +30,7 @@ export async function PUT(request: Request) {
   try {
     const user = await getCurrentUser();
     const current = await getNotificationConfig(user.id);
-    const body = await request.json().catch(() => ({}));
+    const body = await readRequestJson<NotificationSettingsRequest>(request);
     await updateNotificationConfig(user.id, {
       enabled: Boolean(body.enabled),
       provider: normalizeNotificationProvider(body.provider),

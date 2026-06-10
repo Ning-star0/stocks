@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { readRequestJson } from "@/lib/serverApi";
 import { updateWatchlistItemSchema } from "@/lib/schemas";
 import { serializeWatchlistItem } from "@/lib/serializers";
 
@@ -11,7 +12,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const user = await getCurrentUser();
-    const body = updateWatchlistItemSchema.parse(await request.json());
+    const body = updateWatchlistItemSchema.parse(await readRequestJson(request));
 
     const item = await prisma.watchlistItem.findFirst({
       where: { id, watchlist: { userId: user.id } }

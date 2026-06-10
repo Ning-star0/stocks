@@ -4,6 +4,7 @@ import { logApiUsage } from "@/lib/apiUsage";
 import { generateNewsSearchPlan, type NewsSearchPlan } from "@/lib/ai/generateNewsSearchQueries";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import { getNewsProvider } from "@/lib/news";
 import {
   buildSectorNewsKeywords,
@@ -227,7 +228,9 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
       body: JSON.stringify(body)
     });
 
-    const payload = (await response.json().catch(() => ({}))) as TavilyResponse & { error?: string; message?: string };
+    const payload = await readProviderJsonResponse<TavilyResponse & { error?: string; message?: string }>(response, "Tavily 网页搜索", {
+      fallbackOnHttpError: {}
+    });
     if (!response.ok) {
       await logApiUsage({ provider: "tavily", apiName: "web_search", status: "failed", metadata: { topic, status: response.status } });
       throw new AppError("DATA_PROVIDER_ERROR", payload.error || payload.message || `Tavily 搜索失败：HTTP ${response.status}`);

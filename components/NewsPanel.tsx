@@ -6,6 +6,7 @@ import { Newspaper, RefreshCw } from "lucide-react";
 import { NewsCard, type NewsCardData } from "@/components/NewsCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { readJsonResponse } from "@/lib/clientApi";
 import { toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 
 export function NewsPanel({ symbol, name }: { symbol: string; name?: string | null }) {
@@ -32,8 +33,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       });
       if (name) params.set("name", name);
       const response = await fetch(`/api/news?${params.toString()}`, { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "加载新闻失败。");
+      const json = await readJsonResponse<{ news?: NewsCardData[] }>(response);
       const sorted = sortNews(Array.isArray(json.news) ? json.news.map(simplifyNewsItem) : []);
       setNews(sorted.filter((item: NewsCardData) => item.importance !== "low"));
       setLowNews(sorted.filter((item: NewsCardData) => item.importance === "low"));
@@ -59,8 +59,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol, name })
       });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "抓取新闻失败。");
+      const json = await readJsonResponse<{ saved?: number; queued?: number; webSearchReports?: Array<{ symbol?: string; status?: string; resultCount?: number }> }>(response);
       const searchReports = Array.isArray(json.webSearchReports) ? json.webSearchReports : [];
       const currentReport = searchReports.find((report: { symbol?: string }) => report.symbol?.toUpperCase() === symbol.toUpperCase()) ?? searchReports[0];
       const searchText = currentReport
@@ -78,8 +77,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
   async function analyze(id: string) {
     try {
       const response = await fetch(`/api/news/${id}/analyze`, { method: "POST" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message ?? "创建新闻分析任务失败。");
+      const json = await readJsonResponse<{ jobId?: string }>(response);
       if (json.jobId) {
         setMessage("高重要性新闻已加入 AI 精读队列，worker 处理完成后会显示结果。");
         return;

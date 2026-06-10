@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { logApiUsage } from "@/lib/apiUsage";
 import { remember } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import type { NewsProvider } from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
 
@@ -83,7 +84,7 @@ export class TianApiNewsProvider implements NewsProvider {
         throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：HTTP ${response.status}`);
       }
 
-      const payload = (await response.json()) as TianApiResponse;
+      const payload = await readProviderJsonResponse<TianApiResponse>(response, "天行财经新闻");
       lastPayload = payload;
       if (payload.code === 200) {
         await logApiUsage({ provider: "tianapi", apiName: "news", status: "success", metadata: { count: payload.result?.list?.length ?? 0 } });

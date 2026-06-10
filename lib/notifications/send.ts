@@ -1,5 +1,6 @@
 import { getCache, setCache } from "@/lib/cache";
 import { buildDecisionFeedbackUrl } from "@/lib/decisionFeedback";
+import { readProviderJsonResponse } from "@/lib/httpJson";
 import { getNotificationConfig, type NotificationProvider } from "@/lib/notifications/config";
 
 type DecisionOrder = {
@@ -214,7 +215,7 @@ async function sendWecomAppMessage(config: Awaited<ReturnType<typeof getNotifica
       safe: 0
     })
   });
-  const payload = await response.json().catch(() => ({})) as { errcode?: number; errmsg?: string };
+  const payload = await readProviderJsonResponse<{ errcode?: number; errmsg?: string }>(response, "企业微信应用推送", { fallbackOnHttpError: {} });
   if (!response.ok || payload.errcode) {
     throw new Error(`企业微信应用推送失败：${payload.errmsg || `HTTP ${response.status}`}`);
   }
@@ -229,7 +230,11 @@ async function getWecomAccessToken(config: Awaited<ReturnType<typeof getNotifica
   url.searchParams.set("corpid", config.corpId);
   url.searchParams.set("corpsecret", config.appSecret);
   const response = await fetch(url, { cache: "no-store" });
-  const payload = await response.json().catch(() => ({})) as { errcode?: number; errmsg?: string; access_token?: string; expires_in?: number };
+  const payload = await readProviderJsonResponse<{ errcode?: number; errmsg?: string; access_token?: string; expires_in?: number }>(
+    response,
+    "企业微信 token 获取",
+    { fallbackOnHttpError: {} }
+  );
   if (!response.ok || payload.errcode || !payload.access_token) {
     throw new Error(`企业微信 token 获取失败：${payload.errmsg || `HTTP ${response.status}`}`);
   }
