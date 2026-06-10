@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function PositionEditor({
   riskLevel,
   note
 }: PositionEditorProps) {
+  const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const openedDate = toDateInputValue(positionOpenedAt);
@@ -69,8 +71,8 @@ export function PositionEditor({
       });
       await readJsonResponse(response);
 
-      setMessage("已保存，正在刷新数据...");
-      setTimeout(() => window.location.reload(), 800);
+      setMessage("已保存。");
+      router.refresh();
     } catch (err) {
       setSaving(false);
       if (err instanceof DOMException && err.name === "AbortError") {
