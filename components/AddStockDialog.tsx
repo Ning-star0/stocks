@@ -24,13 +24,12 @@ export function AddStockDialog({ onAdded }: AddStockDialogProps) {
     setError(null);
 
     const form = new FormData(event.currentTarget);
-    const payload = {
+    const note = String(form.get("note") ?? "").trim();
+    const payload: { symbol: string; market: string; note?: string } = {
       symbol: String(form.get("symbol") ?? "").toUpperCase(),
-      market: String(form.get("market") ?? "CN").toUpperCase(),
-      note: String(form.get("note") ?? ""),
-      timeHorizon: "swing_trade",
-      riskLevel: "medium"
+      market: String(form.get("market") ?? "CN").toUpperCase()
     };
+    if (note) payload.note = note;
 
     try {
       const response = await fetch("/api/watchlist/items", {

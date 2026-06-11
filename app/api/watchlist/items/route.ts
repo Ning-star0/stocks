@@ -30,10 +30,10 @@ export async function POST(request: NextRequest) {
       },
       update: {
         market: body.market,
-        note: body.note || null,
+        note: hasOwn(rawBody, "note") && body.note?.trim() ? body.note : undefined,
         ...updatePosition,
-        timeHorizon: body.timeHorizon,
-        riskLevel: body.riskLevel
+        timeHorizon: hasOwn(rawBody, "timeHorizon") ? body.timeHorizon : undefined,
+        riskLevel: hasOwn(rawBody, "riskLevel") ? body.riskLevel : undefined
       },
       create: {
         watchlistId: watchlist.id,
