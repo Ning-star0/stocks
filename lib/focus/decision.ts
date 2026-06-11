@@ -746,6 +746,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFocusTradeFee(amount);
       if (amount + fee > remainingCash) return null;
+      const planMeta = buildBuyPlanMeta({ order, candidate, price, shares });
       spent += amount + fee;
       return {
         ...order,
@@ -755,6 +756,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         estimatedPrice: price || null,
         shares,
         amount,
+        ...planMeta,
         estimatedFee: fee,
         totalCost: Number((amount + fee).toFixed(2)),
         feeRule: TRADING_FEE_RULE.description
@@ -783,6 +785,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         shares,
         holdingPrice: candidate?.holdingPrice ?? null
       });
+      const planMeta = buildSellPlanMeta({ order, candidate, price, shares, holdingShares });
       return {
         ...order,
         action: shares >= holdingShares ? ("sell" as const) : order.action,
@@ -791,6 +794,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         estimatedPrice: price || null,
         shares,
         amount,
+        ...planMeta,
         estimatedFee: fee,
         netProceeds,
         estimatedPnl,
@@ -833,6 +837,72 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     fallbackReason,
     generatedAt: new Date().toISOString()
   };
+}
+
+function buildBuyPlanMeta(input: {
+  order: DecisionSchemaValue["orders"][number];
+  candidate?: Candidate | null;
+  price: number;
+  shares: number;
+}) {
+  const triggerPrice = normalizedPrice(input.order.triggerPrice) ?? normalizedPrice(input.price);
+  const stopLossPrice = normalizedPrice(input.order.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
+  const takeProfitPrice = normalizedPrice(input.order.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
+  return {
+    planType: input.order.planType ?? inferBuyPlanType(input.candidate),
+    triggerPrice,
+    stopLossPrice,
+    takeProfitPrice,
+    maxLossAmount: normalizedMoney(input.order.maxLossAmount) ?? estimateMaxLossAmount({ shares: input.shares, triggerPrice, stopLossPrice }),
+    riskRewardRatio: normalizedRatio(input.order.riskRewardRatio) ?? input.candidate?.quantSignal?.riskRewardRatio ?? estimateRiskRewardRatio({ triggerPrice, stopLossPrice, takeProfitPrice }),
+    priority: input.order.priority ?? priorityFromBuyCandidate(input.candidate)
+  };
+}
+
+function buildSellPlanMeta(input: {
+  order: DecisionSchemaValue["sellOrders"][number];
+  candidate?: Candidate | null;
+  price: number;
+  shares: number;
+  holdingShares: number;
+}) {
+  const triggerPrice = normalizedPrice(input.order.triggerPrice) ?? normalizedPrice(input.price);
+  const stopLossPrice = normalizedPrice(input.order.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
+  const takeProfitPrice = normalizedPrice(input.order.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
+  return {
+    triggerPrice,
+    stopLossPrice,
+    takeProfitPrice,
+    sellRatioPct: normalizedRatio(input.order.sellRatioPct) ?? percent(input.shares, input.holdingShares),
+    priority: input.order.priority ?? priorityFromSellCandidate(input.candidate)
+  };
+}
+
+function inferBuyPlanType(candidate?: Candidate | null): DecisionSchemaValue["orders"][number]["planType"] {
+  const signal = candidate?.quantSignal;
+  if (candidate?.isHolding) return "add_on_strength";
+  if (signal?.marketRegime === "risk_off") return "support";
+  if (signal?.sectorBias === "overheated") return "pullback";
+  if ((signal?.supportDistancePct ?? 99) <= 3.5) return "support";
+  if ((signal?.buyScore ?? 0) >= (signal?.adjustedBuyThreshold ?? 70) + 6) return "breakout";
+  return "trend_follow";
+}
+
+function priorityFromBuyCandidate(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  if (!signal) return 4;
+  if (signal.marketRegime === "risk_off") return 4;
+  if (signal.buyScore >= signal.adjustedBuyThreshold + 8 && (signal.riskRewardRatio ?? 0) >= 1.8) return 1;
+  if (signal.buyScore >= signal.adjustedBuyThreshold + 4) return 2;
+  return 3;
+}
+
+function priorityFromSellCandidate(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  if (!signal) return 3;
+  if (signal.action === "sell" || signal.sellScore >= signal.adjustedSellThreshold) return 1;
+  if (signal.action === "reduce" || signal.sellScore >= signal.adjustedReduceThreshold) return 2;
+  return 3;
 }
 
 function normalizeRankingItems(
@@ -1027,6 +1097,45 @@ function findBySymbol<T>(items: T[], symbol: string, getSymbol: (item: T) => str
   return items.find((item) => sameSymbol(getSymbol(item), symbol)) ?? null;
 }
 
+function normalizedPrice(value: unknown) {
+  const number = toNumber(value);
+  return number !== null && number > 0 ? Number(number.toFixed(4)) : null;
+}
+
+function normalizedPriceFromText(value?: string | null) {
+  if (!value || value === "--") return null;
+  const match = value.match(/-?\d+(?:\.\d+)?/);
+  return match ? normalizedPrice(match[0]) : null;
+}
+
+function normalizedMoney(value: unknown) {
+  const number = toNumber(value);
+  return number !== null && number >= 0 ? Number(number.toFixed(2)) : null;
+}
+
+function normalizedRatio(value: unknown) {
+  const number = toNumber(value);
+  return number !== null && number >= 0 ? Number(number.toFixed(2)) : null;
+}
+
+function estimateMaxLossAmount(input: { shares: number; triggerPrice: number | null; stopLossPrice: number | null }) {
+  if (!input.shares || !input.triggerPrice || !input.stopLossPrice || input.triggerPrice <= input.stopLossPrice) return null;
+  return Number(((input.triggerPrice - input.stopLossPrice) * input.shares).toFixed(2));
+}
+
+function estimateRiskRewardRatio(input: { triggerPrice: number | null; stopLossPrice: number | null; takeProfitPrice: number | null }) {
+  if (!input.triggerPrice || !input.stopLossPrice || !input.takeProfitPrice) return null;
+  const risk = input.triggerPrice - input.stopLossPrice;
+  const reward = input.takeProfitPrice - input.triggerPrice;
+  if (risk <= 0 || reward <= 0) return null;
+  return Number((reward / risk).toFixed(2));
+}
+
+function percent(part: number, total: number) {
+  if (!total || total <= 0) return null;
+  return Number(Math.min(100, Math.max(0, (part / total) * 100)).toFixed(2));
+}
+
 function orderLabel(input: { symbol: string; name?: string | null }) {
   return input.name ? `${input.name}（${input.symbol}）` : input.symbol;
 }
@@ -1075,6 +1184,11 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
             action: /止损|离场|回避/.test(stringifyAdvice(sellTarget.latestAnalysis?.holdAdvice)) ? "sell" : "reduce",
             amount: sellShares * sellTarget.price,
             shares: sellShares,
+            triggerPrice: sellTarget.price,
+            stopLossPrice: normalizedPrice(sellTarget.stopLoss) ?? normalizedPriceFromText(sellTarget.quantSignal?.stopLoss),
+            takeProfitPrice: normalizedPrice(sellTarget.targetPrice) ?? normalizedPriceFromText(sellTarget.quantSignal?.takeProfit),
+            sellRatioPct: sellTarget.holdingShares ? percent(sellShares, sellTarget.holdingShares) : null,
+            priority: sellTarget.quantSignal?.action === "sell" ? 1 : 2,
             reason: `已持仓，最近分析出现减仓/止损/风险规避信号。${sellTarget.latestAnalysis?.summary ?? ""}`,
             riskControl: "若价格重新站回关键支撑且单股分析转为持有，可取消减仓计划；否则按止损/减仓条件执行观察。",
             invalidIf: "AI 服务恢复后结论相反，或价格重新回到持仓计划的安全区间。"
@@ -1106,6 +1220,17 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
           action: best.isHolding ? "add" : "buy",
           amount: targetAmount,
           shares: sharesFromAmount(targetAmount, best.price),
+          planType: inferBuyPlanType(best),
+          triggerPrice: best.price,
+          stopLossPrice: normalizedPrice(best.stopLoss) ?? normalizedPriceFromText(best.quantSignal?.stopLoss),
+          takeProfitPrice: normalizedPrice(best.targetPrice) ?? normalizedPriceFromText(best.quantSignal?.takeProfit),
+          maxLossAmount: estimateMaxLossAmount({
+            shares: sharesFromAmount(targetAmount, best.price),
+            triggerPrice: best.price,
+            stopLossPrice: normalizedPrice(best.stopLoss) ?? normalizedPriceFromText(best.quantSignal?.stopLoss)
+          }),
+          riskRewardRatio: best.quantSignal?.riskRewardRatio ?? null,
+          priority: priorityFromBuyCandidate(best),
           reason: `${best.isHolding ? "已持仓，按本地规则仅视为增持候选。" : "未持仓，按本地规则视为新买入候选。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "趋势和置信度在候选中相对更高。"}`,
           riskControl: "若跌破最近分析给出的止损或关键支撑，停止加仓并复核。",
           invalidIf: "AI 服务恢复后结论相反，或价格快速偏离计划买入区间。"

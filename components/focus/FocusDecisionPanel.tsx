@@ -138,10 +138,17 @@ export function FocusDecisionPanel({
                 <Badge variant="success">{order.action === "add" ? "增持" : "买入"}</Badge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <DecisionNumber label="策略类型" value={planTypeLabel(order.planType)} />
+                <DecisionNumber label="优先级" value={priorityLabel(order.priority)} />
+                <DecisionNumber label="触发价" value={formatMoney(order.triggerPrice ?? order.estimatedPrice)} />
+                <DecisionNumber label="止损价" value={formatMoney(order.stopLossPrice)} />
+                <DecisionNumber label="止盈价" value={formatMoney(order.takeProfitPrice)} />
+                <DecisionNumber label="风险收益比" value={formatRatio(order.riskRewardRatio)} />
                 <DecisionNumber label="数量" value={`${order.shares} 股/份`} />
                 <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
                 <DecisionNumber label="成交金额" value={formatMoney(order.amount)} />
                 <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
+                <DecisionNumber label="最大价格风险" value={formatMoney(order.maxLossAmount)} className="col-span-2" />
                 <DecisionNumber label="总成本" value={formatMoney(order.totalCost)} className="col-span-2" />
               </div>
               <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
@@ -163,6 +170,11 @@ export function FocusDecisionPanel({
                 <Badge variant="danger">{order.action === "sell" ? "卖出" : "减仓"}</Badge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <DecisionNumber label="优先级" value={priorityLabel(order.priority)} />
+                <DecisionNumber label="卖出比例" value={formatPercent(order.sellRatioPct)} />
+                <DecisionNumber label="触发价" value={formatMoney(order.triggerPrice ?? order.estimatedPrice)} />
+                <DecisionNumber label="止损价" value={formatMoney(order.stopLossPrice)} />
+                <DecisionNumber label="止盈价" value={formatMoney(order.takeProfitPrice)} />
                 <DecisionNumber label="数量" value={`${order.shares} 股/份`} />
                 <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
                 <DecisionNumber label="计划市值" value={formatMoney(order.amount)} />
@@ -313,6 +325,33 @@ function AssetMetric({
 function formatMoney(value?: number | null) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "--";
   return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
+}
+
+function formatRatio(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(2)} : 1`;
+}
+
+function formatPercent(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(0)}%`;
+}
+
+function priorityLabel(value?: number | null) {
+  if (!value || !Number.isFinite(value)) return "--";
+  return `P${value}`;
+}
+
+function planTypeLabel(value?: FocusDecision["orders"][number]["planType"]) {
+  const map: Record<NonNullable<FocusDecision["orders"][number]["planType"]>, string> = {
+    pullback: "回调低吸",
+    breakout: "突破确认",
+    support: "支撑确认",
+    trend_follow: "趋势跟随",
+    add_on_strength: "强势增持",
+    risk_rebalance: "调仓再平衡"
+  };
+  return value ? map[value] : "--";
 }
 
 function formatDateTime(value?: string | Date | null) {

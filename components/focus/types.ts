@@ -115,6 +115,13 @@ export type FocusDecision = {
     action: "buy" | "add" | "watch" | "avoid";
     amount: number;
     shares: number;
+    planType?: "pullback" | "breakout" | "support" | "trend_follow" | "add_on_strength" | "risk_rebalance";
+    triggerPrice?: number | null;
+    stopLossPrice?: number | null;
+    takeProfitPrice?: number | null;
+    maxLossAmount?: number | null;
+    riskRewardRatio?: number | null;
+    priority?: number | null;
     estimatedPrice: number | null;
     estimatedFee: number;
     totalCost: number;
@@ -128,6 +135,11 @@ export type FocusDecision = {
     action: "sell" | "reduce" | "watch" | "avoid";
     amount: number;
     shares: number;
+    triggerPrice?: number | null;
+    stopLossPrice?: number | null;
+    takeProfitPrice?: number | null;
+    sellRatioPct?: number | null;
+    priority?: number | null;
     estimatedPrice: number | null;
     estimatedFee: number;
     netProceeds: number;
