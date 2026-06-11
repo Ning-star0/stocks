@@ -66,7 +66,7 @@ export function DecisionFeedbackPanel({
     const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
     setAction(nextAction);
     setTradeKey(nextTradeKey);
-    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.price));
+    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
     setExecutedShares(feedback?.executedShares ? String(feedback.executedShares) : numberInputValue(nextTrade?.shares));
     setNote(feedback?.note ?? "");
     setMessage(feedback ? feedbackMessage(feedback) : null);
@@ -86,7 +86,7 @@ export function DecisionFeedbackPanel({
     if (nextTradeKey) {
       setTradeKey(nextTradeKey);
       const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
-      setExecutedPrice(numberInputValue(nextTrade?.price));
+      setExecutedPrice(numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
       setExecutedShares(numberInputValue(nextTrade?.shares));
     }
   }
@@ -95,7 +95,7 @@ export function DecisionFeedbackPanel({
     setTradeKey(nextTradeKey);
     const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
     if (nextTrade) {
-      setExecutedPrice(numberInputValue(nextTrade.price));
+      setExecutedPrice(numberInputValue(nextTrade.triggerPrice ?? nextTrade.price));
       setExecutedShares(numberInputValue(nextTrade.shares));
       setAction(nextTrade.side === "buy" ? "bought" : "sold");
     }
@@ -206,6 +206,7 @@ export function DecisionFeedbackPanel({
             ))}
           </select>
           <p className="text-xs text-muted-foreground">实际买卖按 100 股/份整数手记录；保存后会更新自选股里的持仓成本和持仓数量。</p>
+          {selectedTrade ? <TradeExecutionHint trade={selectedTrade} /> : null}
         </div>
       ) : null}
 
@@ -317,6 +318,64 @@ function feedbackActionLabel(value?: string | null) {
     other: "其他决策"
   };
   return value ? map[value] ?? map.other : map.other;
+}
+
+function TradeExecutionHint({ trade }: { trade: TradeOption }) {
+  const rows = [
+    ["计划类型", trade.side === "buy" ? planTypeLabel(trade.planType) : trade.sellRatioPct ? `卖出 ${formatPercent(trade.sellRatioPct)}` : "卖出/减仓"],
+    ["优先级", priorityLabel(trade.priority)],
+    ["触发价", formatPrice(trade.triggerPrice ?? trade.price)],
+    ["止损价", formatPrice(trade.stopLossPrice)],
+    ["止盈价", formatPrice(trade.takeProfitPrice)],
+    ["计划金额", formatMoney(trade.amount)],
+    ...(trade.side === "buy" ? [["风险收益比", formatRatio(trade.riskRewardRatio)], ["最大价格风险", formatMoney(trade.maxLossAmount)]] : [])
+  ].filter((row): row is [string, string] => row[1] !== "--");
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+      {rows.map(([label, value]) => (
+        <div key={label} className="min-w-0">
+          <div className="text-muted-foreground">{label}</div>
+          <div className="mt-1 truncate font-medium tabular-nums text-foreground" title={value}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function planTypeLabel(value?: TradeOption["planType"]) {
+  const map: Record<NonNullable<TradeOption["planType"]>, string> = {
+    pullback: "回调低吸",
+    breakout: "突破确认",
+    support: "支撑确认",
+    trend_follow: "趋势跟随",
+    add_on_strength: "强势增持",
+    risk_rebalance: "调仓再平衡"
+  };
+  return value ? map[value] : "--";
+}
+
+function priorityLabel(value?: number | null) {
+  return value && Number.isFinite(value) ? `P${value}` : "--";
+}
+
+function formatPrice(value?: number | null) {
+  return value !== null && value !== undefined && Number.isFinite(value) ? String(value) : "--";
+}
+
+function formatMoney(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
+}
+
+function formatRatio(value?: number | null) {
+  return value !== null && value !== undefined && Number.isFinite(value) ? `${value.toFixed(2)} : 1` : "--";
+}
+
+function formatPercent(value?: number | null) {
+  return value !== null && value !== undefined && Number.isFinite(value) ? `${value.toFixed(0)}%` : "--";
 }
 
 function formatDateTime(value?: string | Date | null) {

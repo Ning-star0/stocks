@@ -56,6 +56,7 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
     : tradeOptions[0]
       ? `${tradeOptions[0].side}:${tradeOptions[0].symbol}`
       : "";
+  const selectedOrder = tradeOptions.find((order) => `${order.side}:${order.symbol}` === selectedTrade) ?? tradeOptions[0] ?? null;
 
   return (
     <PageContainer className="max-w-2xl">
@@ -81,6 +82,13 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
                     <span className="font-medium">{order.type}</span>
                     <span className="ml-2">{order.name || order.symbol}</span>
                     <span className="ml-2 tabular-nums text-muted-foreground">{formatMoney(order.amount)} / {order.shares || 0} 股份</span>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>触发 {formatPrice(order.triggerPrice ?? order.price)}</span>
+                      <span>止损 {formatPrice(order.stopLossPrice)}</span>
+                      <span>止盈 {formatPrice(order.takeProfitPrice)}</span>
+                      {order.priority ? <span>优先级 P{order.priority}</span> : null}
+                      {order.sellRatioPct ? <span>卖出比例 {formatPercent(order.sellRatioPct)}</span> : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -119,11 +127,11 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
               ) : null}
               <div className="space-y-2">
                 <span className="block text-sm font-medium">实际成交价，可选</span>
-                <Input name="executedPrice" inputMode="decimal" placeholder="例如 2.16" defaultValue={decimalToString(decision.feedback?.executedPrice)} />
+                <Input name="executedPrice" inputMode="decimal" placeholder="例如 2.16" defaultValue={decimalToString(decision.feedback?.executedPrice ?? selectedOrder?.triggerPrice ?? selectedOrder?.price)} />
               </div>
               <div className="space-y-2">
                 <span className="block text-sm font-medium">实际数量，可选</span>
-                <Input name="executedShares" inputMode="decimal" placeholder="例如 200" defaultValue={decimalToString(decision.feedback?.executedShares)} />
+                <Input name="executedShares" inputMode="decimal" placeholder="例如 200" defaultValue={decimalToString(decision.feedback?.executedShares ?? selectedOrder?.shares)} />
               </div>
             </div>
 
@@ -162,7 +170,13 @@ function normalizeOrders(value: unknown, type: string, side: "buy" | "sell") {
     symbol: String(order.symbol ?? ""),
     name: typeof order.name === "string" ? order.name : "",
     amount: Number(order.amount ?? 0),
-    shares: Number(order.shares ?? 0)
+    shares: Number(order.shares ?? 0),
+    price: nullableNumber(order.estimatedPrice),
+    triggerPrice: nullableNumber(order.triggerPrice),
+    stopLossPrice: nullableNumber(order.stopLossPrice),
+    takeProfitPrice: nullableNumber(order.takeProfitPrice),
+    sellRatioPct: nullableNumber(order.sellRatioPct),
+    priority: nullableNumber(order.priority)
   }));
 }
 
@@ -176,6 +190,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function decimalToString(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function nullableNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatPrice(value?: number | null) {
+  return value === null || value === undefined || !Number.isFinite(value) ? "--" : String(value);
+}
+
+function formatPercent(value?: number | null) {
+  return value === null || value === undefined || !Number.isFinite(value) ? "--" : `${value.toFixed(0)}%`;
 }
 
 function formatMoney(value?: number | null) {

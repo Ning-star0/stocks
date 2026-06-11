@@ -160,6 +160,15 @@ export type TradeOption = {
   label: string;
   price?: number | null;
   shares?: number | null;
+  amount?: number | null;
+  triggerPrice?: number | null;
+  stopLossPrice?: number | null;
+  takeProfitPrice?: number | null;
+  priority?: number | null;
+  planType?: FocusDecision["orders"][number]["planType"];
+  riskRewardRatio?: number | null;
+  maxLossAmount?: number | null;
+  sellRatioPct?: number | null;
 };
 
 export type AnalysisRunResponse = {

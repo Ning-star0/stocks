@@ -52,7 +52,15 @@ export function FocusDecisionPanel({
       side: "buy" as const,
       label: `${order.name || order.symbol} · ${order.action === "add" ? "增持" : "买入"}`,
       price: order.estimatedPrice,
-      shares: order.shares
+      shares: order.shares,
+      amount: order.amount,
+      triggerPrice: order.triggerPrice,
+      stopLossPrice: order.stopLossPrice,
+      takeProfitPrice: order.takeProfitPrice,
+      priority: order.priority,
+      planType: order.planType,
+      riskRewardRatio: order.riskRewardRatio,
+      maxLossAmount: order.maxLossAmount
     })),
     ...sellOrders.map((order) => ({
       key: `sell:${order.symbol}`,
@@ -61,7 +69,13 @@ export function FocusDecisionPanel({
       side: "sell" as const,
       label: `${order.name || order.symbol} · ${order.action === "sell" ? "卖出" : "减仓"}`,
       price: order.estimatedPrice,
-      shares: order.shares
+      shares: order.shares,
+      amount: order.amount,
+      triggerPrice: order.triggerPrice,
+      stopLossPrice: order.stopLossPrice,
+      takeProfitPrice: order.takeProfitPrice,
+      priority: order.priority,
+      sellRatioPct: order.sellRatioPct
     }))
   ];
   return (
