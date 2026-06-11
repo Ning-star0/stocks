@@ -14,6 +14,7 @@ type LedgerPosition = {
   baseSymbol: string;
   shares: number;
   avgPrice: number;
+  costBasis: number;
   openedAt: Date | null;
 };
 
@@ -304,7 +305,7 @@ export async function rebuildUserPositions(tx: TransactionClient, userId: string
 
   for (const execution of executions) {
     const symbolBase = baseSymbol(execution.symbol);
-    const position = positions.get(symbolBase) ?? { baseSymbol: symbolBase, shares: 0, avgPrice: 0, openedAt: null };
+    const position = positions.get(symbolBase) ?? emptyLedgerPosition(symbolBase);
     const side = String(execution.side).toLowerCase();
     const price = Number(execution.price);
     const shares = Number(execution.shares);
@@ -315,17 +316,19 @@ export async function rebuildUserPositions(tx: TransactionClient, userId: string
       const nextShares = position.shares + shares;
       position.avgPrice = nextShares > 0 ? ((position.avgPrice * position.shares) + (price * shares)) / nextShares : price;
       position.shares = nextShares;
+      position.costBasis = roundMoney(position.costBasis + amount + fee);
       position.openedAt = position.openedAt ?? execution.executedAt;
       await syncExecutionMoney(tx, execution.id, { amount, fee, netCashChange: -roundMoney(amount + fee), realizedPnl: null });
     } else if (side === "sell") {
       const sellShares = Math.min(shares, position.shares);
-      const costBasis = position.avgPrice * sellShares;
-      const buyFeeForSold = calculateTradeFee(costBasis);
-      const realizedPnl = sellShares > 0 ? roundMoney(amount - fee - costBasis - buyFeeForSold) : null;
+      const soldCostBasis = allocateSoldCostBasis(position, sellShares);
+      const realizedPnl = sellShares > 0 ? roundMoney(amount - fee - soldCostBasis) : null;
       position.shares = Math.max(0, position.shares - sellShares);
+      position.costBasis = roundMoney(Math.max(0, position.costBasis - soldCostBasis));
       if (position.shares <= 0) {
         position.shares = 0;
         position.avgPrice = 0;
+        position.costBasis = 0;
         position.openedAt = null;
       }
       await syncExecutionMoney(tx, execution.id, { amount, fee, netCashChange: roundMoney(amount - fee), realizedPnl });
@@ -337,7 +340,7 @@ export async function rebuildUserPositions(tx: TransactionClient, userId: string
   for (const base of bases) {
     const item = itemByBase.get(base);
     if (!item) continue;
-    const position = positions.get(base) ?? { baseSymbol: base, shares: 0, avgPrice: 0, openedAt: null };
+    const position = positions.get(base) ?? emptyLedgerPosition(base);
     const updated = await tx.watchlistItem.update({
       where: { id: item.id },
       data: position.shares > 0
@@ -367,7 +370,7 @@ export async function calculateLedgerPosition(tx: TransactionClient, userId: str
     where: { userId },
     orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
   });
-  const position: LedgerPosition = { baseSymbol: symbolBase, shares: 0, avgPrice: 0, openedAt: null };
+  const position = emptyLedgerPosition(symbolBase);
 
   for (const execution of executions) {
     if (options.excludeExecutionId && execution.id === options.excludeExecutionId) continue;
@@ -376,21 +379,38 @@ export async function calculateLedgerPosition(tx: TransactionClient, userId: str
     const price = Number(execution.price);
     const shares = Number(execution.shares);
     if (side === "buy") {
+      const amount = Number(execution.amount ?? Number(execution.price) * Number(execution.shares));
+      const fee = Number(execution.fee ?? calculateTradeFee(amount));
       const nextShares = position.shares + shares;
       position.avgPrice = nextShares > 0 ? ((position.avgPrice * position.shares) + (price * shares)) / nextShares : price;
       position.shares = nextShares;
+      position.costBasis = roundMoney(position.costBasis + amount + fee);
       position.openedAt = position.openedAt ?? execution.executedAt;
     } else if (side === "sell") {
-      position.shares = Math.max(0, position.shares - shares);
+      const sellShares = Math.min(shares, position.shares);
+      const soldCostBasis = allocateSoldCostBasis(position, sellShares);
+      position.shares = Math.max(0, position.shares - sellShares);
+      position.costBasis = roundMoney(Math.max(0, position.costBasis - soldCostBasis));
       if (position.shares <= 0) {
         position.shares = 0;
         position.avgPrice = 0;
+        position.costBasis = 0;
         position.openedAt = null;
       }
     }
   }
 
   return position;
+}
+
+function emptyLedgerPosition(baseSymbol: string): LedgerPosition {
+  return { baseSymbol, shares: 0, avgPrice: 0, costBasis: 0, openedAt: null };
+}
+
+function allocateSoldCostBasis(position: LedgerPosition, sellShares: number) {
+  if (sellShares <= 0 || position.shares <= 0 || position.costBasis <= 0) return 0;
+  if (sellShares >= position.shares) return roundMoney(position.costBasis);
+  return roundMoney(position.costBasis * (sellShares / position.shares));
 }
 
 async function syncExecutionMoney(
