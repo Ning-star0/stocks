@@ -24,10 +24,12 @@ import { decisionSchema, type DecisionSchemaValue } from "@/lib/focus/decisionSc
 import type { Candidate, DecisionInput, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
 import {
   buildPortfolioSnapshot,
+  calculatePositionCostBasisBySymbol,
   calculateRealizedPnl,
   type PortfolioSnapshot
 } from "@/lib/focus/portfolio";
 import {
+  focusSymbolBase,
   latestFocusAnalysesForSymbols as latestAnalysesForSymbols,
   focusSymbolVariants as symbolVariants,
   sameFocusSymbol as sameSymbol
@@ -281,7 +283,8 @@ async function loadPortfolioSnapshot(userId: string, capital: number): Promise<P
     }),
     prisma.tradeExecution.findMany({
       where: { userId },
-      select: { symbol: true, netCashChange: true, realizedPnl: true }
+      select: { symbol: true, side: true, price: true, shares: true, amount: true, fee: true, netCashChange: true, realizedPnl: true, executedAt: true, updatedAt: true },
+      orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
     })
   ]);
   const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
@@ -335,11 +338,16 @@ async function loadDecisionSeed(userId: string) {
       select: {
         symbol: true,
         side: true,
+        price: true,
         shares: true,
+        amount: true,
+        fee: true,
         netCashChange: true,
         realizedPnl: true,
+        executedAt: true,
         updatedAt: true
-      }
+      },
+      orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
     })
   ]);
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
@@ -395,7 +403,8 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     }),
     prisma.tradeExecution.findMany({
       where: { userId: seed.userId },
-      select: { symbol: true, netCashChange: true, realizedPnl: true }
+      select: { symbol: true, side: true, price: true, shares: true, amount: true, fee: true, netCashChange: true, realizedPnl: true, executedAt: true, updatedAt: true },
+      orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
     })
   ]);
   const portfolioSymbols = [...new Set(portfolioItems.map((item) => item.symbol.toUpperCase()))];
@@ -408,6 +417,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     quotes
   });
   const { investedCost, realizedPnl, availableCash, currentMarketValue, unrealizedPnl, totalAssets } = portfolioSnapshot;
+  const costBasisBySymbol = calculatePositionCostBasisBySymbol(portfolioItems, tradeExecutions);
 
   const candidateDrafts = seed.symbols.map((symbol) => {
     const quote = quotes[symbol] ?? quotes[symbolVariants(symbol).find((item) => quotes[item]) ?? symbol] ?? null;
@@ -479,6 +489,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       isHolding: item?.isHolding ?? false,
       holdingPrice,
       holdingShares: toNumber(item?.holdingShares),
+      currentCostBasis: item ? costBasisBySymbol.get(focusSymbolBase(item.symbol)) ?? null : null,
       positionOpenedAt: item?.positionOpenedAt ?? null,
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss),
@@ -783,7 +794,9 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         sellAmount: amount,
         sellFee: fee,
         shares,
-        holdingPrice: candidate?.holdingPrice ?? null
+        holdingPrice: candidate?.holdingPrice ?? null,
+        holdingShares: candidate?.holdingShares ?? null,
+        currentCostBasis: candidate?.currentCostBasis ?? null
       });
       const planMeta = buildSellPlanMeta({ order, candidate, price, shares, holdingShares });
       return {
@@ -855,7 +868,10 @@ function buildBuyPlanMeta(input: {
     takeProfitPrice,
     maxLossAmount: normalizedMoney(input.order.maxLossAmount) ?? estimateMaxLossAmount({ shares: input.shares, triggerPrice, stopLossPrice }),
     riskRewardRatio: normalizedRatio(input.order.riskRewardRatio) ?? input.candidate?.quantSignal?.riskRewardRatio ?? estimateRiskRewardRatio({ triggerPrice, stopLossPrice, takeProfitPrice }),
-    priority: input.order.priority ?? priorityFromBuyCandidate(input.candidate)
+    priority: input.order.priority ?? priorityFromBuyCandidate(input.candidate),
+    entryCondition: input.order.entryCondition || buildEntryCondition({ candidate: input.candidate, triggerPrice }),
+    executionWindow: input.order.executionWindow || buildExecutionWindow(input.candidate),
+    positionImpact: input.order.positionImpact || buildBuyPositionImpact({ candidate: input.candidate, shares: input.shares, price: input.price, triggerPrice })
   };
 }
 
@@ -874,7 +890,10 @@ function buildSellPlanMeta(input: {
     stopLossPrice,
     takeProfitPrice,
     sellRatioPct: normalizedRatio(input.order.sellRatioPct) ?? percent(input.shares, input.holdingShares),
-    priority: input.order.priority ?? priorityFromSellCandidate(input.candidate)
+    priority: input.order.priority ?? priorityFromSellCandidate(input.candidate),
+    exitCondition: input.order.exitCondition || buildExitCondition({ candidate: input.candidate, triggerPrice, stopLossPrice, takeProfitPrice }),
+    executionWindow: input.order.executionWindow || buildExecutionWindow(input.candidate),
+    positionImpact: input.order.positionImpact || buildSellPositionImpact({ candidate: input.candidate, shares: input.shares, price: input.price, holdingShares: input.holdingShares })
   };
 }
 
@@ -886,6 +905,57 @@ function inferBuyPlanType(candidate?: Candidate | null): DecisionSchemaValue["or
   if ((signal?.supportDistancePct ?? 99) <= 3.5) return "support";
   if ((signal?.buyScore ?? 0) >= (signal?.adjustedBuyThreshold ?? 70) + 6) return "breakout";
   return "trend_follow";
+}
+
+function buildEntryCondition(input: { candidate?: Candidate | null; triggerPrice: number | null }) {
+  const signal = input.candidate?.quantSignal;
+  const triggerText = input.triggerPrice ? `价格接近或有效站上 ${input.triggerPrice}` : "价格回到计划区间";
+  const scoreText = signal ? `买入分维持在 ${signal.adjustedBuyThreshold} 以上，风险分不继续抬升` : "最新分析维持偏多或条件入场";
+  const volumeText = signal?.volumeRatio !== null && signal?.volumeRatio !== undefined ? `量能不低于近期均量的 ${Math.max(0.8, Math.min(1.2, signal.volumeRatio)).toFixed(2)} 倍附近` : "量能没有明显萎缩";
+  return `${triggerText}，且${scoreText}，${volumeText}时才执行。`;
+}
+
+function buildExitCondition(input: { candidate?: Candidate | null; triggerPrice: number | null; stopLossPrice: number | null; takeProfitPrice: number | null }) {
+  const signal = input.candidate?.quantSignal;
+  if (signal?.action === "sell") {
+    return `价格触及 ${formatPlanLevel(input.triggerPrice ?? input.stopLossPrice)} 或卖出分维持在 ${signal.adjustedSellThreshold} 以上时优先执行。`;
+  }
+  if (input.stopLossPrice && input.triggerPrice && input.triggerPrice <= input.stopLossPrice) {
+    return `跌破 ${formatPlanLevel(input.stopLossPrice)} 且不能快速收回时执行风控卖出。`;
+  }
+  if (input.takeProfitPrice) {
+    return `接近 ${formatPlanLevel(input.takeProfitPrice)} 后动量转弱、放量回落或卖出分超过 ${signal?.adjustedReduceThreshold ?? "减仓阈值"} 时执行。`;
+  }
+  return signal?.exitPlan || "卖出分超过减仓阈值、趋势转弱或持仓计划失效时执行。";
+}
+
+function buildExecutionWindow(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  if (!candidateHasFreshQuote(candidate)) return "行情不新鲜时不执行，等待下一次有效报价和分析更新。";
+  if (signal?.marketRegime === "risk_off" || signal?.sectorBias === "overheated") return "优先等收盘确认或次日复核，避免盘中追高。";
+  if ((signal?.riskScore ?? 0) >= 68) return "盘中触发后仍需二次确认，风险信号回落前不扩大仓位。";
+  return "可盘中观察触发价，若收盘仍满足条件再确认执行。";
+}
+
+function buildBuyPositionImpact(input: { candidate?: Candidate | null; shares: number; price: number; triggerPrice: number | null }) {
+  if (!input.shares || input.price <= 0) return "交易数量不足 100 股/份，本计划不产生实际仓位变化。";
+  const amount = input.shares * input.price;
+  const fee = calculateFocusTradeFee(amount);
+  const risk = estimateMaxLossAmount({
+    shares: input.shares,
+    triggerPrice: input.triggerPrice ?? input.price,
+    stopLossPrice: normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss)
+  });
+  return `${input.candidate?.isHolding ? "增持" : "新建"} ${input.shares} 股/份，预计占用 ${formatPlanMoney(amount + fee)}；单笔价格风险约 ${formatPlanMoney(risk)}。`;
+}
+
+function buildSellPositionImpact(input: { candidate?: Candidate | null; shares: number; price: number; holdingShares: number }) {
+  if (!input.shares || input.price <= 0) return "交易数量不足 100 股/份，本计划不产生实际仓位变化。";
+  const amount = input.shares * input.price;
+  const fee = calculateFocusTradeFee(amount);
+  const remainingShares = Math.max(0, input.holdingShares - input.shares);
+  const ratio = percent(input.shares, input.holdingShares);
+  return `卖出 ${input.shares} 股/份${ratio !== null ? `（约 ${ratio.toFixed(0)}%）` : ""}，预计回收 ${formatPlanMoney(amount - fee)}，剩余 ${remainingShares} 股/份。`;
 }
 
 function priorityFromBuyCandidate(candidate?: Candidate | null) {
@@ -981,6 +1051,19 @@ function withRequiredQuantSellOrders(
       action: candidate.quantSignal?.action === "sell" ? "sell" : "reduce",
       amount: candidate.price && candidate.price > 0 ? Number((shares * candidate.price).toFixed(2)) : 0,
       shares,
+      exitCondition: buildExitCondition({
+        candidate,
+        triggerPrice: normalizedPrice(candidate.price),
+        stopLossPrice: normalizedPrice(candidate.stopLoss) ?? normalizedPriceFromText(candidate.quantSignal?.stopLoss),
+        takeProfitPrice: normalizedPrice(candidate.targetPrice) ?? normalizedPriceFromText(candidate.quantSignal?.takeProfit)
+      }),
+      executionWindow: buildExecutionWindow(candidate),
+      positionImpact: buildSellPositionImpact({
+        candidate,
+        shares,
+        price: candidate.price ?? 0,
+        holdingShares: candidate.holdingShares ?? 0
+      }),
       reason: buildRequiredSellReason(candidate, rankingClaimsSell),
       riskControl: candidate.quantSignal?.exitPlan || "若风险信号消失、价格重新站回关键支撑并且量化卖出分回落，可取消减仓观察。",
       invalidIf: "最新行情或单股分析显示卖出分低于阈值，且价格重新回到安全趋势区间。"
@@ -1136,6 +1219,15 @@ function percent(part: number, total: number) {
   return Number(Math.min(100, Math.max(0, (part / total) * 100)).toFixed(2));
 }
 
+function formatPlanLevel(value: number | null | undefined) {
+  return value ? value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "") : "计划触发价";
+}
+
+function formatPlanMoney(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${Number(value.toFixed(2)).toLocaleString("zh-CN")} 元`;
+}
+
 function orderLabel(input: { symbol: string; name?: string | null }) {
   return input.name ? `${input.name}（${input.symbol}）` : input.symbol;
 }
@@ -1189,6 +1281,19 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
             takeProfitPrice: normalizedPrice(sellTarget.targetPrice) ?? normalizedPriceFromText(sellTarget.quantSignal?.takeProfit),
             sellRatioPct: sellTarget.holdingShares ? percent(sellShares, sellTarget.holdingShares) : null,
             priority: sellTarget.quantSignal?.action === "sell" ? 1 : 2,
+            exitCondition: buildExitCondition({
+              candidate: sellTarget,
+              triggerPrice: sellTarget.price,
+              stopLossPrice: normalizedPrice(sellTarget.stopLoss) ?? normalizedPriceFromText(sellTarget.quantSignal?.stopLoss),
+              takeProfitPrice: normalizedPrice(sellTarget.targetPrice) ?? normalizedPriceFromText(sellTarget.quantSignal?.takeProfit)
+            }),
+            executionWindow: buildExecutionWindow(sellTarget),
+            positionImpact: buildSellPositionImpact({
+              candidate: sellTarget,
+              shares: sellShares,
+              price: sellTarget.price,
+              holdingShares: sellTarget.holdingShares ?? 0
+            }),
             reason: `已持仓，最近分析出现减仓/止损/风险规避信号。${sellTarget.latestAnalysis?.summary ?? ""}`,
             riskControl: "若价格重新站回关键支撑且单股分析转为持有，可取消减仓计划；否则按止损/减仓条件执行观察。",
             invalidIf: "AI 服务恢复后结论相反，或价格重新回到持仓计划的安全区间。"
@@ -1231,6 +1336,14 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
           }),
           riskRewardRatio: best.quantSignal?.riskRewardRatio ?? null,
           priority: priorityFromBuyCandidate(best),
+          entryCondition: buildEntryCondition({ candidate: best, triggerPrice: best.price }),
+          executionWindow: buildExecutionWindow(best),
+          positionImpact: buildBuyPositionImpact({
+            candidate: best,
+            shares: sharesFromAmount(targetAmount, best.price),
+            price: best.price ?? 0,
+            triggerPrice: best.price
+          }),
           reason: `${best.isHolding ? "已持仓，按本地规则仅视为增持候选。" : "未持仓，按本地规则视为新买入候选。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "趋势和置信度在候选中相对更高。"}`,
           riskControl: "若跌破最近分析给出的止损或关键支撑，停止加仓并复核。",
           invalidIf: "AI 服务恢复后结论相反，或价格快速偏离计划买入区间。"

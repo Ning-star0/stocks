@@ -122,6 +122,9 @@ export type FocusDecision = {
     maxLossAmount?: number | null;
     riskRewardRatio?: number | null;
     priority?: number | null;
+    entryCondition?: string | null;
+    executionWindow?: string | null;
+    positionImpact?: string | null;
     estimatedPrice: number | null;
     estimatedFee: number;
     totalCost: number;
@@ -140,6 +143,9 @@ export type FocusDecision = {
     takeProfitPrice?: number | null;
     sellRatioPct?: number | null;
     priority?: number | null;
+    exitCondition?: string | null;
+    executionWindow?: string | null;
+    positionImpact?: string | null;
     estimatedPrice: number | null;
     estimatedFee: number;
     netProceeds: number;
@@ -169,6 +175,10 @@ export type TradeOption = {
   riskRewardRatio?: number | null;
   maxLossAmount?: number | null;
   sellRatioPct?: number | null;
+  entryCondition?: string | null;
+  exitCondition?: string | null;
+  executionWindow?: string | null;
+  positionImpact?: string | null;
 };
 
 export type AnalysisRunResponse = {

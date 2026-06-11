@@ -328,7 +328,10 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
     ["止损价", formatPrice(trade.stopLossPrice)],
     ["止盈价", formatPrice(trade.takeProfitPrice)],
     ["计划金额", formatMoney(trade.amount)],
-    ...(trade.side === "buy" ? [["风险收益比", formatRatio(trade.riskRewardRatio)], ["最大价格风险", formatMoney(trade.maxLossAmount)]] : [])
+    ...(trade.side === "buy" ? [["风险收益比", formatRatio(trade.riskRewardRatio)], ["最大价格风险", formatMoney(trade.maxLossAmount)]] : []),
+    [trade.side === "buy" ? "触发条件" : "退出条件", trade.side === "buy" ? trade.entryCondition ?? "--" : trade.exitCondition ?? "--"],
+    ["执行窗口", trade.executionWindow ?? "--"],
+    ["仓位影响", trade.positionImpact ?? "--"]
   ].filter((row): row is [string, string] => row[1] !== "--");
 
   if (!rows.length) return null;
@@ -338,7 +341,7 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
       {rows.map(([label, value]) => (
         <div key={label} className="min-w-0">
           <div className="text-muted-foreground">{label}</div>
-          <div className="mt-1 truncate font-medium tabular-nums text-foreground" title={value}>{value}</div>
+          <div className="mt-1 break-words font-medium tabular-nums text-foreground" title={value}>{value}</div>
         </div>
       ))}
     </div>

@@ -60,7 +60,10 @@ export function FocusDecisionPanel({
       priority: order.priority,
       planType: order.planType,
       riskRewardRatio: order.riskRewardRatio,
-      maxLossAmount: order.maxLossAmount
+      maxLossAmount: order.maxLossAmount,
+      entryCondition: order.entryCondition,
+      executionWindow: order.executionWindow,
+      positionImpact: order.positionImpact
     })),
     ...sellOrders.map((order) => ({
       key: `sell:${order.symbol}`,
@@ -75,7 +78,10 @@ export function FocusDecisionPanel({
       stopLossPrice: order.stopLossPrice,
       takeProfitPrice: order.takeProfitPrice,
       priority: order.priority,
-      sellRatioPct: order.sellRatioPct
+      sellRatioPct: order.sellRatioPct,
+      exitCondition: order.exitCondition,
+      executionWindow: order.executionWindow,
+      positionImpact: order.positionImpact
     }))
   ];
   return (
@@ -165,6 +171,13 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="最大价格风险" value={formatMoney(order.maxLossAmount)} className="col-span-2" />
                 <DecisionNumber label="总成本" value={formatMoney(order.totalCost)} className="col-span-2" />
               </div>
+              <TradePlanDetails
+                items={[
+                  ["触发条件", order.entryCondition],
+                  ["执行窗口", order.executionWindow],
+                  ["仓位影响", order.positionImpact]
+                ]}
+              />
               <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
               {order.riskControl ? <p className="mt-2 text-xs leading-5 text-muted-foreground">风控：{order.riskControl}</p> : null}
               {order.invalidIf ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">失效：{order.invalidIf}</p> : null}
@@ -196,6 +209,13 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="净回收" value={formatMoney(order.netProceeds)} />
                 <DecisionNumber label="估算盈亏" value={formatMoney(order.estimatedPnl)} className={cn((order.estimatedPnl ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")} />
               </div>
+              <TradePlanDetails
+                items={[
+                  ["退出条件", order.exitCondition],
+                  ["执行窗口", order.executionWindow],
+                  ["仓位影响", order.positionImpact]
+                ]}
+              />
               <p className="mt-4 text-sm leading-6 text-muted-foreground">{order.reason}</p>
               {order.riskControl ? <p className="mt-2 text-xs leading-5 text-muted-foreground">风控：{order.riskControl}</p> : null}
               {order.invalidIf ? <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">失效：{order.invalidIf}</p> : null}
@@ -303,6 +323,22 @@ function DecisionNumber({ label, value, className }: { label: string; value: str
     <div className={cn("rounded-md border border-border bg-background/40 px-3 py-2", className)}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-medium tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function TradePlanDetails({ items }: { items: Array<[string, string | null | undefined]> }) {
+  const visibleItems = items.filter((item): item is [string, string] => Boolean(item[1]?.trim()));
+  if (!visibleItems.length) return null;
+
+  return (
+    <div className="mt-4 grid gap-2 text-xs">
+      {visibleItems.map(([label, value]) => (
+        <div key={label} className="rounded-md border border-border/70 bg-background/35 px-3 py-2">
+          <div className="font-medium text-foreground">{label}</div>
+          <div className="mt-1 whitespace-pre-wrap break-words leading-5 text-muted-foreground">{value}</div>
+        </div>
+      ))}
     </div>
   );
 }

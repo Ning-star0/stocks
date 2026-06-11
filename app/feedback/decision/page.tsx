@@ -89,6 +89,11 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
                       {order.priority ? <span>优先级 P{order.priority}</span> : null}
                       {order.sellRatioPct ? <span>卖出比例 {formatPercent(order.sellRatioPct)}</span> : null}
                     </div>
+                    <div className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+                      {order.condition ? <p>{order.side === "buy" ? "触发条件" : "退出条件"}：{order.condition}</p> : null}
+                      {order.executionWindow ? <p>执行窗口：{order.executionWindow}</p> : null}
+                      {order.positionImpact ? <p>仓位影响：{order.positionImpact}</p> : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -176,7 +181,10 @@ function normalizeOrders(value: unknown, type: string, side: "buy" | "sell") {
     stopLossPrice: nullableNumber(order.stopLossPrice),
     takeProfitPrice: nullableNumber(order.takeProfitPrice),
     sellRatioPct: nullableNumber(order.sellRatioPct),
-    priority: nullableNumber(order.priority)
+    priority: nullableNumber(order.priority),
+    condition: stringValue(side === "buy" ? order.entryCondition : order.exitCondition),
+    executionWindow: stringValue(order.executionWindow),
+    positionImpact: stringValue(order.positionImpact)
   }));
 }
 
@@ -195,6 +203,10 @@ function decimalToString(value: unknown) {
 function nullableNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function formatPrice(value?: number | null) {

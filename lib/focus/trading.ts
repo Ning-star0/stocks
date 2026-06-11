@@ -44,10 +44,28 @@ export function fallbackSellShares(holdingShares: number, adviceText: string) {
   return normalizeSellShares(Math.max(FOCUS_LOT_SIZE, holdingShares * 0.5), holdingShares);
 }
 
-export function calculateSellPnl(input: { sellAmount: number; sellFee: number; shares: number; holdingPrice?: number | null }) {
+export function calculateSellPnl(input: {
+  sellAmount: number;
+  sellFee: number;
+  shares: number;
+  holdingPrice?: number | null;
+  holdingShares?: number | null;
+  currentCostBasis?: number | null;
+}) {
+  const ledgerCost = allocateCurrentCostBasis(input);
+  if (ledgerCost !== null) return Number((input.sellAmount - input.sellFee - ledgerCost).toFixed(2));
+
   const holdingPrice = input.holdingPrice ?? 0;
   if (!holdingPrice || holdingPrice <= 0 || input.shares <= 0) return null;
   const costAmount = holdingPrice * input.shares;
   const buyFeeShare = calculateFocusTradeFee(costAmount);
   return Number((input.sellAmount - input.sellFee - costAmount - buyFeeShare).toFixed(2));
+}
+
+function allocateCurrentCostBasis(input: { shares: number; holdingShares?: number | null; currentCostBasis?: number | null }) {
+  const costBasis = input.currentCostBasis ?? null;
+  const holdingShares = input.holdingShares ?? null;
+  if (!costBasis || costBasis <= 0 || !holdingShares || holdingShares <= 0 || input.shares <= 0) return null;
+  if (input.shares >= holdingShares) return Number(costBasis.toFixed(2));
+  return Number((costBasis * (input.shares / holdingShares)).toFixed(2));
 }

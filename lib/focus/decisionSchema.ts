@@ -19,6 +19,9 @@ export const decisionSchema = z.object({
         maxLossAmount: z.coerce.number().min(0).optional().nullable(),
         riskRewardRatio: z.coerce.number().min(0).optional().nullable(),
         priority: z.coerce.number().int().min(1).max(5).optional(),
+        entryCondition: z.string().optional().default(""),
+        executionWindow: z.string().optional().default(""),
+        positionImpact: z.string().optional().default(""),
         reason: z.string().min(1),
         riskControl: z.string().default(""),
         invalidIf: z.string().default("")
@@ -37,6 +40,9 @@ export const decisionSchema = z.object({
         takeProfitPrice: z.coerce.number().positive().optional().nullable(),
         sellRatioPct: z.coerce.number().min(0).max(100).optional().nullable(),
         priority: z.coerce.number().int().min(1).max(5).optional(),
+        exitCondition: z.string().optional().default(""),
+        executionWindow: z.string().optional().default(""),
+        positionImpact: z.string().optional().default(""),
         reason: z.string().min(1),
         riskControl: z.string().default(""),
         invalidIf: z.string().default("")

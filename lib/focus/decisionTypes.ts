@@ -21,6 +21,7 @@ export type Candidate = {
   isHolding?: boolean;
   holdingPrice?: number | null;
   holdingShares?: number | null;
+  currentCostBasis?: number | null;
   positionOpenedAt?: Date | null;
   targetPrice?: number | null;
   stopLoss?: number | null;

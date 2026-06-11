@@ -37,8 +37,8 @@ ${JSON.stringify(input.marketContext, null, 2)}
 9. newPositionProtection=true 表示新建仓保护期内。除非已经触发硬止损、严重利空或卖出分达到强制卖出级别，否则不要直接卖出刚买入的仓位，只能写继续观察、移动止损或不加仓。
 10. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders 或 sellOrders，只能写入 ranking 的风险原因。
 11. orders 只放买入/增持计划，最多 2 笔；orders.action 只能用 buy 或 add，未持仓新买入用 buy，已持仓增持用 add。sellOrders 只放卖出/减仓计划，最多 3 笔。每笔必须写清 symbol、amount、shares、reason、riskControl、invalidIf。
-12. 每笔 orders 必须尽量返回 planType、triggerPrice、stopLossPrice、takeProfitPrice、maxLossAmount、riskRewardRatio、priority。planType 只能是 pullback、breakout、support、trend_follow、add_on_strength、risk_rebalance；triggerPrice 是实际触发观察价；stopLossPrice 是交易失效/止损价；takeProfitPrice 是首个止盈或压力目标；maxLossAmount 是按 shares * max(0, triggerPrice - stopLossPrice) 估算的单笔最大价格风险，不含手续费；priority 1 最高、5 最低。
-13. 每笔 sellOrders 必须尽量返回 triggerPrice、stopLossPrice、takeProfitPrice、sellRatioPct、priority。sellRatioPct 必须与 shares / holdingShares 大致一致；触发止损/风控时 priority 应为 1-2，普通止盈减仓可为 2-4。
+12. 每笔 orders 必须尽量返回 planType、triggerPrice、stopLossPrice、takeProfitPrice、maxLossAmount、riskRewardRatio、priority、entryCondition、executionWindow、positionImpact。planType 只能是 pullback、breakout、support、trend_follow、add_on_strength、risk_rebalance；triggerPrice 是实际触发观察价；stopLossPrice 是交易失效/止损价；takeProfitPrice 是首个止盈或压力目标；maxLossAmount 是按 shares * max(0, triggerPrice - stopLossPrice) 估算的单笔最大价格风险，不含手续费；priority 1 最高、5 最低；entryCondition 写明什么价格/量能/指标组合才执行；executionWindow 写明适合盘中、收盘确认、次日观察或分批执行；positionImpact 写明买入后预计现金、仓位或单笔风险变化。
+13. 每笔 sellOrders 必须尽量返回 triggerPrice、stopLossPrice、takeProfitPrice、sellRatioPct、priority、exitCondition、executionWindow、positionImpact。sellRatioPct 必须与 shares / holdingShares 大致一致；触发止损/风控时 priority 应为 1-2，普通止盈减仓可为 2-4；exitCondition 写明什么价格/指标恶化或止盈条件触发卖出；positionImpact 写明卖出后剩余持仓、回收现金、风险释放或止盈/止损目的。
 14. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
 15. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；如果因为金额太小导致手续费占比不划算，应建议等待或合并交易。
 16. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
@@ -68,6 +68,9 @@ ${JSON.stringify(input.candidates, null, 2)}
       "maxLossAmount": 0,
       "riskRewardRatio": 0,
       "priority": 1,
+      "entryCondition": "",
+      "executionWindow": "",
+      "positionImpact": "",
       "reason": "",
       "riskControl": "",
       "invalidIf": ""
@@ -84,6 +87,9 @@ ${JSON.stringify(input.candidates, null, 2)}
       "takeProfitPrice": 0,
       "sellRatioPct": 0,
       "priority": 1,
+      "exitCondition": "",
+      "executionWindow": "",
+      "positionImpact": "",
       "reason": "",
       "riskControl": "",
       "invalidIf": ""
