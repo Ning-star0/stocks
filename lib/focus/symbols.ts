@@ -15,8 +15,7 @@ export function sameFocusSymbol(a?: string | null, b?: string | null) {
 export function latestFocusAnalysesForSymbols<T extends { id: string; symbol: string; createdAt: Date }>(symbols: string[], analyses: T[]) {
   const output = new Map<string, T>();
   for (const symbol of symbols) {
-    const variants = focusSymbolVariants(symbol);
-    const match = analyses.find((analysis) => variants.includes(analysis.symbol));
+    const match = analyses.find((analysis) => sameFocusSymbol(analysis.symbol, symbol));
     if (match) output.set(symbol, match);
   }
   return output;

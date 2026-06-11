@@ -302,7 +302,7 @@ async function loadDecisionSeed(userId: string) {
   if (!capital || capital <= 0) throw new AppError("BAD_REQUEST", "请先填写总本金，AI 才能计算策略观察金额。");
 
   const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
-  const allSymbolVariants = symbols.flatMap(symbolVariants);
+  const allSymbolVariants = uniqueSymbolVariants(symbols);
   const [analyses, watchlistItems, portfolioItems, tradeExecutions] = await Promise.all([
     prisma.aiAnalysis.findMany({
       where: { userId, symbol: { in: allSymbolVariants } },
@@ -344,8 +344,7 @@ async function loadDecisionSeed(userId: string) {
   ]);
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
   const positionSignature = symbols.map((symbol) => {
-    const variants = symbolVariants(symbol);
-    const item = watchlistItems.find((row) => variants.includes(row.symbol));
+    const item = findBySymbol(watchlistItems, symbol, (row) => row.symbol);
     return {
       symbol,
       isHolding: item?.isHolding ?? false,
@@ -411,9 +410,8 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
   const { investedCost, realizedPnl, availableCash, currentMarketValue, unrealizedPnl, totalAssets } = portfolioSnapshot;
 
   const candidateDrafts = seed.symbols.map((symbol) => {
-    const variants = symbolVariants(symbol);
     const quote = quotes[symbol] ?? quotes[symbolVariants(symbol).find((item) => quotes[item]) ?? symbol] ?? null;
-    const item = watchlistItems.find((row) => variants.includes(row.symbol));
+    const item = findBySymbol(watchlistItems, symbol, (row) => row.symbol);
     const analysis = seed.latestAnalysisBySymbol.get(symbol) ?? null;
     const output = analysis?.outputJson as Candidate["latestAnalysis"] | undefined;
     const analysisInput = asRecord(analysis?.inputJson);
@@ -844,15 +842,14 @@ function normalizeRankingItems(
   sellOrders: Array<{ symbol: string }>
 ) {
   const candidatesBySymbol = new Map(input.candidates.flatMap((candidate) => symbolVariants(candidate.symbol).map((symbol) => [symbol, candidate] as const)));
-  const buySymbols = new Set(orders.flatMap((order) => symbolVariants(order.symbol)));
-  const sellSymbols = new Set(sellOrders.flatMap((order) => symbolVariants(order.symbol)));
-  const covered = new Set(ranking.flatMap((item) => symbolVariants(item.symbol)));
+  const buySymbols = symbolVariantSet(orders.map((order) => order.symbol));
+  const sellSymbols = symbolVariantSet(sellOrders.map((order) => order.symbol));
+  const covered = symbolVariantSet(ranking.map((item) => item.symbol));
   const normalized = ranking.map((item) => {
     const candidate = candidatesBySymbol.get(item.symbol.toUpperCase());
     if (!candidate) return item;
-    const variants = symbolVariants(candidate.symbol);
-    const hasBuy = variants.some((symbol) => buySymbols.has(symbol));
-    const hasSell = variants.some((symbol) => sellSymbols.has(symbol));
+    const hasBuy = hasSymbolVariant(buySymbols, candidate.symbol);
+    const hasSell = hasSymbolVariant(sellSymbols, candidate.symbol);
     if (hasBuy || hasSell) return { ...item, symbol: candidate.symbol };
 
     const claimedBuy = /买入|增持|加仓|优先/.test(`${item.view} ${item.reason}`);
@@ -869,7 +866,7 @@ function normalizeRankingItems(
   });
 
   for (const candidate of input.candidates) {
-    if (symbolVariants(candidate.symbol).some((symbol) => covered.has(symbol))) continue;
+    if (hasSymbolVariant(covered, candidate.symbol)) continue;
     normalized.push({
       symbol: candidate.symbol,
       rank: normalized.length + 1,
@@ -902,11 +899,11 @@ function withRequiredQuantSellOrders(
   ranking: DecisionSchemaValue["ranking"]
 ): DecisionSchemaValue["sellOrders"] {
   const output = orders.filter((order) => (order.shares ?? 0) > 0 || (order.amount ?? 0) > 0);
-  const existing = new Set(output.flatMap((order) => symbolVariants(order.symbol)));
+  const existing = symbolVariantSet(output.map((order) => order.symbol));
   for (const candidate of input.candidates) {
     const rankingClaimsSell = aiRankingClaimsSell(ranking, candidate);
     if (!candidateSupportsSell(candidate) && !rankingClaimsSell) continue;
-    if (symbolVariants(candidate.symbol).some((symbol) => existing.has(symbol))) continue;
+    if (hasSymbolVariant(existing, candidate.symbol)) continue;
     const shares = candidate.quantSignal?.suggestedSellShares || fallbackSellShares(candidate.holdingShares ?? 0, stringifyAdvice(candidate.latestAnalysis?.holdAdvice));
     if (!shares || shares <= 0) continue;
     output.push({
@@ -993,13 +990,13 @@ function detectUnsupportedSellClaims(
   input: DecisionInput,
   sellOrders: Array<{ symbol: string; name?: string | null }>
 ) {
-  const supportedSellSymbols = new Set(sellOrders.flatMap((order) => symbolVariants(order.symbol)));
-  const rankingBySymbol = new Map(value.ranking.map((item) => [item.symbol, `${item.view} ${item.reason}`]));
+  const supportedSellSymbols = symbolVariantSet(sellOrders.map((order) => order.symbol));
   return input.candidates
     .filter((candidate) => candidate.isHolding)
-    .filter((candidate) => !symbolVariants(candidate.symbol).some((symbol) => supportedSellSymbols.has(symbol)))
+    .filter((candidate) => !hasSymbolVariant(supportedSellSymbols, candidate.symbol))
     .filter((candidate) => {
-      const text = `${value.summary} ${rankingBySymbol.get(candidate.symbol) ?? ""}`;
+      const rankingText = findBySymbol(value.ranking, candidate.symbol, (item) => item.symbol);
+      const text = `${value.summary} ${rankingText ? `${rankingText.view} ${rankingText.reason}` : ""}`;
       return textMentionsCandidate(text, candidate) && /减仓|卖出|止盈|止损|离场|兑现|降低仓位/.test(text);
     })
     .map(orderLabel)
@@ -1012,6 +1009,22 @@ function textMentionsCandidate(text: string, candidate: Candidate) {
     .map((item) => item.toUpperCase());
   const upper = text.toUpperCase();
   return aliases.some((alias) => alias && upper.includes(alias));
+}
+
+function uniqueSymbolVariants(symbols: string[]) {
+  return [...new Set(symbols.flatMap(symbolVariants))];
+}
+
+function symbolVariantSet(symbols: string[]) {
+  return new Set(uniqueSymbolVariants(symbols));
+}
+
+function hasSymbolVariant(symbols: Set<string>, symbol: string) {
+  return symbolVariants(symbol).some((variant) => symbols.has(variant));
+}
+
+function findBySymbol<T>(items: T[], symbol: string, getSymbol: (item: T) => string | null | undefined) {
+  return items.find((item) => sameSymbol(getSymbol(item), symbol)) ?? null;
 }
 
 function orderLabel(input: { symbol: string; name?: string | null }) {
