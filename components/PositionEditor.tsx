@@ -186,7 +186,7 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: stri
   );
 }
 
-// 表单输入为空或无效时返回 null，让后端保留原有值
+// 表单输入为空或无效时返回 null，后端会清空对应持仓字段。
 function optionalNumber(value: FormDataEntryValue | null) {
   if (!value) return null;
   const number = Number(value);

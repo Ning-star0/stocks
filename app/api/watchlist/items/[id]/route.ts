@@ -19,16 +19,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     });
     if (!item) return NextResponse.json({ error: { code: "SYMBOL_NOT_FOUND", message: "未找到该自选股。" } }, { status: 404 });
 
+    const nextIsHolding = body.isHolding === undefined ? item.isHolding : body.isHolding;
     const updated = await prisma.watchlistItem.update({
       where: { id },
       data: {
         note: body.note === undefined ? item.note : body.note || null,
-        isHolding: body.isHolding === undefined ? item.isHolding : body.isHolding,
-        holdingPrice: body.holdingPrice === undefined ? item.holdingPrice : body.holdingPrice ?? null,
-        holdingShares: body.holdingShares === undefined ? item.holdingShares : body.holdingShares ?? null,
+        isHolding: nextIsHolding,
+        holdingPrice: nextIsHolding ? (body.holdingPrice === undefined ? item.holdingPrice : body.holdingPrice ?? null) : null,
+        holdingShares: nextIsHolding ? (body.holdingShares === undefined ? item.holdingShares : body.holdingShares ?? null) : null,
         targetPrice: body.targetPrice === undefined ? item.targetPrice : body.targetPrice ?? null,
         stopLoss: body.stopLoss === undefined ? item.stopLoss : body.stopLoss ?? null,
-        positionOpenedAt: body.positionOpenedAt === undefined ? item.positionOpenedAt : body.positionOpenedAt ?? null,
+        positionOpenedAt: nextIsHolding ? resolvePositionOpenedAt({
+          input: body.positionOpenedAt,
+          inputProvided: body.positionOpenedAt !== undefined,
+          previous: item.positionOpenedAt,
+          wasHolding: item.isHolding
+        }) : null,
         timeHorizon: body.timeHorizon ?? item.timeHorizon,
         riskLevel: body.riskLevel ?? item.riskLevel
       }
@@ -39,6 +45,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     return apiError(error);
   }
+}
+
+function resolvePositionOpenedAt(input: {
+  input: Date | null | undefined;
+  inputProvided: boolean;
+  previous: Date | null;
+  wasHolding: boolean;
+}) {
+  if (input.inputProvided) return input.input ?? null;
+  if (input.previous) return input.previous;
+  return input.wasHolding ? null : new Date();
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
