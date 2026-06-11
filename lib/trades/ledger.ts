@@ -293,7 +293,10 @@ export async function rebuildUserPositions(tx: TransactionClient, userId: string
     ? allExecutions.filter((execution) => targetBases.includes(baseSymbol(execution.symbol)))
     : allExecutions;
 
-  const bases = new Set(executions.map((execution) => baseSymbol(execution.symbol)).filter(Boolean));
+  const bases = new Set([
+    ...(targetBases ?? []),
+    ...executions.map((execution) => baseSymbol(execution.symbol)).filter(Boolean)
+  ]);
   if (!bases.size) return [];
 
   const watchlistItems = await tx.watchlistItem.findMany({
