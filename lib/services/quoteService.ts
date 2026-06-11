@@ -157,7 +157,7 @@ function toQuoteWithStatus(quote: Quote, status: QuoteStatus, error?: string): Q
     price: quote.price ?? null,
     changePct: quote.changePercent ?? null,
     volume: quote.volume ?? null,
-    currency: normalizeCurrency(quote.currency),
+    currency: normalizeCurrency(quote.currency, quote.symbol),
     market: inferMarket(quote.symbol, quote.currency),
     updatedAt: quote.timestamp ?? null,
     source: getQuoteProviderInfo().quoteProvider,
@@ -185,9 +185,11 @@ function unavailableQuote(symbol: string, status: QuoteStatus, error?: string): 
   };
 }
 
-function normalizeCurrency(value?: string): "USD" | "CNY" | "HKD" {
+function normalizeCurrency(value?: string, symbol = ""): "USD" | "CNY" | "HKD" {
   if (value === "USD" || value === "CNY" || value === "HKD") return value;
-  return value?.toUpperCase() === "HKD" ? "HKD" : inferCurrency("");
+  const normalized = value?.toUpperCase();
+  if (normalized === "USD" || normalized === "CNY" || normalized === "HKD") return normalized;
+  return inferCurrency(symbol);
 }
 
 function inferCurrency(symbol: string): "USD" | "CNY" | "HKD" {
@@ -200,8 +202,9 @@ function inferCurrency(symbol: string): "USD" | "CNY" | "HKD" {
 }
 
 function inferMarket(symbol: string, currency?: string): "US" | "CN" | "HK" {
-  if (currency === "HKD" || symbol.endsWith(".HK")) return "HK";
-  if (currency === "CNY" || /^\d{6}(\.(SH|SZ|BJ))?$/.test(symbol)) return "CN";
+  const normalizedCurrency = currency?.toUpperCase();
+  if (normalizedCurrency === "HKD" || symbol.endsWith(".HK")) return "HK";
+  if (normalizedCurrency === "CNY" || /^\d{6}(\.(SH|SZ|BJ))?$/.test(symbol)) return "CN";
   return "US";
 }
 
