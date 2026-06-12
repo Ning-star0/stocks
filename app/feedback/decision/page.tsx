@@ -23,7 +23,7 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
   const decision = decisionId
     ? await prisma.focusDecision.findUnique({
         where: { id: decisionId },
-        include: { feedback: true }
+        include: { feedback: { include: { tradeExecution: true } } }
       })
     : null;
 
@@ -68,6 +68,9 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
     : shouldSyncCurrentAction
       ? decimalToString(selectedOrder?.shares)
       : "";
+  const initialExecutedAt = hasSyncedTradeFeedback
+    ? datetimeLocalValue(decision.feedback?.tradeExecution?.executedAt)
+    : datetimeLocalValue();
 
   return (
     <PageContainer className="max-w-2xl">
@@ -120,6 +123,7 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
             initialTradeKey={selectedTrade}
             initialExecutedPrice={initialExecutedPrice}
             initialExecutedShares={initialExecutedShares}
+            initialExecutedAt={initialExecutedAt}
           />
         </CardContent>
       </Card>
@@ -165,6 +169,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function decimalToString(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function datetimeLocalValue(value?: Date | string | null) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function nullableNumber(value: unknown) {

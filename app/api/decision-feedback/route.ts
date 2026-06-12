@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
     const tradeSide = normalizeTradeSide(input.tradeSide, action);
     const tradeSymbol = normalizeTradeSymbol(input.tradeSymbol, tradeSide ? decision : null, tradeSide);
     const shouldSyncPosition = action === "bought" || action === "sold";
+    const executedAt = shouldSyncPosition ? parseExecutedAt(input.executedAt) : null;
     if (shouldSyncPosition) {
       if (!tradeSide) throw new AppError("BAD_REQUEST", "记录实际成交时，请选择买入或卖出方向。");
       if (!tradeSymbol) throw new AppError("BAD_REQUEST", "记录实际成交时，请选择需要同步的交易标的。");
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
             side: feedbackTradeSide!,
             price: feedbackExecutedPrice!,
             shares: feedbackExecutedShares!,
+            executedAt: executedAt!,
             note
           })
         : null;
@@ -122,7 +124,8 @@ export async function POST(request: NextRequest) {
             amount: Number(result.execution.amount),
             fee: Number(result.execution.fee),
             netCashChange: Number(result.execution.netCashChange),
-            realizedPnl: result.execution.realizedPnl === null ? null : Number(result.execution.realizedPnl)
+            realizedPnl: result.execution.realizedPnl === null ? null : Number(result.execution.realizedPnl),
+            executedAt: result.execution.executedAt.toISOString()
           } : null,
           updatedAt: feedback.updatedAt.toISOString()
         }
@@ -160,6 +163,7 @@ async function parseFeedbackInput(request: NextRequest) {
       note: String(body.note ?? ""),
       executedPrice: body.executedPrice,
       executedShares: body.executedShares,
+      executedAt: body.executedAt,
       tradeSymbol: body.tradeSymbol,
       tradeSide: body.tradeSide,
       respondWithJson: true
@@ -173,10 +177,18 @@ async function parseFeedbackInput(request: NextRequest) {
     note: String(form.get("note") ?? ""),
     executedPrice: form.get("executedPrice"),
     executedShares: form.get("executedShares"),
+    executedAt: form.get("executedAt"),
     tradeSymbol: form.get("tradeSymbol"),
     tradeSide: form.get("tradeSide"),
     respondWithJson: false
   };
+}
+
+function parseExecutedAt(value: unknown) {
+  if (!value) return new Date();
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) throw new AppError("BAD_REQUEST", "交易时间格式无效。");
+  return date;
 }
 
 function normalizeTradeSide(value: unknown, action: string) {

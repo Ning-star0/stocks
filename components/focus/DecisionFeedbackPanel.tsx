@@ -33,6 +33,7 @@ export function DecisionFeedbackPanel({
   const [tradeKey, setTradeKey] = useState(defaultTradeKey(feedback, tradeOptions, initialAction));
   const [executedPrice, setExecutedPrice] = useState(initialTradeFeedback && feedback?.executedPrice ? String(feedback.executedPrice) : "");
   const [executedShares, setExecutedShares] = useState(initialTradeFeedback && feedback?.executedShares ? String(feedback.executedShares) : "");
+  const [executedAt, setExecutedAt] = useState(initialTradeFeedback ? datetimeLocalValue(feedback?.executedAt) : "");
   const [note, setNote] = useState(feedback?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(feedback ? feedbackMessage(feedback) : null);
@@ -57,7 +58,7 @@ export function DecisionFeedbackPanel({
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
-  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares));
+  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares) || !executedAt);
   const manualTradeBlocked = !manualSymbol || parsePositiveNumber(manualPrice) === null || !isValidTradeLotShares(manualShares);
 
   useEffect(() => {
@@ -73,6 +74,7 @@ export function DecisionFeedbackPanel({
     setTradeKey(nextTradeKey);
     setExecutedPrice(hasSyncedTrade && feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
     setExecutedShares(hasSyncedTrade && feedback?.executedShares ? String(feedback.executedShares) : numberInputValue(nextTrade?.shares));
+    setExecutedAt(hasSyncedTrade ? datetimeLocalValue(feedback?.executedAt) : nextTrade ? datetimeLocalValue() : "");
     setNote(feedback?.note ?? "");
     setMessage(feedback ? feedbackMessage(feedback) : null);
   }, [decisionId, feedback, hasBuy, hasSell, tradeOptions]);
@@ -93,10 +95,12 @@ export function DecisionFeedbackPanel({
       const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
       setExecutedPrice(numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
       setExecutedShares(numberInputValue(nextTrade?.shares));
+      setExecutedAt((current) => current || datetimeLocalValue());
     } else {
       setTradeKey("");
       setExecutedPrice("");
       setExecutedShares("");
+      setExecutedAt("");
     }
   }
 
@@ -106,6 +110,7 @@ export function DecisionFeedbackPanel({
     if (nextTrade) {
       setExecutedPrice(numberInputValue(nextTrade.triggerPrice ?? nextTrade.price));
       setExecutedShares(numberInputValue(nextTrade.shares));
+      setExecutedAt((current) => current || datetimeLocalValue());
       setAction(nextTrade.side === "buy" ? "bought" : "sold");
     }
   }
@@ -119,8 +124,8 @@ export function DecisionFeedbackPanel({
       setMessage("记录实际成交前，请先选择一条需要同步持仓的交易标的。");
       return;
     }
-    if (shouldSyncTrade && (parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares))) {
-      setMessage("记录实际成交前，请填写有效的成交价，并按 100 股/份整数手填写数量。");
+    if (shouldSyncTrade && (parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares) || !executedAt)) {
+      setMessage("记录实际成交前，请填写有效的成交时间和价格，并按 100 股/份整数手填写数量。");
       return;
     }
     setSaving(true);
@@ -134,6 +139,7 @@ export function DecisionFeedbackPanel({
           feedbackAction: action,
           executedPrice: shouldSyncTrade ? executedPrice : null,
           executedShares: shouldSyncTrade ? executedShares : null,
+          executedAt: shouldSyncTrade && executedAt ? new Date(executedAt).toISOString() : null,
           tradeSymbol: shouldSyncTrade ? selectedTrade?.symbol : null,
           tradeSide: shouldSyncTrade ? selectedTrade?.side : null,
           note
@@ -256,13 +262,22 @@ export function DecisionFeedbackPanel({
         placeholder="备注，可选，例如：价格没到，继续观察。"
         className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
       />
+      <div className="mt-3 grid gap-2">
+        <label className="text-xs font-medium text-muted-foreground">实际成交时间</label>
+        <Input
+          type="datetime-local"
+          value={executedAt}
+          onChange={(event) => setExecutedAt(event.target.value)}
+          disabled={!shouldSyncTrade}
+        />
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId || tradeFeedbackBlocked}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           保存反馈
         </Button>
         {tradeFeedbackBlocked ? (
-          <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交价，并按 100 股/份整数手填写数量。</span>
+          <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交时间和价格，并按 100 股/份整数手填写数量。</span>
         ) : message ? (
           <span className="text-xs text-muted-foreground">{message}</span>
         ) : null}
@@ -342,7 +357,9 @@ function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
 }
 
-function datetimeLocalValue(date = new Date()) {
+function datetimeLocalValue(value?: string | Date | null) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
 }

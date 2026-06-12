@@ -58,14 +58,14 @@ export async function getLatestStoredFocusDecision(userId: string) {
   const exact = await prisma.focusDecision.findFirst({
     where: { userId, inputHash },
     orderBy: { createdAt: "desc" },
-    include: { feedback: true }
+    include: { feedback: { include: { tradeExecution: true } } }
   });
   if (exact) return attachStoredMetadata(exact, { fromCache: true, stale: false }, portfolioSnapshot);
 
   const latest = await prisma.focusDecision.findFirst({
     where: { userId },
     orderBy: { createdAt: "desc" },
-    include: { feedback: true }
+    include: { feedback: { include: { tradeExecution: true } } }
   });
   return latest ? attachStoredMetadata(latest, { fromCache: true, stale: true }, portfolioSnapshot) : null;
 }
@@ -81,7 +81,7 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     const stored = await prisma.focusDecision.findFirst({
       where: { userId: options.userId, inputHash },
       orderBy: { createdAt: "desc" },
-      include: { feedback: true }
+      include: { feedback: { include: { tradeExecution: true } } }
     });
     if (stored) {
       const portfolioSnapshot = await loadPortfolioSnapshot(options.userId, seed.capital);
@@ -230,6 +230,7 @@ type StoredFocusDecisionWithFeedback = StoredFocusDecision & {
     tradeSymbol: string | null;
     tradeSide: string | null;
     positionSyncedAt: Date | null;
+    tradeExecution?: { executedAt: Date } | null;
     updatedAt: Date;
   } | null;
 };
@@ -265,6 +266,7 @@ function attachStoredMetadata(row: StoredFocusDecisionWithFeedback, metadata: { 
           tradeSymbol: row.feedback.tradeSymbol,
           tradeSide: row.feedback.tradeSide,
           positionSyncedAt: row.feedback.positionSyncedAt?.toISOString() ?? null,
+          executedAt: row.feedback.tradeExecution?.executedAt.toISOString() ?? null,
           updatedAt: row.feedback.updatedAt.toISOString()
         }
       : null

@@ -93,6 +93,7 @@ export type FocusDecision = {
     tradeSymbol?: string | null;
     tradeSide?: "buy" | "sell" | string | null;
     positionSyncedAt?: string | null;
+    executedAt?: string | null;
     position?: {
       symbol: string;
       isHolding: boolean;

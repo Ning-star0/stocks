@@ -27,7 +27,8 @@ export function DecisionFeedbackForm({
   tradeOptions,
   initialTradeKey,
   initialExecutedPrice,
-  initialExecutedShares
+  initialExecutedShares,
+  initialExecutedAt
 }: {
   decisionId: string;
   token: string;
@@ -37,14 +38,16 @@ export function DecisionFeedbackForm({
   initialTradeKey: string;
   initialExecutedPrice: string;
   initialExecutedShares: string;
+  initialExecutedAt: string;
 }) {
   const [action, setAction] = useState(currentAction);
   const [tradeKey, setTradeKey] = useState(initialTradeKey);
   const [executedPrice, setExecutedPrice] = useState(initialExecutedPrice);
   const [executedShares, setExecutedShares] = useState(initialExecutedShares);
+  const [executedAt, setExecutedAt] = useState(initialExecutedAt);
   const shouldSyncTrade = action === "bought" || action === "sold";
   const selectedTrade = tradeOptions.find((option) => `${option.side}:${option.symbol}` === tradeKey) ?? null;
-  const tradeBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares));
+  const tradeBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares) || !executedAt);
   const visibleActions = useMemo(() => {
     const hasBuy = tradeOptions.some((option) => option.side === "buy");
     const hasSell = tradeOptions.some((option) => option.side === "sell");
@@ -64,12 +67,14 @@ export function DecisionFeedbackForm({
       setTradeKey("");
       setExecutedPrice("");
       setExecutedShares("");
+      setExecutedAt("");
       return;
     }
     const nextTrade = tradeOptions.find((option) => option.side === side) ?? null;
     setTradeKey(nextTrade ? `${nextTrade.side}:${nextTrade.symbol}` : "");
     setExecutedPrice(numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
     setExecutedShares(numberInputValue(nextTrade?.shares));
+    setExecutedAt((current) => current || datetimeLocalValue());
   }
 
   function selectTrade(nextTradeKey: string) {
@@ -78,11 +83,13 @@ export function DecisionFeedbackForm({
     if (!nextTrade) {
       setExecutedPrice("");
       setExecutedShares("");
+      setExecutedAt("");
       return;
     }
     setAction(nextTrade.side === "buy" ? "bought" : "sold");
     setExecutedPrice(numberInputValue(nextTrade.triggerPrice ?? nextTrade.price));
     setExecutedShares(numberInputValue(nextTrade.shares));
+    setExecutedAt((current) => current || datetimeLocalValue());
   }
 
   return (
@@ -157,6 +164,17 @@ export function DecisionFeedbackForm({
             onChange={(event) => setExecutedShares(event.target.value)}
           />
         </div>
+        <div className="space-y-2 sm:col-span-2">
+          <span className="block text-sm font-medium">{shouldSyncTrade ? "实际成交时间，必填" : "实际成交时间"}</span>
+          <Input
+            type="datetime-local"
+            name="executedAt"
+            disabled={!shouldSyncTrade}
+            required={shouldSyncTrade}
+            value={executedAt}
+            onChange={(event) => setExecutedAt(event.target.value)}
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -169,7 +187,7 @@ export function DecisionFeedbackForm({
         <Button asChild variant="outline">
           <Link href="/focus">回到今日工作台</Link>
         </Button>
-        {tradeBlocked ? <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交价，并按 100 股/份整数手填写数量。</span> : null}
+        {tradeBlocked ? <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交时间和价格，并按 100 股/份整数手填写数量。</span> : null}
       </div>
     </form>
   );
@@ -177,4 +195,9 @@ export function DecisionFeedbackForm({
 
 function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
+}
+
+function datetimeLocalValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }

@@ -144,6 +144,7 @@ export async function upsertFeedbackTradeAndRebuild(
     side: TradeSide;
     price: number;
     shares: number;
+    executedAt: Date;
     note: string | null;
   }
 ) {
@@ -184,6 +185,7 @@ export async function upsertFeedbackTradeAndRebuild(
       fee,
       netCashChange: input.side === "buy" ? -roundMoney(amount + fee) : roundMoney(amount - fee),
       realizedPnl: null,
+      executedAt: input.executedAt,
       note: input.note
     },
     update: {
@@ -195,6 +197,7 @@ export async function upsertFeedbackTradeAndRebuild(
       fee,
       netCashChange: input.side === "buy" ? -roundMoney(amount + fee) : roundMoney(amount - fee),
       realizedPnl: null,
+      executedAt: input.executedAt,
       note: input.note
     }
   });
