@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FocusDecision, StockItem, TradeOption } from "@/components/focus/types";
 import { readJsonResponse } from "@/lib/clientApi";
+import { isValidTradeLotShares, parsePositiveNumber } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
 export function DecisionFeedbackPanel({
@@ -56,8 +57,8 @@ export function DecisionFeedbackPanel({
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
-  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !validLotShares(executedShares));
-  const manualTradeBlocked = !manualSymbol || !positiveNumber(manualPrice) || !validLotShares(manualShares);
+  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares));
+  const manualTradeBlocked = !manualSymbol || parsePositiveNumber(manualPrice) === null || !isValidTradeLotShares(manualShares);
 
   useEffect(() => {
     if (!manualSymbol && manualSymbols[0]?.symbol) setManualSymbol(manualSymbols[0].symbol);
@@ -118,7 +119,7 @@ export function DecisionFeedbackPanel({
       setMessage("记录实际成交前，请先选择一条需要同步持仓的交易标的。");
       return;
     }
-    if (shouldSyncTrade && (!positiveNumber(executedPrice) || !validLotShares(executedShares))) {
+    if (shouldSyncTrade && (parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares))) {
       setMessage("记录实际成交前，请填写有效的成交价，并按 100 股/份整数手填写数量。");
       return;
     }
@@ -339,16 +340,6 @@ function isSyncedTradeFeedback(feedback: FocusDecision["feedback"] | null | unde
 
 function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
-}
-
-function positiveNumber(value: string) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0;
-}
-
-function validLotShares(value: string) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 100 && number % 100 === 0;
 }
 
 function datetimeLocalValue(date = new Date()) {

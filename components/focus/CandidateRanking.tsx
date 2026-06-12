@@ -9,12 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DecisionHistoryRecord, FocusDecision, StockItem } from "@/components/focus/types";
 import { motionClassNames, staggerDelay } from "@/lib/motion";
+import { calculateTradingFee } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
 type CandidateSortKey = "rank" | "confidence" | "profit";
-
-const TRADING_FEE_RATE = 0.0005;
-const TRADING_FEE_MIN_BASE = 10000;
 
 export function CandidateRanking({
   decision,
@@ -210,17 +208,13 @@ function calculateHoldingPnl(input: {
   }
   const buyAmount = holdingPrice * holdingShares;
   const currentAmount = price * holdingShares;
-  const buyFee = calculateTradeFee(buyAmount);
-  const estimatedSellFee = calculateTradeFee(currentAmount);
+  const buyFee = calculateTradingFee(buyAmount);
+  const estimatedSellFee = calculateTradingFee(currentAmount);
   const totalCost = buyAmount + buyFee;
   const netValue = currentAmount - estimatedSellFee;
   const amount = Number((netValue - totalCost).toFixed(2));
   const rate = totalCost > 0 ? Number(((amount / totalCost) * 100).toFixed(2)) : null;
   return { amount, rate, buyFee, estimatedSellFee };
-}
-
-function calculateTradeFee(amount: number) {
-  return Number((Math.max(amount, TRADING_FEE_MIN_BASE) * TRADING_FEE_RATE).toFixed(2));
 }
 
 function normalizeRankingView(view: string) {

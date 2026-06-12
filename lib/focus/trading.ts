@@ -1,17 +1,18 @@
-export const FOCUS_TRADING_FEE_RATE = 0.0005;
-export const FOCUS_TRADING_FEE_MINIMUM_BASE = 10000;
-export const FOCUS_LOT_SIZE = 100;
+import {
+  calculateTradingFee,
+  TRADE_FEE_MIN_BASE,
+  TRADE_FEE_RATE,
+  TRADE_FEE_RULE,
+  TRADE_LOT_SIZE
+} from "@/lib/trading/rules";
 
-export const TRADING_FEE_RULE = {
-  rate: FOCUS_TRADING_FEE_RATE,
-  minimumFeeBase: FOCUS_TRADING_FEE_MINIMUM_BASE,
-  minimumFee: 5,
-  lotSize: FOCUS_LOT_SIZE,
-  description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 买入和卖出都按 100 股/份整数手执行，低于 100 股/份的买卖计划一律无效。"
-};
+export const FOCUS_TRADING_FEE_RATE = TRADE_FEE_RATE;
+export const FOCUS_TRADING_FEE_MINIMUM_BASE = TRADE_FEE_MIN_BASE;
+export const FOCUS_LOT_SIZE = TRADE_LOT_SIZE;
+export const TRADING_FEE_RULE = TRADE_FEE_RULE;
 
 export function calculateFocusTradeFee(amount: number) {
-  return Number((Math.max(amount, FOCUS_TRADING_FEE_MINIMUM_BASE) * FOCUS_TRADING_FEE_RATE).toFixed(2));
+  return calculateTradingFee(amount);
 }
 
 export function sharesFromAmount(amount: number, price: number | null) {

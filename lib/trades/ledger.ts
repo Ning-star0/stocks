@@ -1,10 +1,20 @@
 import type { Prisma } from "@prisma/client";
 
 import { AppError } from "@/lib/errors";
+import {
+  calculateTradingFee,
+  isValidTradeLotShares,
+  parsePositiveNumber as parsePositiveTradeNumber,
+  roundMoney,
+  TRADE_FEE_MIN_BASE,
+  TRADE_FEE_RATE,
+  TRADE_LOT_SIZE
+} from "@/lib/trading/rules";
 
-export const TRADING_LOT_SIZE = 100;
-export const TRADING_FEE_RATE = 0.0005;
-export const TRADING_FEE_MIN_BASE = 10000;
+export const TRADING_LOT_SIZE = TRADE_LOT_SIZE;
+export const TRADING_FEE_RATE = TRADE_FEE_RATE;
+export const TRADING_FEE_MIN_BASE = TRADE_FEE_MIN_BASE;
+export { roundMoney };
 
 export type TradeSide = "buy" | "sell";
 
@@ -31,21 +41,16 @@ type LedgerPositionOptions = {
   excludeExecutionId?: string | null;
 };
 
-export function roundMoney(value: number) {
-  return Number(value.toFixed(2));
-}
-
 export function roundPrice(value: number) {
   return Number(value.toFixed(4));
 }
 
 export function calculateTradeFee(amount: number) {
-  return roundMoney(Math.max(amount, TRADING_FEE_MIN_BASE) * TRADING_FEE_RATE);
+  return calculateTradingFee(amount);
 }
 
 export function parsePositiveNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : null;
+  return parsePositiveTradeNumber(value);
 }
 
 export function parseTradeSide(value: unknown): TradeSide | null {
@@ -54,7 +59,7 @@ export function parseTradeSide(value: unknown): TradeSide | null {
 }
 
 export function assertValidTradeShares(shares: number | null) {
-  if (!shares || shares < TRADING_LOT_SIZE || shares % TRADING_LOT_SIZE !== 0) {
+  if (!isValidTradeLotShares(shares)) {
     throw new AppError("BAD_REQUEST", `买入/卖出数量必须至少 ${TRADING_LOT_SIZE} 股/份，并且按 ${TRADING_LOT_SIZE} 股/份整数手填写。`);
   }
 }

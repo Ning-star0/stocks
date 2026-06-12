@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { isValidTradeLotShares, parsePositiveNumber } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
 type FeedbackTradeOption = {
@@ -43,7 +44,7 @@ export function DecisionFeedbackForm({
   const [executedShares, setExecutedShares] = useState(initialExecutedShares);
   const shouldSyncTrade = action === "bought" || action === "sold";
   const selectedTrade = tradeOptions.find((option) => `${option.side}:${option.symbol}` === tradeKey) ?? null;
-  const tradeBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !validLotShares(executedShares));
+  const tradeBlocked = shouldSyncTrade && (!selectedTrade || parsePositiveNumber(executedPrice) === null || !isValidTradeLotShares(executedShares));
   const visibleActions = useMemo(() => {
     const hasBuy = tradeOptions.some((option) => option.side === "buy");
     const hasSell = tradeOptions.some((option) => option.side === "sell");
@@ -176,14 +177,4 @@ export function DecisionFeedbackForm({
 
 function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
-}
-
-function positiveNumber(value: string) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0;
-}
-
-function validLotShares(value: string) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 100 && number % 100 === 0;
 }
