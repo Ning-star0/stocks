@@ -29,7 +29,13 @@ export async function POST(request: NextRequest) {
     const executedShares = parsePositiveNumber(input.executedShares);
     const tradeSide = normalizeTradeSide(input.tradeSide, action);
     const tradeSymbol = normalizeTradeSymbol(input.tradeSymbol, tradeSide ? decision : null, tradeSide);
-    const shouldSyncPosition = Boolean(tradeSide && tradeSymbol && executedPrice && executedShares && (action === "bought" || action === "sold"));
+    const shouldSyncPosition = action === "bought" || action === "sold";
+    if (shouldSyncPosition) {
+      if (!tradeSide) throw new AppError("BAD_REQUEST", "记录实际成交时，请选择买入或卖出方向。");
+      if (!tradeSymbol) throw new AppError("BAD_REQUEST", "记录实际成交时，请选择需要同步的交易标的。");
+      if (!executedPrice) throw new AppError("BAD_REQUEST", "记录实际成交时，请填写有效的实际成交价。");
+      if (!executedShares) throw new AppError("BAD_REQUEST", "记录实际成交时，请填写有效的实际成交数量。");
+    }
     if (shouldSyncPosition) assertValidTradeShares(executedShares);
 
     const result = await prisma.$transaction(async (tx) => {

@@ -55,6 +55,7 @@ export function DecisionFeedbackPanel({
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
+  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !positiveNumber(executedShares));
 
   useEffect(() => {
     if (!manualSymbol && manualSymbols[0]?.symbol) setManualSymbol(manualSymbols[0].symbol);
@@ -104,6 +105,14 @@ export function DecisionFeedbackPanel({
   async function submitFeedback() {
     if (!decisionId) {
       setMessage("当前决策还没有保存 ID，暂时不能记录反馈。");
+      return;
+    }
+    if (shouldSyncTrade && !selectedTrade) {
+      setMessage("记录实际成交前，请先选择一条需要同步持仓的交易标的。");
+      return;
+    }
+    if (shouldSyncTrade && (!positiveNumber(executedPrice) || !positiveNumber(executedShares))) {
+      setMessage("记录实际成交前，请填写有效的成交价和成交数量。");
       return;
     }
     setSaving(true);
@@ -205,7 +214,7 @@ export function DecisionFeedbackPanel({
               </option>
             ))}
           </select>
-          <p className="text-xs text-muted-foreground">实际买卖按 100 股/份整数手记录；保存后会更新自选股里的持仓成本和持仓数量。</p>
+          <p className="text-xs text-muted-foreground">实际买卖必须绑定一条交易计划，并按 100 股/份整数手记录；保存后会更新自选股里的持仓成本和持仓数量。</p>
           {selectedTrade ? <TradeExecutionHint trade={selectedTrade} /> : null}
         </div>
       ) : null}
@@ -222,11 +231,15 @@ export function DecisionFeedbackPanel({
         className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
       />
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId}>
+        <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId || tradeFeedbackBlocked}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           保存反馈
         </Button>
-        {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
+        {tradeFeedbackBlocked ? (
+          <span className="text-xs text-muted-foreground">请选择同步标的，并填写有效的成交价和成交数量。</span>
+        ) : message ? (
+          <span className="text-xs text-muted-foreground">{message}</span>
+        ) : null}
       </div>
 
       <div className="mt-5 border-t border-border pt-4">
@@ -293,6 +306,11 @@ function defaultTradeKey(feedback: FocusDecision["feedback"] | null | undefined,
 
 function numberInputValue(value?: number | null) {
   return value && Number.isFinite(value) ? String(value) : "";
+}
+
+function positiveNumber(value: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0;
 }
 
 function datetimeLocalValue(date = new Date()) {
