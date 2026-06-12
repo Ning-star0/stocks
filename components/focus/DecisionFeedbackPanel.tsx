@@ -56,8 +56,8 @@ export function DecisionFeedbackPanel({
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
-  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !positiveNumber(executedShares));
-  const manualTradeBlocked = !manualSymbol || !positiveNumber(manualPrice) || !positiveNumber(manualShares);
+  const tradeFeedbackBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !validLotShares(executedShares));
+  const manualTradeBlocked = !manualSymbol || !positiveNumber(manualPrice) || !validLotShares(manualShares);
 
   useEffect(() => {
     if (!manualSymbol && manualSymbols[0]?.symbol) setManualSymbol(manualSymbols[0].symbol);
@@ -118,8 +118,8 @@ export function DecisionFeedbackPanel({
       setMessage("记录实际成交前，请先选择一条需要同步持仓的交易标的。");
       return;
     }
-    if (shouldSyncTrade && (!positiveNumber(executedPrice) || !positiveNumber(executedShares))) {
-      setMessage("记录实际成交前，请填写有效的成交价和成交数量。");
+    if (shouldSyncTrade && (!positiveNumber(executedPrice) || !validLotShares(executedShares))) {
+      setMessage("记录实际成交前，请填写有效的成交价，并按 100 股/份整数手填写数量。");
       return;
     }
     setSaving(true);
@@ -150,7 +150,7 @@ export function DecisionFeedbackPanel({
 
   async function submitManualTrade() {
     if (manualTradeBlocked) {
-      setManualMessage("补录交易前，请选择标的，并填写有效的成交价和成交数量。");
+      setManualMessage("补录交易前，请选择标的、填写有效成交价，并按 100 股/份整数手填写数量。");
       return;
     }
     setManualSaving(true);
@@ -242,6 +242,8 @@ export function DecisionFeedbackPanel({
           value={executedShares}
           onChange={(event) => setExecutedShares(event.target.value)}
           inputMode="numeric"
+          min={100}
+          step={100}
           disabled={!shouldSyncTrade}
           placeholder={shouldSyncTrade ? "实际数量，按 100 的整数倍" : "非成交反馈不记录数量"}
         />
@@ -259,7 +261,7 @@ export function DecisionFeedbackPanel({
           保存反馈
         </Button>
         {tradeFeedbackBlocked ? (
-          <span className="text-xs text-muted-foreground">请选择同步标的，并填写有效的成交价和成交数量。</span>
+          <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交价，并按 100 股/份整数手填写数量。</span>
         ) : message ? (
           <span className="text-xs text-muted-foreground">{message}</span>
         ) : null}
@@ -294,7 +296,7 @@ export function DecisionFeedbackPanel({
             <option value="sell">卖出/减仓</option>
           </select>
           <Input value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，必填" />
-          <Input value={manualShares} onChange={(event) => setManualShares(event.target.value)} inputMode="numeric" placeholder="实际数量，按 100 的整数倍" />
+          <Input value={manualShares} onChange={(event) => setManualShares(event.target.value)} inputMode="numeric" min={100} step={100} placeholder="实际数量，按 100 的整数倍" />
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
           <Input type="datetime-local" value={manualExecutedAt} onChange={(event) => setManualExecutedAt(event.target.value)} />
@@ -306,7 +308,7 @@ export function DecisionFeedbackPanel({
             补录并重算
           </Button>
           {manualTradeBlocked ? (
-            <span className="text-xs text-muted-foreground">请选择标的，并填写有效的成交价和成交数量。</span>
+            <span className="text-xs text-muted-foreground">请选择标的，填写有效成交价，并按 100 股/份整数手填写数量。</span>
           ) : manualMessage ? (
             <span className="text-xs text-muted-foreground">{manualMessage}</span>
           ) : null}
@@ -342,6 +344,11 @@ function numberInputValue(value?: number | null) {
 function positiveNumber(value: string) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0;
+}
+
+function validLotShares(value: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 100 && number % 100 === 0;
 }
 
 function datetimeLocalValue(date = new Date()) {

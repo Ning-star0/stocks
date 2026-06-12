@@ -43,7 +43,7 @@ export function DecisionFeedbackForm({
   const [executedShares, setExecutedShares] = useState(initialExecutedShares);
   const shouldSyncTrade = action === "bought" || action === "sold";
   const selectedTrade = tradeOptions.find((option) => `${option.side}:${option.symbol}` === tradeKey) ?? null;
-  const tradeBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !positiveNumber(executedShares));
+  const tradeBlocked = shouldSyncTrade && (!selectedTrade || !positiveNumber(executedPrice) || !validLotShares(executedShares));
   const visibleActions = useMemo(() => {
     const hasBuy = tradeOptions.some((option) => option.side === "buy");
     const hasSell = tradeOptions.some((option) => option.side === "sell");
@@ -147,6 +147,8 @@ export function DecisionFeedbackForm({
           <Input
             name="executedShares"
             inputMode="numeric"
+            min={100}
+            step={100}
             disabled={!shouldSyncTrade}
             required={shouldSyncTrade}
             placeholder={shouldSyncTrade ? "例如 200" : "非成交反馈不记录数量"}
@@ -166,7 +168,7 @@ export function DecisionFeedbackForm({
         <Button asChild variant="outline">
           <Link href="/focus">回到今日工作台</Link>
         </Button>
-        {tradeBlocked ? <span className="text-xs text-muted-foreground">请选择同步标的，并填写有效的成交价和成交数量。</span> : null}
+        {tradeBlocked ? <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交价，并按 100 股/份整数手填写数量。</span> : null}
       </div>
     </form>
   );
@@ -179,4 +181,9 @@ function numberInputValue(value?: number | null) {
 function positiveNumber(value: string) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0;
+}
+
+function validLotShares(value: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 100 && number % 100 === 0;
 }
