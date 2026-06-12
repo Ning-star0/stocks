@@ -1,10 +1,9 @@
 import Link from "next/link";
 
+import { DecisionFeedbackForm } from "@/app/feedback/decision/DecisionFeedbackForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/layout";
-import { Textarea } from "@/components/ui/textarea";
 import { feedbackActionLabel, normalizeFeedbackAction, verifyDecisionFeedbackToken } from "@/lib/decisionFeedback";
 import { prisma } from "@/lib/prisma";
 
@@ -51,12 +50,24 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
   const summary = String(json.summary ?? "暂无摘要。");
   const tradeOptions = [...normalizeOrders(json.orders, "买入/增持", "buy"), ...normalizeOrders(json.sellOrders, "卖出/减仓", "sell")];
   const orders = tradeOptions.slice(0, 4);
-  const selectedTrade = decision.feedback?.tradeSymbol && decision.feedback.tradeSide
+  const hasSyncedTradeFeedback = Boolean(decision.feedback?.positionSyncedAt && decision.feedback.tradeSymbol && decision.feedback.tradeSide);
+  const shouldSyncCurrentAction = currentAction === "bought" || currentAction === "sold";
+  const selectedTrade = hasSyncedTradeFeedback && decision.feedback?.tradeSymbol && decision.feedback.tradeSide
     ? `${decision.feedback.tradeSide}:${decision.feedback.tradeSymbol}`
-    : tradeOptions[0]
-      ? `${tradeOptions[0].side}:${tradeOptions[0].symbol}`
+    : shouldSyncCurrentAction
+      ? defaultTradeKey(tradeOptions, currentAction)
       : "";
   const selectedOrder = tradeOptions.find((order) => `${order.side}:${order.symbol}` === selectedTrade) ?? tradeOptions[0] ?? null;
+  const initialExecutedPrice = hasSyncedTradeFeedback
+    ? decimalToString(decision.feedback?.executedPrice)
+    : shouldSyncCurrentAction
+      ? decimalToString(selectedOrder?.triggerPrice ?? selectedOrder?.price)
+      : "";
+  const initialExecutedShares = hasSyncedTradeFeedback
+    ? decimalToString(decision.feedback?.executedShares)
+    : shouldSyncCurrentAction
+      ? decimalToString(selectedOrder?.shares)
+      : "";
 
   return (
     <PageContainer className="max-w-2xl">
@@ -100,70 +111,19 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
             ) : null}
           </div>
 
-          <form method="post" action="/api/decision-feedback" className="space-y-4">
-            <input type="hidden" name="decisionId" value={decision.id} />
-            <input type="hidden" name="token" value={token} />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <FeedbackOption value="bought" label="已买入/增持" current={currentAction} />
-              <FeedbackOption value="sold" label="已卖出/减仓" current={currentAction} />
-              <FeedbackOption value="watched" label="继续观察" current={currentAction} />
-              <FeedbackOption value="skipped" label="未采纳/暂不操作" current={currentAction} />
-              <FeedbackOption value="other" label="其他决策" current={currentAction} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {tradeOptions.length ? (
-                <div className="space-y-2 sm:col-span-2">
-                  <span className="block text-sm font-medium">同步交易标的</span>
-                  <select
-                    name="tradeSymbol"
-                    defaultValue={selectedTrade}
-                    className="h-10 w-full rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-                  >
-                    <option value="">不同步持仓</option>
-                    {tradeOptions.map((order) => (
-                      <option key={`${order.side}-${order.symbol}`} value={`${order.side}:${order.symbol}`}>
-                        {order.name || order.symbol} · {order.type} · {order.symbol}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">填写实际成交价和数量后会同步自选股持仓；数量必须按 100 股/份整数手填写。</p>
-                </div>
-              ) : null}
-              <div className="space-y-2">
-                <span className="block text-sm font-medium">实际成交价，可选</span>
-                <Input name="executedPrice" inputMode="decimal" placeholder="例如 2.16" defaultValue={decimalToString(decision.feedback?.executedPrice ?? selectedOrder?.triggerPrice ?? selectedOrder?.price)} />
-              </div>
-              <div className="space-y-2">
-                <span className="block text-sm font-medium">实际数量，可选</span>
-                <Input name="executedShares" inputMode="decimal" placeholder="例如 200" defaultValue={decimalToString(decision.feedback?.executedShares ?? selectedOrder?.shares)} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <span className="block text-sm font-medium">备注，可选</span>
-              <Textarea name="note" placeholder="例如：价格没到，没有买；或实际买入 200 份。" defaultValue={decision.feedback?.note ?? ""} />
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Button type="submit">保存反馈</Button>
-              <Button asChild variant="outline">
-                <Link href="/focus">回到今日工作台</Link>
-              </Button>
-            </div>
-          </form>
+          <DecisionFeedbackForm
+            decisionId={decision.id}
+            token={token}
+            currentAction={currentAction}
+            feedbackNote={decision.feedback?.note}
+            tradeOptions={tradeOptions}
+            initialTradeKey={selectedTrade}
+            initialExecutedPrice={initialExecutedPrice}
+            initialExecutedShares={initialExecutedShares}
+          />
         </CardContent>
       </Card>
     </PageContainer>
-  );
-}
-
-function FeedbackOption({ value, label, current }: { value: string; label: string; current: string }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-background/40 px-3 py-2 text-sm transition-colors hover:border-primary/30">
-      <input type="radio" name="feedbackAction" value={value} defaultChecked={current === value} className="h-4 w-4 accent-primary" />
-      {label}
-    </label>
   );
 }
 
@@ -186,6 +146,13 @@ function normalizeOrders(value: unknown, type: string, side: "buy" | "sell") {
     executionWindow: stringValue(order.executionWindow),
     positionImpact: stringValue(order.positionImpact)
   }));
+}
+
+function defaultTradeKey(orders: Array<{ side: "buy" | "sell"; symbol: string }>, action: string) {
+  const side = action === "bought" ? "buy" : action === "sold" ? "sell" : null;
+  if (!side) return "";
+  const order = orders.find((item) => item.side === side);
+  return order ? `${order.side}:${order.symbol}` : "";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
