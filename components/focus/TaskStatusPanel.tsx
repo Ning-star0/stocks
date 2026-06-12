@@ -6,6 +6,7 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnalysisRunResponse, FocusData, RunMetrics } from "@/components/focus/types";
+import { nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { cn } from "@/lib/utils";
 
 export function TaskStatusPanel({
@@ -172,26 +173,8 @@ function StatusLine({ label, value }: { label: string; value: string }) {
 }
 
 function nextAnalysisLabel(times: string[]) {
-  const next = nextAnalysisDate(times);
+  const next = nextMarketScheduledTime(times);
   return next ? formatRelativeDateTime(next) : "未设置";
-}
-
-function nextAnalysisDate(times: string[]) {
-  if (!times.length) return null;
-  const now = new Date();
-  const sorted = [...new Set(times)].filter(Boolean).sort();
-  for (let offset = 0; offset <= 14; offset += 1) {
-    const date = new Date(now);
-    date.setDate(now.getDate() + offset);
-    if (date.getDay() === 0 || date.getDay() === 6) continue;
-    for (const time of sorted) {
-      const [hour = "0", minute = "0"] = time.split(":");
-      const candidate = new Date(date);
-      candidate.setHours(Number(hour), Number(minute), 0, 0);
-      if (candidate > now) return candidate;
-    }
-  }
-  return null;
 }
 
 function formatRelativeDateTime(date: Date) {

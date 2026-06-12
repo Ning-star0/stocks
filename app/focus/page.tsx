@@ -26,6 +26,7 @@ import type {
 } from "@/components/focus/types";
 import { StrategyBadge } from "@/components/StrategyBadge";
 import { readJsonResponse } from "@/lib/clientApi";
+import { nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { motionClassNames, staggerDelay } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -472,7 +473,7 @@ function EmptyDecision({ message }: { message: string }) {
 function resolveNextObserveAt(nextRunAt: string | null | undefined, times: string[]) {
   const fromServer = parseFutureDate(nextRunAt);
   if (fromServer) return formatDateTime(fromServer);
-  const computed = nextAnalysisDate(times);
+  const computed = nextMarketScheduledTime(times);
   return computed ? formatDateTime(computed) : "未设置自动分析时间";
 }
 
@@ -480,24 +481,6 @@ function parseFutureDate(value?: string | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) || date <= new Date() ? null : date;
-}
-
-function nextAnalysisDate(times: string[]) {
-  if (!times.length) return null;
-  const now = new Date();
-  const sorted = [...new Set(times)].filter(Boolean).sort();
-  for (let offset = 0; offset <= 14; offset += 1) {
-    const date = new Date(now);
-    date.setDate(now.getDate() + offset);
-    if (date.getDay() === 0 || date.getDay() === 6) continue;
-    for (const time of sorted) {
-      const [hour = "0", minute = "0"] = time.split(":");
-      const candidate = new Date(date);
-      candidate.setHours(Number(hour), Number(minute), 0, 0);
-      if (candidate > now) return candidate;
-    }
-  }
-  return null;
 }
 
 function runTypeLabel(value?: string | null) {
