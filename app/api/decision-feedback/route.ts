@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
       if (!executedShares) throw new AppError("BAD_REQUEST", "记录实际成交时，请填写有效的实际成交数量。");
     }
     if (shouldSyncPosition) assertValidTradeShares(executedShares);
+    const feedbackTradeSymbol = shouldSyncPosition ? tradeSymbol : null;
+    const feedbackTradeSide = shouldSyncPosition ? tradeSide : null;
+    const feedbackExecutedPrice = shouldSyncPosition ? executedPrice : null;
+    const feedbackExecutedShares = shouldSyncPosition ? executedShares : null;
 
     const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.decisionFeedback.findUnique({
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
       if (existing?.tradeExecution) {
         const existingTrade = getExistingSyncedTrade(existing);
         const nextTrade = shouldSyncPosition
-          ? { symbol: tradeSymbol!, side: tradeSide! as "buy" | "sell", price: executedPrice!, shares: executedShares! }
+          ? { symbol: feedbackTradeSymbol!, side: feedbackTradeSide! as "buy" | "sell", price: feedbackExecutedPrice!, shares: feedbackExecutedShares! }
           : null;
         if (!nextTrade || !existingTrade || !isSameTrade(existingTrade, nextTrade)) {
           const deleted = await deleteTradeExecutionAndRebuild(tx, {
@@ -66,19 +70,19 @@ export async function POST(request: NextRequest) {
           decisionId: decision.id,
           feedbackAction: action,
           note,
-          executedPrice,
-          executedShares,
-          tradeSymbol,
-          tradeSide,
+          executedPrice: feedbackExecutedPrice,
+          executedShares: feedbackExecutedShares,
+          tradeSymbol: feedbackTradeSymbol,
+          tradeSide: feedbackTradeSide,
           positionSyncedAt: shouldSyncPosition ? new Date() : null
         },
         update: {
           feedbackAction: action,
           note,
-          executedPrice,
-          executedShares,
-          tradeSymbol,
-          tradeSide,
+          executedPrice: feedbackExecutedPrice,
+          executedShares: feedbackExecutedShares,
+          tradeSymbol: feedbackTradeSymbol,
+          tradeSide: feedbackTradeSide,
           positionSyncedAt: shouldSyncPosition ? new Date() : null
         }
       });
@@ -86,10 +90,10 @@ export async function POST(request: NextRequest) {
         ? await upsertFeedbackTradeAndRebuild(tx, {
             userId: decision.userId,
             feedbackId: feedback.id,
-            symbol: tradeSymbol!,
-            side: tradeSide!,
-            price: executedPrice!,
-            shares: executedShares!,
+            symbol: feedbackTradeSymbol!,
+            side: feedbackTradeSide!,
+            price: feedbackExecutedPrice!,
+            shares: feedbackExecutedShares!,
             note
           })
         : null;

@@ -27,10 +27,11 @@ export function DecisionFeedbackPanel({
   onFeedbackSaved?: () => void;
 }) {
   const initialAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
+  const initialTradeFeedback = isSyncedTradeFeedback(feedback);
   const [action, setAction] = useState(initialAction);
   const [tradeKey, setTradeKey] = useState(defaultTradeKey(feedback, tradeOptions, initialAction));
-  const [executedPrice, setExecutedPrice] = useState(feedback?.executedPrice ? String(feedback.executedPrice) : "");
-  const [executedShares, setExecutedShares] = useState(feedback?.executedShares ? String(feedback.executedShares) : "");
+  const [executedPrice, setExecutedPrice] = useState(initialTradeFeedback && feedback?.executedPrice ? String(feedback.executedPrice) : "");
+  const [executedShares, setExecutedShares] = useState(initialTradeFeedback && feedback?.executedShares ? String(feedback.executedShares) : "");
   const [note, setNote] = useState(feedback?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(feedback ? feedbackMessage(feedback) : null);
@@ -65,10 +66,11 @@ export function DecisionFeedbackPanel({
     const nextAction = defaultFeedbackAction(feedback, hasBuy, hasSell);
     const nextTradeKey = defaultTradeKey(feedback, tradeOptions, nextAction);
     const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
+    const hasSyncedTrade = isSyncedTradeFeedback(feedback);
     setAction(nextAction);
     setTradeKey(nextTradeKey);
-    setExecutedPrice(feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
-    setExecutedShares(feedback?.executedShares ? String(feedback.executedShares) : numberInputValue(nextTrade?.shares));
+    setExecutedPrice(hasSyncedTrade && feedback?.executedPrice ? String(feedback.executedPrice) : numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
+    setExecutedShares(hasSyncedTrade && feedback?.executedShares ? String(feedback.executedShares) : numberInputValue(nextTrade?.shares));
     setNote(feedback?.note ?? "");
     setMessage(feedback ? feedbackMessage(feedback) : null);
   }, [decisionId, feedback, hasBuy, hasSell, tradeOptions]);
@@ -89,6 +91,10 @@ export function DecisionFeedbackPanel({
       const nextTrade = tradeOptions.find((option) => option.key === nextTradeKey) ?? null;
       setExecutedPrice(numberInputValue(nextTrade?.triggerPrice ?? nextTrade?.price));
       setExecutedShares(numberInputValue(nextTrade?.shares));
+    } else {
+      setTradeKey("");
+      setExecutedPrice("");
+      setExecutedShares("");
     }
   }
 
@@ -124,8 +130,8 @@ export function DecisionFeedbackPanel({
         body: JSON.stringify({
           decisionId,
           feedbackAction: action,
-          executedPrice,
-          executedShares,
+          executedPrice: shouldSyncTrade ? executedPrice : null,
+          executedShares: shouldSyncTrade ? executedShares : null,
           tradeSymbol: shouldSyncTrade ? selectedTrade?.symbol : null,
           tradeSide: shouldSyncTrade ? selectedTrade?.side : null,
           note
@@ -220,8 +226,20 @@ export function DecisionFeedbackPanel({
       ) : null}
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <Input value={executedPrice} onChange={(event) => setExecutedPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，可选" />
-        <Input value={executedShares} onChange={(event) => setExecutedShares(event.target.value)} inputMode="numeric" placeholder="实际数量，按 100 的整数倍" />
+        <Input
+          value={executedPrice}
+          onChange={(event) => setExecutedPrice(event.target.value)}
+          inputMode="decimal"
+          disabled={!shouldSyncTrade}
+          placeholder={shouldSyncTrade ? "实际成交价，必填" : "非成交反馈不记录成交价"}
+        />
+        <Input
+          value={executedShares}
+          onChange={(event) => setExecutedShares(event.target.value)}
+          inputMode="numeric"
+          disabled={!shouldSyncTrade}
+          placeholder={shouldSyncTrade ? "实际数量，按 100 的整数倍" : "非成交反馈不记录数量"}
+        />
       </div>
       <textarea
         value={note}
@@ -294,7 +312,7 @@ function defaultFeedbackAction(feedback: FocusDecision["feedback"] | undefined, 
 }
 
 function defaultTradeKey(feedback: FocusDecision["feedback"] | null | undefined, tradeOptions: TradeOption[], action: string) {
-  if (feedback?.tradeSymbol && feedback.tradeSide) {
+  if (isSyncedTradeFeedback(feedback) && feedback?.tradeSymbol && feedback.tradeSide) {
     const side = feedback.tradeSide === "sell" ? "sell" : "buy";
     const key = `${side}:${feedback.tradeSymbol.toUpperCase()}`;
     if (tradeOptions.some((option) => option.key === key)) return key;
@@ -302,6 +320,10 @@ function defaultTradeKey(feedback: FocusDecision["feedback"] | null | undefined,
   const side = action === "sold" ? "sell" : action === "bought" ? "buy" : null;
   if (!side) return "";
   return tradeOptions.find((option) => option.side === side)?.key ?? "";
+}
+
+function isSyncedTradeFeedback(feedback: FocusDecision["feedback"] | null | undefined) {
+  return Boolean(feedback?.positionSyncedAt && feedback.tradeSymbol && feedback.tradeSide);
 }
 
 function numberInputValue(value?: number | null) {
