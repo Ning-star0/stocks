@@ -8,7 +8,6 @@ import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
 import { getMemoryContent } from "@/lib/memory";
 import { buildSectorNewsKeywords, buildStockNewsKeywords } from "@/lib/news/relevance";
-import { searchRelatedNews } from "@/lib/news/webSearch";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuote } from "@/lib/services/quoteService";
@@ -28,7 +27,7 @@ export type StockAnalysisRunInput = {
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const startedAt = Date.now();
   const symbol = input.symbol.toUpperCase();
-  const context = await buildStockAnalysisContext(input.userId, symbol, { includeWebSearch: enableAnalysisWebSearch() });
+  const context = await buildStockAnalysisContext(input.userId, symbol);
   const canonicalSymbol = context.quote.symbol;
   const inputHash = input.inputHash ?? context.contextHash;
   const cacheKey = `ai_analysis:v5:${canonicalSymbol}:${inputHash}`;
@@ -84,7 +83,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt, timings: { ...context.timings, aiDurationMs } };
 }
 
-export async function buildStockAnalysisContext(userId: string, symbol: string, options: { includeWebSearch?: boolean } = {}) {
+export async function buildStockAnalysisContext(userId: string, symbol: string) {
   const provider = getStockDataProvider();
   const timings = { quoteDurationMs: 0, newsDurationMs: 0 };
   // 先试原始 symbol，失败则尝试去掉 A 股后缀重试
@@ -120,20 +119,12 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
   const sectorKeywords = buildSectorNewsKeywords({ symbol: canonicalSymbol, name: quote.name, extraKeywords: [...watchedSectorKeywords, ...stockNewsKeywords] });
   const newsStartedAt = Date.now();
   const relevantNews = await getRelevantNewsForStock(canonicalSymbol, sectorKeywords);
-  const supplementalNews = options.includeWebSearch
-    ? await searchRelatedNews({
-        symbol: canonicalSymbol,
-        name: quote.name,
-        sectorKeywords,
-        days: 7,
-        maxResults: 8
-      })
-    : {
-        provider: "news_provider" as const,
-        status: "未执行联网新闻检索",
-        queries: [],
-        results: []
-      };
+  const supplementalNews = {
+    provider: "news_provider" as const,
+    status: "AI 分析阶段未执行联网新闻检索，仅复用每日定时截取后入库的新闻",
+    queries: [],
+    results: []
+  };
   timings.newsDurationMs = Date.now() - newsStartedAt;
   const highImpactNewsIds = relevantNews.filter((item) => item.importance === "high" || item.analyses[0]?.impactLevel === "high").map((item) => item.id);
   const contextHash = createAnalysisContextHash({
@@ -199,7 +190,7 @@ export async function buildStockAnalysisContext(userId: string, symbol: string, 
       minimumFeeBase: 10000,
       minimumFee: 5,
       lotSize: 100,
-      description: "买入手续费为成交金额的万分之五；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 按 100 股/份整数手买入。"
+      description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 买卖均按 100 股/份整数手执行。"
     },
     recentNews,
     webSearchResults
@@ -260,10 +251,6 @@ function normalizeWebSearchResults(items: Array<{ title?: string; url?: string; 
       summary: truncateText(item.summary || item.rawContent || "", numberEnv("AI_WEB_SEARCH_SUMMARY_MAX_CHARS", 220))
     }))
     .filter((item) => item.title);
-}
-
-function enableAnalysisWebSearch() {
-  return /^(1|true|yes|on)$/i.test(String(process.env.ENABLE_ANALYSIS_WEB_SEARCH ?? ""));
 }
 
 async function logAiUsage(input: {

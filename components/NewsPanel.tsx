@@ -9,18 +9,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { readJsonResponse } from "@/lib/clientApi";
 import { toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
 
-export function NewsPanel({ symbol, name }: { symbol: string; name?: string | null }) {
+export function NewsPanel({
+  symbol,
+  name,
+  newsFetchTime,
+  lastNewsFetch
+}: {
+  symbol: string;
+  name?: string | null;
+  newsFetchTime?: string | null;
+  lastNewsFetch?: string | null;
+}) {
   const [news, setNews] = useState<NewsCardData[]>([]);
   const [lowNews, setLowNews] = useState<NewsCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   const allNews = useMemo(() => [...news, ...lowNews], [news, lowNews]);
   const analyzedNews = useMemo(() => allNews.filter((item) => item.analyses?.[0]?.aiSummary), [allNews]);
   const overview = useMemo(() => buildNewsOverview(allNews), [allNews]);
+  const newsSnapshotLabel = useMemo(() => formatNewsSnapshotTime(lastNewsFetch, newsFetchTime), [lastNewsFetch, newsFetchTime]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,7 +47,6 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
       const sorted = sortNews(Array.isArray(json.news) ? json.news.map(simplifyNewsItem) : []);
       setNews(sorted.filter((item: NewsCardData) => item.importance !== "low"));
       setLowNews(sorted.filter((item: NewsCardData) => item.importance === "low"));
-      setUpdatedAt(new Date().toLocaleString("zh-CN"));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载新闻失败。");
     } finally {
@@ -104,7 +113,7 @@ export function NewsPanel({ symbol, name }: { symbol: string; name?: string | nu
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {updatedAt ? <div className="text-xs text-muted-foreground">最近加载：{updatedAt}</div> : null}
+        <div className="text-xs text-muted-foreground">{newsSnapshotLabel}</div>
         {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {!loading && allNews.length ? <NewsOverview overview={overview} /> : null}
@@ -241,6 +250,14 @@ function sortNews(items: NewsCardData[]) {
 function safeTime(value?: string | null) {
   const time = value ? new Date(value).getTime() : 0;
   return Number.isFinite(time) ? time : 0;
+}
+
+function formatNewsSnapshotTime(lastNewsFetch?: string | null, newsFetchTime?: string | null) {
+  const scheduled = newsFetchTime ? `每日 ${newsFetchTime}` : "每日定时";
+  if (!lastNewsFetch) return `新闻截取：尚未完成，计划 ${scheduled} 抓取一次；AI 分析复用已入库新闻。`;
+  const date = new Date(lastNewsFetch);
+  if (Number.isNaN(date.getTime())) return `新闻截取：${lastNewsFetch}，计划 ${scheduled} 抓取一次；AI 分析复用已入库新闻。`;
+  return `新闻截取：${date.toLocaleString("zh-CN")}，计划 ${scheduled} 抓取一次；AI 分析复用已入库新闻。`;
 }
 
 function shortText(value: string, maxLength: number) {

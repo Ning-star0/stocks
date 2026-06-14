@@ -56,13 +56,17 @@ export default async function StockDetailPage({
   const symbolVariants = uniqueSymbols([...stockSymbolVariants(normalized), ...stockSymbolVariants(quoteSymbol)]);
   const candles = quote.raw ? await safeGetHistory(provider, quoteSymbol, range, interval) : [];
 
-  const [latestAnalysis, watchlistItem] = await Promise.all([
+  const [latestAnalysis, watchlistItem, focusGroup] = await Promise.all([
     prisma.aiAnalysis.findFirst({
       where: { userId: user.id, symbol: { in: symbolVariants } },
       orderBy: { createdAt: "desc" }
     }),
     prisma.watchlistItem.findFirst({
       where: { symbol: { in: symbolVariants }, watchlist: { userId: user.id } }
+    }),
+    prisma.focusGroup.findUnique({
+      where: { userId: user.id },
+      select: { newsFetchTime: true, lastNewsFetch: true }
     })
   ]);
 
@@ -193,7 +197,12 @@ export default async function StockDetailPage({
         </div>
       </div>
 
-      <NewsPanel symbol={quoteSymbol} name={displayName} />
+      <NewsPanel
+        symbol={quoteSymbol}
+        name={displayName}
+        newsFetchTime={focusGroup?.newsFetchTime ?? null}
+        lastNewsFetch={focusGroup?.lastNewsFetch?.toISOString() ?? null}
+      />
     </PageContainer>
   );
 }
