@@ -785,12 +785,14 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       return quantAllowsSell(candidate) || aiRankingClaimsSell(value.ranking, candidate);
     })
-    .slice(0, 3)
+    .sort((a, b) => sellOrderRisk(b, input) - sellOrderRisk(a, input))
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
       const holdingShares = candidate?.isHolding ? candidate.holdingShares ?? 0 : 0;
-      const shares = normalizeSellShares(order.shares || sharesFromAmount(order.amount, price) || candidate?.quantSignal?.suggestedSellShares || 0, holdingShares);
+      const requestedShares = order.shares || sharesFromAmount(order.amount, price) || 0;
+      const quantShares = candidate?.quantSignal?.suggestedSellShares || 0;
+      const shares = normalizeSellShares(Math.max(requestedShares, quantShares), holdingShares);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFocusTradeFee(amount);
       const netProceeds = Number((amount - fee).toFixed(2));
@@ -818,7 +820,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         feeRule: TRADING_FEE_RULE.description
       };
     })
-    .filter((order) => order.shares > 0 && order.amount > 0);
+    .filter((order) => order.shares > 0 && order.amount > 0)
+    .slice(0, 3);
   const normalizedAction = sellOrders.length && orders.length ? "mixed" : sellOrders.length ? "sell" : orders.length ? "buy" : "wait";
   const summary = alignSummaryWithStructuredPlan(value.summary, value, input, orders, sellOrders, normalizedAction);
   const buyFee = Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
@@ -1054,6 +1057,24 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
     holdingPenalty -
     Math.max(0, signal.sellScore - 45) * 0.4 -
     (order.priority ? order.priority * 0.8 : 0)
+  );
+}
+
+function sellOrderRisk(order: DecisionSchemaValue["sellOrders"][number], input: DecisionInput) {
+  const candidate = input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
+  const signal = candidate?.quantSignal;
+  if (!candidate || !signal) return 0;
+  const holdingReturn = signal.holdingReturnPct ?? 0;
+  const quantShares = signal.suggestedSellShares ?? 0;
+  const requestedShares = Math.max(order.shares ?? 0, sharesFromAmount(order.amount ?? 0, candidate.price ?? 0));
+  const sharePressure = Math.max(quantShares, requestedShares) / Math.max(candidate.holdingShares ?? 100, 100);
+  return (
+    signal.sellScore +
+    signal.riskScore * 0.35 +
+    Math.max(0, holdingReturn) * 0.6 +
+    sharePressure * 18 +
+    (signal.action === "sell" ? 16 : signal.action === "reduce" ? 8 : 0) -
+    (order.priority ? order.priority : 3)
   );
 }
 

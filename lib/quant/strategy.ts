@@ -74,6 +74,8 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
   const overbought = rsi !== null && rsi >= 74;
   const oversold = rsi !== null && rsi <= 32;
   const macdBearish = macd !== null && macdSignal !== null && macd < macdSignal;
+  const sma20 = validNumber(indicators.sma20);
+  const belowSma20 = sma20 !== null && price < sma20;
   const marketContext = normalizeStrategyContext(input.strategyContext);
   const sectorBias = resolveSectorBias(marketContext, input.sectorKey);
   const nearSupport = support !== null ? Math.abs((price - support) / price) <= 0.035 : false;
@@ -90,6 +92,12 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
   const stopDistancePct = effectiveStopLoss ? ((price - effectiveStopLoss) / price) * 100 : null;
   const takeProfitDistancePct = effectiveTakeProfit ? ((effectiveTakeProfit - price) / price) * 100 : null;
   const riskRewardRatio = stopDistancePct !== null && takeProfitDistancePct !== null && stopDistancePct > 0 ? takeProfitDistancePct / stopDistancePct : null;
+  const profitGivebackRisk = Boolean(
+    input.isHolding &&
+      holdingReturn !== null &&
+      holdingReturn >= 12 &&
+      (macdBearish || belowSma20 || nearResistance || riskRewardRatioWouldBePoor({ price, stopLoss: effectiveStopLoss, takeProfit: effectiveTakeProfit }))
+  );
   const holdingDays = holdingAgeDays(input.positionOpenedAt);
   const newPositionProtection = Boolean(
     input.isHolding &&
@@ -142,6 +150,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
       scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && nearResistance, 12) +
       scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && overbought, 10) +
       scoreIf(Boolean(input.isHolding) && holdingReturn !== null && holdingReturn >= 8 && riskRewardRatio !== null && riskRewardRatio < 1.2, 12) +
+      scoreIf(profitGivebackRisk, 14) +
       scoreIf(sectorBias === "bearish", 8) +
       scoreIf(sectorBias === "overheated" && overbought, 8) +
       scoreIf(marketContext.marketRegime === "risk_off", 6) -
@@ -157,6 +166,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     riskScore,
     rsi,
     macdBearish,
+    profitGivebackRisk,
     nearSupport,
     nearResistance,
     volumeRatio,
@@ -166,6 +176,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
   const risks = buildRisks({
     overbought,
     macdBearish,
+    profitGivebackRisk,
     nearResistance,
     stopTriggered,
     targetReached,
@@ -184,6 +195,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     targetReached,
     overbought,
     macdBearish,
+    profitGivebackRisk,
     holdingReturn,
     nearResistance,
     riskRewardRatio,
@@ -201,6 +213,7 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     targetReached,
     overbought,
     macdBearish,
+    profitGivebackRisk,
     holdingReturn,
     nearResistance,
     riskRewardRatio,
@@ -251,6 +264,7 @@ function chooseAction(input: {
   targetReached: boolean;
   overbought: boolean;
   macdBearish: boolean;
+  profitGivebackRisk: boolean;
   holdingReturn: number | null;
   nearResistance: boolean;
   riskRewardRatio: number | null;
@@ -265,7 +279,7 @@ function chooseAction(input: {
       input.holdingReturn !== null &&
       input.holdingReturn >= 8 &&
       (input.nearResistance || input.overbought || (input.riskRewardRatio !== null && input.riskRewardRatio < 1.2));
-    if (input.targetReached || input.sellScore >= input.thresholds.reduce || (input.overbought && input.macdBearish) || profitProtect) return "reduce";
+    if (input.targetReached || input.sellScore >= input.thresholds.reduce || (input.overbought && input.macdBearish) || input.profitGivebackRisk || profitProtect) return "reduce";
     if (input.marketContext.allowAdd && input.buyScore >= input.thresholds.add && input.sellScore < 48) return "add";
     return "hold";
   }
@@ -316,6 +330,7 @@ function buildReasons(input: {
   riskScore: number;
   rsi: number | null;
   macdBearish: boolean;
+  profitGivebackRisk: boolean;
   nearSupport: boolean;
   nearResistance: boolean;
   volumeRatio: number | null;
@@ -328,6 +343,7 @@ function buildReasons(input: {
   else reasons.push("趋势结构中性，需等待动量确认。");
   if (input.momentumScore >= 62) reasons.push("MACD/RSI/量能组合支持继续观察多头动能。");
   if (input.macdBearish) reasons.push("MACD 弱于信号线，短线动量转弱。");
+  if (input.profitGivebackRisk) reasons.push("持仓浮盈较高且动量或压力信号转弱，需启用盈利保护。");
   if (input.rsi !== null && input.rsi >= 74) reasons.push("RSI 进入偏热区间，追高性价比下降。");
   if (input.nearSupport) reasons.push("价格靠近支撑或中短期均线，具备条件观察价值。");
   if (input.nearResistance) reasons.push("价格接近压力位，需要控制追高和止盈风险。");
@@ -343,6 +359,7 @@ function buildReasons(input: {
 function buildRisks(input: {
   overbought: boolean;
   macdBearish: boolean;
+  profitGivebackRisk: boolean;
   nearResistance: boolean;
   stopTriggered: boolean;
   targetReached: boolean;
@@ -358,6 +375,7 @@ function buildRisks(input: {
   if (input.targetReached) risks.push("价格已达到目标价附近，需考虑止盈或降低仓位。");
   if (input.overbought) risks.push("RSI 偏热，短线回撤风险上升。");
   if (input.macdBearish) risks.push("MACD 转弱，动量确认不足。");
+  if (input.profitGivebackRisk) risks.push("浮盈仓位出现回吐风险，需考虑分批止盈或抬高止损。");
   if (input.nearResistance) risks.push("价格靠近压力位，风险收益比下降。");
   if (input.trendScore < 45) risks.push("趋势过滤不支持主动进攻。");
   if (input.volumeRatio !== null && input.volumeRatio < 0.75) risks.push("量能不足，突破或反弹有效性需要复核。");
@@ -396,6 +414,7 @@ function estimateSellRatioPct(input: {
   targetReached: boolean;
   overbought: boolean;
   macdBearish: boolean;
+  profitGivebackRisk: boolean;
   holdingReturn: number | null;
   nearResistance: boolean;
   riskRewardRatio: number | null;
@@ -405,6 +424,8 @@ function estimateSellRatioPct(input: {
   if (input.newPositionProtection && !input.stopTriggered && input.sellScore < 82) return 0;
   if (input.stopTriggered || input.action === "sell" || input.sellScore >= 82) return 100;
   if (input.targetReached && input.sellScore >= 70) return 50;
+  if (input.profitGivebackRisk && input.holdingReturn !== null && input.holdingReturn >= 18) return 50;
+  if (input.profitGivebackRisk) return 25;
   if (input.sellScore >= 72) return 50;
   if (input.action === "reduce" || input.sellScore >= 62 || (input.overbought && input.macdBearish)) return 25;
   if (input.holdingReturn !== null && input.holdingReturn >= 10 && input.nearResistance) return 25;
@@ -449,6 +470,14 @@ function sellScoreWouldBeSoft(input: { holdingReturn: number | null; effectiveSt
   if (input.effectiveStopLoss && input.price <= input.effectiveStopLoss) return false;
   if (input.holdingReturn !== null && input.holdingReturn <= -6) return false;
   return true;
+}
+
+function riskRewardRatioWouldBePoor(input: { price: number; stopLoss: number | null; takeProfit: number | null }) {
+  if (!input.stopLoss || !input.takeProfit || input.price <= input.stopLoss) return false;
+  const risk = input.price - input.stopLoss;
+  const reward = input.takeProfit - input.price;
+  if (risk <= 0 || reward <= 0) return true;
+  return reward / risk < 1.2;
 }
 
 function estimateSellShares(holdingShares: number | null | undefined, ratioPct: number) {
