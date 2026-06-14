@@ -743,6 +743,7 @@ async function generateFocusDecision(input: DecisionInput) {
 
 function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fallbackReason: string | null) {
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
+  const spendableCash = calculateSpendableCash(input);
   let spent = 0;
   const orders = value.orders
     .filter((order) => order.action === "buy" || order.action === "add")
@@ -754,8 +755,10 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
-      const remainingCash = Math.max(0, input.availableCash - spent);
-      const shares = normalizeShares(order.shares || sharesFromAmount(order.amount, price), price, remainingCash);
+      const remainingCash = Math.max(0, spendableCash - spent);
+      const requestedShares = order.shares || sharesFromAmount(order.amount, price);
+      const maxShares = sharesFromAmount(maxBuyAmountForCandidate(candidate, input, remainingCash), price);
+      const shares = normalizeShares(Math.min(requestedShares, maxShares), price, remainingCash);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFocusTradeFee(amount);
       if (amount + fee > remainingCash) return null;
@@ -1058,6 +1061,35 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
     Math.max(0, signal.sellScore - 45) * 0.4 -
     (order.priority ? order.priority * 0.8 : 0)
   );
+}
+
+function calculateSpendableCash(input: DecisionInput) {
+  if (input.availableCash <= TRADING_FEE_RULE.minimumFee) return 0;
+  const reserveRate =
+    input.marketContext.marketRegime === "risk_off" ? 0.2 :
+    input.marketContext.marketRegime === "risk_on" ? 0.05 :
+    0.1;
+  const reserve = Math.min(input.availableCash * reserveRate, input.capital * reserveRate);
+  return Math.max(0, Number((input.availableCash - reserve).toFixed(2)));
+}
+
+function maxBuyAmountForCandidate(candidate: Candidate | null | undefined, input: DecisionInput, remainingCash: number) {
+  if (!candidate?.quantSignal || remainingCash <= 0) return 0;
+  const suggestedBudget = input.capital * (candidate.quantSignal.suggestedBuyCapitalPct / 100);
+  if (!suggestedBudget || suggestedBudget <= 0) return 0;
+  const existingExposure = candidate.isHolding && candidate.price && candidate.holdingShares ? candidate.price * candidate.holdingShares : 0;
+  const maxPositionBudget = input.capital * maxSinglePositionPct(candidate) / 100;
+  const exposureRoom = Math.max(0, maxPositionBudget - existingExposure);
+  return Number(Math.min(remainingCash, suggestedBudget, exposureRoom).toFixed(2));
+}
+
+function maxSinglePositionPct(candidate: Candidate) {
+  const signal = candidate.quantSignal;
+  if (!signal) return 20;
+  if (signal.marketRegime === "risk_off") return candidate.isHolding ? 18 : 15;
+  if (signal.sectorBias === "overheated") return candidate.isHolding ? 20 : 18;
+  if (signal.marketRegime === "risk_on" && signal.sectorBias === "bullish") return candidate.isHolding ? 35 : 30;
+  return candidate.isHolding ? 25 : 22;
 }
 
 function sellOrderRisk(order: DecisionSchemaValue["sellOrders"][number], input: DecisionInput) {
