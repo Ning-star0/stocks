@@ -47,11 +47,15 @@ export function quantReason(candidate: Candidate) {
 
 export function quantAllowsBuy(candidate?: Candidate | null) {
   if (!candidateHasFreshQuote(candidate)) return false;
-  if (!candidate?.quantSignal) return true;
+  if (!candidate?.quantSignal) return false;
+  const signal = candidate.quantSignal;
   return (
-    candidate.quantSignal.action === "buy" ||
-    candidate.quantSignal.action === "add" ||
-    candidate.quantSignal.buyScore >= candidate.quantSignal.adjustedBuyThreshold
+    (signal.action === "buy" || signal.action === "add") &&
+    signal.buyScore >= signal.adjustedBuyThreshold &&
+    signal.sellScore < signal.adjustedReduceThreshold &&
+    signal.riskScore < 68 &&
+    (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.25) &&
+    (signal.volumeRatio === null || signal.volumeRatio >= 0.75)
   );
 }
 

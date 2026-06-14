@@ -10,6 +10,7 @@ export const FOCUS_TRADING_FEE_RATE = TRADE_FEE_RATE;
 export const FOCUS_TRADING_FEE_MINIMUM_BASE = TRADE_FEE_MIN_BASE;
 export const FOCUS_LOT_SIZE = TRADE_LOT_SIZE;
 export const TRADING_FEE_RULE = TRADE_FEE_RULE;
+export const FOCUS_MIN_FEE_EFFICIENT_AMOUNT = TRADE_FEE_MIN_BASE / 2;
 
 export function calculateFocusTradeFee(amount: number) {
   return calculateTradingFee(amount);
@@ -37,6 +38,11 @@ export function normalizeSellShares(shares: number, holdingShares: number) {
   if (capped <= 0 || holdingShares < FOCUS_LOT_SIZE) return 0;
   if (capped < FOCUS_LOT_SIZE) return FOCUS_LOT_SIZE;
   return Math.floor(capped / FOCUS_LOT_SIZE) * FOCUS_LOT_SIZE;
+}
+
+export function isFeeEfficientTrade(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  return amount >= FOCUS_MIN_FEE_EFFICIENT_AMOUNT;
 }
 
 export function fallbackSellShares(holdingShares: number, adviceText: string) {

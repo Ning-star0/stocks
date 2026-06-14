@@ -13,7 +13,6 @@ import {
   candidateHasFreshQuote,
   candidateSupportsBuy,
   candidateSupportsSell,
-  quantAllowsBuy,
   quantAllowsSell,
   quantReason,
   quantView,
@@ -38,6 +37,7 @@ import {
   calculateFocusTradeFee,
   calculateSellPnl,
   fallbackSellShares,
+  isFeeEfficientTrade,
   normalizeBuyShares as normalizeShares,
   normalizeSellShares,
   sharesFromAmount,
@@ -748,9 +748,9 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     .filter((order) => order.action === "buy" || order.action === "add")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
-      return quantAllowsBuy(candidate);
+      return candidate ? candidateSupportsBuy(candidate) : false;
     })
-    .slice(0, 2)
+    .sort((a, b) => buyOrderQuality(b, input) - buyOrderQuality(a, input))
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
@@ -759,6 +759,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFocusTradeFee(amount);
       if (amount + fee > remainingCash) return null;
+      if (!isFeeEfficientTrade(amount)) return null;
       const planMeta = buildBuyPlanMeta({ order, candidate, price, shares });
       spent += amount + fee;
       return {
@@ -775,7 +776,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         feeRule: TRADING_FEE_RULE.description
       };
     })
-    .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
+    .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0))
+    .slice(0, 2);
   const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input, value.ranking);
   const sellOrders = sellOrderCandidates
     .filter((order) => order.action === "sell" || order.action === "reduce")
@@ -1029,10 +1031,30 @@ function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean
   if (claimedSell && !quantAllowsSell(candidate)) {
     return `卖出/减仓未通过本地量化阈值，已降级为观察。${quantReason(candidate)}`;
   }
-  if (claimedBuy && !quantAllowsBuy(candidate)) {
-    return `买入/增持未通过本地量化、现金、行情新鲜度或交易单位校验，已降级为观察。${quantReason(candidate)}`;
+  if (claimedBuy && !candidateSupportsBuy(candidate)) {
+    return `买入/增持未通过本地量化、单股建议、置信度、行情新鲜度或交易单位校验，已降级为观察。${quantReason(candidate)}`;
   }
   return quantReason(candidate);
+}
+
+function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: DecisionInput) {
+  const candidate = input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
+  const signal = candidate?.quantSignal;
+  if (!candidate || !signal) return 0;
+  const confidence = candidate.latestAnalysis?.confidence ?? 0;
+  const riskReward = signal.riskRewardRatio ?? 1.25;
+  const supportBonus = signal.supportDistancePct !== null && signal.supportDistancePct <= 3.5 ? 6 : 0;
+  const holdingPenalty = candidate.isHolding ? 3 : 0;
+  return (
+    signal.buyScore -
+    signal.riskScore * 0.35 +
+    confidence * 12 +
+    Math.min(8, riskReward * 2) +
+    supportBonus -
+    holdingPenalty -
+    Math.max(0, signal.sellScore - 45) * 0.4 -
+    (order.priority ? order.priority * 0.8 : 0)
+  );
 }
 
 function withRequiredQuantSellOrders(
