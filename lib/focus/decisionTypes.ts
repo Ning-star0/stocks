@@ -38,6 +38,19 @@ export type Candidate = {
     riskFactors?: unknown;
   } | null;
   quantSignal?: QuantSignal | null;
+  tradeFeedback?: CandidateTradeFeedback | null;
+};
+
+export type CandidateTradeFeedback = {
+  lastFeedbackAt: string | null;
+  lastBuyAt: string | null;
+  lastSellAt: string | null;
+  lastSkippedBuyAt: string | null;
+  recentLossSellAt: string | null;
+  recentLossPnl: number | null;
+  buyBlockedUntil: string | null;
+  addBlockedUntil: string | null;
+  notes: string[];
 };
 
 export type DecisionInput = {

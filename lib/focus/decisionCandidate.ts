@@ -4,6 +4,7 @@ import type { QuantSignal } from "@/lib/quant/strategy";
 export function candidateSupportsBuy(candidate: Candidate) {
   if (!candidate.price || candidate.price <= 0) return false;
   if (!quantAllowsBuy(candidate)) return false;
+  if (tradeFeedbackBlocksBuy(candidate)) return false;
   if (candidate.latestAnalysis?.trend === "bearish") return false;
   if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
 
@@ -40,9 +41,10 @@ export function quantReason(candidate: Candidate) {
   const sizing = `仓位建议：买入资金 ${signal.suggestedBuyCapitalPct}%；卖出比例 ${signal.suggestedSellRatioPct}%${signal.suggestedSellShares ? `，约 ${signal.suggestedSellShares} 股/份` : ""}。`;
   const metrics = `风险收益比 ${signal.riskRewardRatio ?? "--"}，止损距离 ${formatPct(signal.stopDistancePct)}，止盈距离 ${formatPct(signal.takeProfitDistancePct)}。`;
   const context = `环境：${signal.marketRegime} / ${signal.sectorBias}${signal.newPositionProtection ? "，新仓保护中" : ""}。`;
+  const feedback = candidate.tradeFeedback?.notes?.length ? `交易反馈：${candidate.tradeFeedback.notes.slice(0, 2).join("；")}。` : "";
   const reason = signal.reasons.slice(0, 2).join("；");
   const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, sizing, metrics, context, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
+  return [scores, sizing, metrics, context, feedback, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
 }
 
 export function quantAllowsBuy(candidate?: Candidate | null) {
@@ -85,6 +87,26 @@ export function stringifyAdvice(value: unknown) {
   if (typeof value === "string") return value;
   if (isRecord(value)) return Object.values(value).filter((item) => typeof item === "string").join(" ");
   return "";
+}
+
+function tradeFeedbackBlocksBuy(candidate: Candidate) {
+  const feedback = candidate.tradeFeedback;
+  const signal = candidate.quantSignal;
+  if (!feedback || !signal) return false;
+  const strongOverride =
+    signal.buyScore >= signal.adjustedBuyThreshold + 10 &&
+    signal.riskScore < 55 &&
+    (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.8);
+  if (strongOverride) return false;
+  if (isFuture(feedback.buyBlockedUntil)) return true;
+  if (candidate.isHolding && isFuture(feedback.addBlockedUntil)) return true;
+  return false;
+}
+
+function isFuture(value?: string | null) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time > Date.now();
 }
 
 function formatPct(value: number | null | undefined) {

@@ -20,7 +20,7 @@ import {
 } from "@/lib/focus/decisionCandidate";
 import { buildDecisionPrompt, FOCUS_DECISION_SYSTEM_PROMPT } from "@/lib/focus/decisionPrompt";
 import { decisionSchema, type DecisionSchemaValue } from "@/lib/focus/decisionSchema";
-import type { Candidate, DecisionInput, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
+import type { Candidate, CandidateTradeFeedback, DecisionInput, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
 import {
   buildPortfolioSnapshot,
   calculatePositionCostBasisBySymbol,
@@ -49,6 +49,8 @@ import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantStra
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { reconcileAndRebuildUserPositions } from "@/lib/trades/ledger";
 import { toNumber } from "@/lib/utils";
+
+const TRADE_FEEDBACK_LOOKBACK_DAYS = 45;
 
 export async function getLatestStoredFocusDecision(userId: string) {
   await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, userId));
@@ -308,7 +310,7 @@ async function loadDecisionSeed(userId: string) {
 
   const symbols = [...new Set(focus.symbols.map((symbol) => symbol.toUpperCase()))];
   const allSymbolVariants = uniqueSymbolVariants(symbols);
-  const [analyses, watchlistItems, portfolioItems, tradeExecutions] = await Promise.all([
+  const [analyses, watchlistItems, portfolioItems, tradeExecutions, feedbackRows] = await Promise.all([
     prisma.aiAnalysis.findMany({
       where: { userId, symbol: { in: allSymbolVariants } },
       orderBy: { createdAt: "desc" },
@@ -350,8 +352,33 @@ async function loadDecisionSeed(userId: string) {
         updatedAt: true
       },
       orderBy: [{ executedAt: "asc" }, { createdAt: "asc" }]
+    }),
+    prisma.decisionFeedback.findMany({
+      where: {
+        userId,
+        updatedAt: { gte: new Date(Date.now() - TRADE_FEEDBACK_LOOKBACK_DAYS * 86400000) }
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 120,
+      include: {
+        decision: {
+          select: {
+            decisionJson: true,
+            updatedAt: true
+          }
+        },
+        tradeExecution: {
+          select: {
+            symbol: true,
+            side: true,
+            realizedPnl: true,
+            executedAt: true
+          }
+        }
+      }
     })
   ]);
+  const feedbackProfiles = buildTradeFeedbackProfiles(symbols, feedbackRows);
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
   const positionSignature = symbols.map((symbol) => {
     const item = findBySymbol(watchlistItems, symbol, (row) => row.symbol);
@@ -386,7 +413,9 @@ async function loadDecisionSeed(userId: string) {
     latestAnalysisBySymbol,
     positionSignature,
     portfolioSignature,
-    ledgerSignature
+    ledgerSignature,
+    feedbackProfiles,
+    feedbackSignature: buildFeedbackSignature(feedbackProfiles)
   };
 }
 
@@ -510,6 +539,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
           }
         : null,
       quantSignal: null,
+      tradeFeedback: seed.feedbackProfiles.get(focusSymbolBase(symbol)) ?? null,
       quantInput
     } satisfies Candidate & { quantInput: QuantInput };
   });
@@ -692,6 +722,149 @@ function groupBy<T>(items: T[], keyFn: (item: T) => string) {
   }, {});
 }
 
+type FeedbackRow = {
+  feedbackAction: string;
+  note: string | null;
+  tradeSymbol: string | null;
+  tradeSide: string | null;
+  updatedAt: Date;
+  decision?: { decisionJson: unknown; updatedAt: Date } | null;
+  tradeExecution?: { symbol: string; side: string; realizedPnl: unknown; executedAt: Date } | null;
+};
+
+function buildTradeFeedbackProfiles(symbols: string[], rows: FeedbackRow[]) {
+  const trackedBases = new Set(symbols.map(focusSymbolBase).filter(Boolean));
+  const profiles = new Map<string, CandidateTradeFeedback>();
+
+  for (const row of rows) {
+    const entries = feedbackEntries(row).filter((entry) => trackedBases.has(focusSymbolBase(entry.symbol)));
+    if (!entries.length) continue;
+    for (const entry of entries) {
+      const base = focusSymbolBase(entry.symbol);
+      const profile = profiles.get(base) ?? emptyTradeFeedback();
+      profile.lastFeedbackAt = latestDateIso(profile.lastFeedbackAt, row.updatedAt);
+
+      if (row.feedbackAction === "bought" || entry.side === "buy") {
+        profile.lastBuyAt = latestDateIso(profile.lastBuyAt, row.tradeExecution?.executedAt ?? row.updatedAt);
+        profile.addBlockedUntil = latestDateIso(profile.addBlockedUntil, addDays(row.updatedAt, 2));
+        addFeedbackNote(profile, "最近已买入/增持，短期重复加仓需更强确认。");
+      }
+
+      if (row.feedbackAction === "sold" || entry.side === "sell") {
+        profile.lastSellAt = latestDateIso(profile.lastSellAt, row.tradeExecution?.executedAt ?? row.updatedAt);
+        const realizedPnl = toNumber(row.tradeExecution?.realizedPnl);
+        if (realizedPnl !== null && realizedPnl < 0) {
+          profile.recentLossSellAt = latestDateIso(profile.recentLossSellAt, row.tradeExecution?.executedAt ?? row.updatedAt);
+          profile.recentLossPnl = realizedPnl;
+          profile.buyBlockedUntil = latestDateIso(profile.buyBlockedUntil, addDays(row.updatedAt, 10));
+          addFeedbackNote(profile, `最近亏损卖出，短期重新买入需等待更强信号；已实现盈亏 ${realizedPnl.toFixed(2)} 元。`);
+        }
+      }
+
+      if (row.feedbackAction === "skipped" && entry.side !== "sell") {
+        profile.lastSkippedBuyAt = latestDateIso(profile.lastSkippedBuyAt, row.updatedAt);
+        profile.buyBlockedUntil = latestDateIso(profile.buyBlockedUntil, addDays(row.updatedAt, 3));
+        addFeedbackNote(profile, "最近买入计划被标记为未采纳，短期同类买入降级观察。");
+      }
+
+      profiles.set(base, profile);
+    }
+  }
+
+  for (const [base, profile] of profiles) {
+    profiles.set(base, {
+      ...profile,
+      notes: profile.notes.slice(0, 3)
+    });
+  }
+  return profiles;
+}
+
+function feedbackEntries(row: FeedbackRow) {
+  const directSymbol = row.tradeExecution?.symbol ?? row.tradeSymbol;
+  const directSide = normalizeFeedbackSide(row.tradeExecution?.side ?? row.tradeSide);
+  if (directSymbol) return [{ symbol: directSymbol, side: directSide }];
+
+  const decision = isRecord(row.decision?.decisionJson) ? row.decision.decisionJson : {};
+  if (row.feedbackAction === "sold") return orderEntriesFromDecision(decision, "sellOrders", "sell");
+  if (row.feedbackAction === "bought") return orderEntriesFromDecision(decision, "orders", "buy");
+  if (row.feedbackAction === "skipped") return orderEntriesFromDecision(decision, "orders", "buy");
+  return [];
+}
+
+function orderEntriesFromDecision(decision: Record<string, unknown>, key: "orders" | "sellOrders", side: "buy" | "sell") {
+  const orders = Array.isArray(decision[key]) ? decision[key] : [];
+  return orders
+    .filter(isRecord)
+    .map((order) => (typeof order.symbol === "string" && order.symbol.trim() ? { symbol: order.symbol, side } : null))
+    .filter((entry): entry is { symbol: string; side: "buy" | "sell" } => Boolean(entry));
+}
+
+function normalizeFeedbackSide(value: unknown) {
+  const side = String(value ?? "").toLowerCase();
+  return side === "buy" || side === "sell" ? side : null;
+}
+
+function emptyTradeFeedback(): CandidateTradeFeedback {
+  return {
+    lastFeedbackAt: null,
+    lastBuyAt: null,
+    lastSellAt: null,
+    lastSkippedBuyAt: null,
+    recentLossSellAt: null,
+    recentLossPnl: null,
+    buyBlockedUntil: null,
+    addBlockedUntil: null,
+    notes: []
+  };
+}
+
+function addFeedbackNote(profile: CandidateTradeFeedback, note: string) {
+  if (!profile.notes.includes(note)) profile.notes.push(note);
+}
+
+function latestDateIso(current: string | null, value: Date | string | null | undefined) {
+  if (!value) return current;
+  const next = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(next.getTime())) return current;
+  if (!current) return next.toISOString();
+  return next.getTime() > new Date(current).getTime() ? next.toISOString() : current;
+}
+
+function addDays(value: Date, days: number) {
+  return new Date(value.getTime() + days * 86400000);
+}
+
+function buildFeedbackSignature(profiles: Map<string, CandidateTradeFeedback>) {
+  return [...profiles.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([symbol, profile]) => ({
+      symbol,
+      lastFeedbackAt: profile.lastFeedbackAt,
+      lastBuyAt: profile.lastBuyAt,
+      lastSellAt: profile.lastSellAt,
+      lastSkippedBuyAt: profile.lastSkippedBuyAt,
+      recentLossSellAt: profile.recentLossSellAt,
+      recentLossPnl: profile.recentLossPnl,
+      buyBlockedUntil: profile.buyBlockedUntil,
+      addBlockedUntil: profile.addBlockedUntil,
+      buyCooling: isFutureDate(profile.buyBlockedUntil),
+      addCooling: isFutureDate(profile.addBlockedUntil)
+    }));
+}
+
+function isFutureDate(value?: string | null) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time > Date.now();
+}
+
+function isWithinDays(value: string | null | undefined, days: number) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && time >= Date.now() - days * 86400000;
+}
+
 function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSeed>>) {
   return createHash("sha256")
     .update(
@@ -703,6 +876,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         positionSignature: input.positionSignature,
         portfolioSignature: input.portfolioSignature,
         ledgerSignature: input.ledgerSignature,
+        feedbackSignature: input.feedbackSignature,
         latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )
@@ -1051,6 +1225,7 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
   const riskReward = signal.riskRewardRatio ?? 1.25;
   const supportBonus = signal.supportDistancePct !== null && signal.supportDistancePct <= 3.5 ? 6 : 0;
   const holdingPenalty = candidate.isHolding ? 3 : 0;
+  const feedbackPenalty = tradeFeedbackBuyPenalty(candidate);
   return (
     signal.buyScore -
     signal.riskScore * 0.35 +
@@ -1058,9 +1233,21 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
     Math.min(8, riskReward * 2) +
     supportBonus -
     holdingPenalty -
+    feedbackPenalty -
     Math.max(0, signal.sellScore - 45) * 0.4 -
     (order.priority ? order.priority * 0.8 : 0)
   );
+}
+
+function tradeFeedbackBuyPenalty(candidate: Candidate) {
+  const feedback = candidate.tradeFeedback;
+  if (!feedback) return 0;
+  let penalty = 0;
+  if (isFutureDate(feedback.buyBlockedUntil)) penalty += 18;
+  if (candidate.isHolding && isFutureDate(feedback.addBlockedUntil)) penalty += 10;
+  if (isWithinDays(feedback.recentLossSellAt, 20)) penalty += 6;
+  if (isWithinDays(feedback.lastSkippedBuyAt, 10)) penalty += 4;
+  return penalty;
 }
 
 function calculateSpendableCash(input: DecisionInput) {
