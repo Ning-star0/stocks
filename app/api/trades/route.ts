@@ -19,7 +19,7 @@ export async function GET() {
     const executions = await prisma.tradeExecution.findMany({
       where: { userId: user.id },
       orderBy: [{ executedAt: "desc" }, { createdAt: "desc" }],
-      take: 20
+      take: 100
     });
     return Response.json({
       executions: executions.map((execution) => ({
