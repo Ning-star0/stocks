@@ -219,38 +219,43 @@ export default function SettingsPage() {
         <QuickLink href="/memory" icon={<BookOpen className="h-4 w-4" />} title="记忆管理" text="维护手动记忆和自动沉淀的偏好。" />
       </div>
 
-      <Card className="soft-card">
-        <CardHeader>
-          <CardTitle>外观与账号</CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>外观与账号</CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">账号会话</span>
+          </div>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
+        <CardContent className="flex flex-wrap items-center gap-3 p-4">
           <div className="mr-auto min-w-0">
             <div className="text-sm font-medium">主题：跟随系统</div>
-            <p className="mt-1 text-xs text-muted-foreground">可切换浅色、深色或跟随系统设置。</p>
           </div>
           <ThemeToggle />
           <LogoutButton />
         </CardContent>
       </Card>
 
-      <Card className="soft-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Brain className="h-5 w-5" />
-            AI 接口配置
-          </CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5" />
+              AI 接口配置
+            </CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{aiProvider}</span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{hasExistingKey ? "密钥已配置" : "未配置密钥"}</span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">并发 {focusConcurrency}</span>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-4">
           <div className="space-y-2">
             <span className="block text-sm font-medium mb-1">API 地址</span>
             <Input id="baseUrl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" />
-            <p className="text-xs text-muted-foreground">DeepSeek、OpenAI 或其他兼容接口地址</p>
           </div>
 
           <div className="space-y-2">
             <span className="block text-sm font-medium mb-1">API 密钥</span>
             <Input id="apiKey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasExistingKey ? "已配置，留空则不修改" : "请输入密钥"} autoComplete="off" />
-            <p className="text-xs text-muted-foreground">{hasExistingKey ? "密钥已配置。如需更换请输入新密钥，留空则保持现有密钥不变。" : "输入 API 密钥。"}</p>
           </div>
 
           <div className="space-y-2">
@@ -263,26 +268,23 @@ export default function SettingsPage() {
               <option value="moonshot">Moonshot</option>
               <option value="openai-compatible">OpenAI 兼容接口</option>
             </Select>
-            <p className="text-xs text-muted-foreground">厂商用于统计和展示；实际请求仍使用上方 API 地址。</p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <span className="block text-sm font-medium mb-1">旗舰模型</span>
               <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-v4-pro" />
-              <p className="text-xs text-muted-foreground">用于股票分析、AI 决策、对话主回答。</p>
             </div>
             <div className="space-y-2">
               <span className="block text-sm font-medium mb-1">普通模型</span>
               <Input value={standardModel} onChange={(e) => setStandardModel(e.target.value)} placeholder="deepseek-v4-flash" />
-              <p className="text-xs text-muted-foreground">用于新闻总结、搜索策略、每日简报和记忆抽取。</p>
             </div>
           </div>
 
           <div className="glow-card space-y-3 rounded-xl border border-border bg-muted/15 p-3">
-            <div>
+            <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm font-medium">Token 费用估算</div>
-              <p className="mt-1 text-xs text-muted-foreground">按每 100 万 token 单价计算。价格不固定，建议按厂商控制台最新价格填写。</p>
+              <span className="rounded-full border border-border bg-background/60 px-2 py-0.5 text-xs text-muted-foreground">每 100 万 token</span>
             </div>
             <div className="grid gap-3 md:grid-cols-[120px_repeat(4,minmax(0,1fr))]">
               <div className="space-y-2">
@@ -297,13 +299,11 @@ export default function SettingsPage() {
           </div>
 
           <div className="glow-card space-y-3 rounded-xl border border-border bg-muted/15 p-3">
-            <div>
+            <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm font-medium">自动分析并发</div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                控制一轮“今日 AI 策略观察”里最多同时分析几只股票。并发越高越快，但会同时占用更多 AI / 行情 / 新闻接口连接。
-              </p>
+              <span className="rounded-full border border-border bg-background/60 px-2 py-0.5 text-xs text-muted-foreground">今日 AI 策略观察</span>
             </div>
-            <div className="grid gap-3 md:grid-cols-[220px_1fr] md:items-center">
+            <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-center">
               <div className="space-y-2">
                 <span className="block text-sm font-medium">股票并发数</span>
                 <Select value={focusConcurrency} onChange={(event) => setFocusConcurrency(event.target.value)}>
@@ -314,9 +314,7 @@ export default function SettingsPage() {
                   <option value="5">5 只，默认最快</option>
                 </Select>
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                如果服务器 CPU/内存较小、AI 接口经常超时，建议保持 3；如果接口稳定，可以调到 5。后台任务并发仍保持独立限制，避免多轮任务叠加。
-              </p>
+              <div className="rounded-xl border border-border bg-background/40 px-3 py-2 text-xs leading-5 text-muted-foreground">服务器资源小或接口超时时建议 3；接口稳定可调到 5。后台任务并发仍单独限制。</div>
             </div>
           </div>
 
@@ -336,18 +334,23 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="soft-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            策略推送
-          </CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5" />
+              策略推送
+            </CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushEnabled ? "已启用" : "未启用"}</span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushProvider}</span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushReady ? "可测试" : "待配置"}</span>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-4">
           <label className="glow-card glow-click-card flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
             <span>
               <span className="block text-sm font-medium">启用实时推送</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">只有 AI 决策形成策略观察计划时才推送；等待、回避、暂无计划不会推送。</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">仅在 AI 决策形成策略观察计划时推送。</span>
             </span>
             <input type="checkbox" checked={pushEnabled} onChange={(event) => setPushEnabled(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
           </label>

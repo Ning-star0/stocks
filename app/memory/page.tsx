@@ -125,20 +125,23 @@ export default function MemoryPage() {
         action={
           <>
             <Badge variant="secondary">{state.entries.length} 条</Badge>
-            {state.updatedAt ? <span className="text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</span> : null}
+            {state.updatedAt ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</span> : null}
             {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
           </>
         }
       />
 
-      <Card className="bg-card/90">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <UserRoundPen className="h-4 w-4 text-primary" />
-            手动添加记忆
-          </CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <UserRoundPen className="h-4 w-4 text-primary" />
+              手动添加记忆
+            </CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">去重整理</span>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 p-4">
           <Textarea
             rows={3}
             value={newMemory}
@@ -150,7 +153,6 @@ export default function MemoryPage() {
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               添加记忆
             </Button>
-            <span className="text-xs text-muted-foreground">每行或每段会自动整理成独立记忆，并去掉重复项。</span>
           </div>
         </CardContent>
       </Card>
@@ -160,15 +162,18 @@ export default function MemoryPage() {
         <MemoryList title="自动记忆" icon={<Bot className="h-4 w-4" />} entries={autoEntries} saving={saving} onDelete={deleteEntry} />
       </div>
 
-      <Card className="bg-card/90">
-        <CardHeader className="flex-row items-center justify-between gap-3">
-          <CardTitle>高级编辑</CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>高级编辑</CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{rawOpen ? "正在编辑" : "已折叠"}</span>
+          </div>
           <Button variant="outline" size="sm" onClick={() => setRawOpen((value) => !value)}>
             {rawOpen ? "收起" : "编辑原文"}
           </Button>
         </CardHeader>
         {rawOpen ? (
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-4">
             <Textarea
               className="font-mono"
               rows={16}
@@ -200,15 +205,17 @@ function MemoryList({
   onDelete: (id: string) => void;
 }) {
   return (
-    <Card className="bg-card/90">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {icon}
-          {title}
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle className="flex items-center gap-2">
+            {icon}
+            {title}
+          </CardTitle>
           <Badge variant="secondary">{entries.length}</Badge>
-        </CardTitle>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4">
         {entries.length ? (
           <div className="space-y-2">
             {entries.map((entry) => (
