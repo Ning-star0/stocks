@@ -2,9 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import { DecisionFeedbackPanel } from "@/components/focus/DecisionFeedbackPanel";
+import { StockIdentity } from "@/components/StockIdentity";
 import type { FocusDecision, StockItem, TradeOption } from "@/components/focus/types";
 import { StrategyBadge } from "@/components/StrategyBadge";
 import { motionClassNames, staggerDelay } from "@/lib/motion";
+import { formatDate, formatDateTime, formatMoney, formatPercent, formatRatio, formatShares } from "@/lib/trading/display";
 import { cn } from "@/lib/utils";
 
 export function FocusDecisionPanel({
@@ -151,10 +153,7 @@ export function FocusDecisionPanel({
           {decision.orders.map((order) => (
             <div key={order.symbol} className="rounded-md border border-border bg-background/30 p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold">{order.name || order.symbol}</div>
-                  <div className="mt-1 text-xs tabular-nums text-muted-foreground">{order.symbol}</div>
-                </div>
+                <StockIdentity symbol={order.symbol} name={order.name} />
                 <Badge variant="success">{order.action === "add" ? "增持" : "买入"}</Badge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
@@ -164,7 +163,7 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="止损价" value={formatMoney(order.stopLossPrice)} />
                 <DecisionNumber label="止盈价" value={formatMoney(order.takeProfitPrice)} />
                 <DecisionNumber label="风险收益比" value={formatRatio(order.riskRewardRatio)} />
-                <DecisionNumber label="数量" value={`${order.shares} 股/份`} />
+                <DecisionNumber label="数量" value={`${formatShares(order.shares)} 股/份`} />
                 <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
                 <DecisionNumber label="成交金额" value={formatMoney(order.amount)} />
                 <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
@@ -190,10 +189,7 @@ export function FocusDecisionPanel({
           {sellOrders.map((order) => (
             <div key={order.symbol} className="rounded-md border border-rose-500/25 bg-rose-500/10 p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold">{order.name || order.symbol}</div>
-                  <div className="mt-1 text-xs tabular-nums text-muted-foreground">{order.symbol}</div>
-                </div>
+                <StockIdentity symbol={order.symbol} name={order.name} />
                 <Badge variant="danger">{order.action === "sell" ? "卖出" : "减仓"}</Badge>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
@@ -202,7 +198,7 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="触发价" value={formatMoney(order.triggerPrice ?? order.estimatedPrice)} />
                 <DecisionNumber label="止损价" value={formatMoney(order.stopLossPrice)} />
                 <DecisionNumber label="止盈价" value={formatMoney(order.takeProfitPrice)} />
-                <DecisionNumber label="数量" value={`${order.shares} 股/份`} />
+                <DecisionNumber label="数量" value={`${formatShares(order.shares)} 股/份`} />
                 <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
                 <DecisionNumber label="计划市值" value={formatMoney(order.amount)} />
                 <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
@@ -372,21 +368,6 @@ function AssetMetric({
   );
 }
 
-function formatMoney(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
-}
-
-function formatRatio(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return `${value.toFixed(2)} : 1`;
-}
-
-function formatPercent(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return `${value.toFixed(0)}%`;
-}
-
 function priorityLabel(value?: number | null) {
   if (!value || !Number.isFinite(value)) return "--";
   return `P${value}`;
@@ -402,26 +383,4 @@ function planTypeLabel(value?: FocusDecision["orders"][number]["planType"]) {
     risk_rebalance: "调仓再平衡"
   };
   return value ? map[value] : "--";
-}
-
-function formatDateTime(value?: string | Date | null) {
-  if (!value) return "--";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function formatDate(value?: string | Date | null) {
-  if (!value) return "--";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return date.toLocaleDateString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit"
-  });
 }

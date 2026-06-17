@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { DecisionFeedbackForm } from "@/app/feedback/decision/DecisionFeedbackForm";
+import { StockIdentity } from "@/components/StockIdentity";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/layout";
 import { feedbackActionLabel, normalizeFeedbackAction, verifyDecisionFeedbackToken } from "@/lib/decisionFeedback";
 import { prisma } from "@/lib/prisma";
+import { formatMoney, formatPercent, formatPrice, formatShares } from "@/lib/trading/display";
 
 type SearchParams = {
   decisionId?: string;
@@ -93,9 +95,10 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
               <div className="mt-4 space-y-2">
                 {orders.map((order) => (
                   <div key={`${order.type}-${order.symbol}`} className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
-                    <span className="font-medium">{order.type}</span>
-                    <span className="ml-2">{order.name || order.symbol}</span>
-                    <span className="ml-2 tabular-nums text-muted-foreground">{formatMoney(order.amount)} / {order.shares || 0} 股份</span>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <StockIdentity symbol={order.symbol} name={order.name} prefix={order.type} compact />
+                      <span className="tabular-nums text-muted-foreground">{formatMoney(order.amount)} / {formatShares(order.shares)} 股份</span>
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>触发 {formatPrice(order.triggerPrice ?? order.price)}</span>
                       <span>止损 {formatPrice(order.stopLossPrice)}</span>
@@ -185,18 +188,4 @@ function nullableNumber(value: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
-}
-
-function formatPrice(value?: number | null) {
-  return value === null || value === undefined || !Number.isFinite(value) ? "--" : String(value);
-}
-
-function formatPercent(value?: number | null) {
-  return value === null || value === undefined || !Number.isFinite(value) ? "--" : `${value.toFixed(0)}%`;
-}
-
-function formatMoney(value?: number | null) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "--";
-  return `¥${number.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 }

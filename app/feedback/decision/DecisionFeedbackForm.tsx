@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveStockDisplayName } from "@/lib/trading/display";
 import { isValidTradeLotShares, parsePositiveNumber } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
@@ -131,7 +132,7 @@ export function DecisionFeedbackForm({
               <option value="">不同步持仓</option>
               {tradeOptions.map((order) => (
                 <option key={`${order.side}-${order.symbol}`} value={`${order.side}:${order.symbol}`}>
-                  {order.name || order.symbol} · {order.type} · {order.symbol}
+                  {resolveStockDisplayName({ symbol: order.symbol, name: order.name })} · {order.type} · {order.symbol}
                 </option>
               ))}
             </select>

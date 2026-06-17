@@ -4,11 +4,13 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
+import { StockIdentity } from "@/components/StockIdentity";
 import { StrategyBadge } from "@/components/StrategyBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DecisionHistoryRecord, FocusDecision, StockItem } from "@/components/focus/types";
 import { motionClassNames, staggerDelay } from "@/lib/motion";
+import { displaySymbolBase, formatMoney } from "@/lib/trading/display";
 import { calculateTradingFee } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
@@ -99,8 +101,7 @@ export function CandidateRanking({
                 {rows.map((item, index) => (
                   <tr key={`${item.symbol}-${item.rank}`} className={cn(motionClassNames.fadeUp, "border-b border-border/70 last:border-0 hover:bg-primary/5")} style={{ animationDelay: `${staggerDelay(index)}ms` }}>
                     <td className="px-4 py-3">
-                      <div className="font-medium">{item.name}</div>
-                      <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">#{item.rank} · {item.symbol}</div>
+                      <StockIdentity symbol={item.symbol} name={item.name} prefix={`#${item.rank}`} compact />
                     </td>
                     <td className="px-3 py-3">
                       <StrategyBadge tone={item.actionTone}>{item.status}</StrategyBadge>
@@ -150,7 +151,7 @@ function EmptyDecision({ message }: { message: string }) {
 
 function symbolVariantsForUi(symbol: string) {
   const normalized = symbol.toUpperCase();
-  const base = normalized.replace(/\.(SH|SZ|BJ)$/, "");
+  const base = displaySymbolBase(normalized);
   if (!/^\d{6}$/.test(base)) return [normalized];
   return [normalized, base, `${base}.SH`, `${base}.SZ`, `${base}.BJ`];
 }
@@ -236,9 +237,4 @@ function rankingTone(view: string): "watch" | "wait" | "avoid" | "bullish" | "ne
   if (/等待|观察/.test(view)) return "wait";
   if (/优先|偏多/.test(view)) return "bullish";
   return "watch";
-}
-
-function formatMoney(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
 }

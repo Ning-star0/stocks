@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/currentUser";
 import { apiError, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { readRequestJson } from "@/lib/serverApi";
+import { getQuotesBatch } from "@/lib/services/quoteService";
+import { displaySymbolBase } from "@/lib/trading/display";
 import {
   createManualTradeAndRebuild,
   parsePositiveNumber,
@@ -21,10 +23,18 @@ export async function GET() {
       orderBy: [{ executedAt: "desc" }, { createdAt: "desc" }],
       take: 100
     });
+    const symbols = [...new Set(executions.map((execution) => execution.symbol.toUpperCase()))];
+    const quotes = symbols.length ? await getQuotesBatch(symbols, { cacheOnly: true, allowStale: true }) : {};
+    const quoteNameByBase = new Map(
+      Object.values(quotes)
+        .filter((quote) => quote.name)
+        .map((quote) => [displaySymbolBase(quote.symbol), quote.name] as const)
+    );
     return Response.json({
       executions: executions.map((execution) => ({
         id: execution.id,
         symbol: execution.symbol,
+        name: quoteNameByBase.get(displaySymbolBase(execution.symbol)) ?? null,
         side: execution.side,
         price: Number(execution.price),
         shares: Number(execution.shares),

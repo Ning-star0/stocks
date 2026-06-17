@@ -1,18 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, Save } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RefreshCw, Save } from "lucide-react";
 
+import { StockIdentity } from "@/components/StockIdentity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FocusDecision, StockItem, TradeOption } from "@/components/focus/types";
 import { readJsonResponse } from "@/lib/clientApi";
+import {
+  displaySymbolBase,
+  formatDateTime,
+  formatMoney,
+  formatPercent,
+  formatPrice,
+  formatRatio,
+  formatShares,
+  formatSignedMoney,
+  resolveStockDisplayName,
+  TRADE_CASH_CHANGE_DESCRIPTION,
+  TRADE_LEDGER_PREVIEW_LIMIT,
+  tradeSideLabel
+} from "@/lib/trading/display";
 import { isValidTradeLotShares, parsePositiveNumber } from "@/lib/trading/rules";
 import { cn } from "@/lib/utils";
 
 type TradeExecutionRecord = {
   id: string;
   symbol: string;
+  name?: string | null;
   side: "buy" | "sell" | string;
   price: number;
   shares: number;
@@ -72,6 +88,7 @@ export function DecisionFeedbackPanel({
   const [tradeExecutions, setTradeExecutions] = useState<TradeExecutionRecord[]>([]);
   const [tradeLedgerLoading, setTradeLedgerLoading] = useState(false);
   const [tradeLedgerError, setTradeLedgerError] = useState<string | null>(null);
+  const [showAllTradeLedger, setShowAllTradeLedger] = useState(false);
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
@@ -90,6 +107,21 @@ export function DecisionFeedbackPanel({
       { cashIn: 0, cashOut: 0, netCashChange: 0, totalFee: 0 }
     );
   }, [tradeExecutions]);
+  const symbolNameByBase = useMemo(() => {
+    const output = new Map<string, string>();
+    for (const item of watchlist) {
+      if (item.name) output.set(displaySymbolBase(item.symbol), item.name);
+    }
+    for (const option of tradeOptions) {
+      if (option.name) output.set(displaySymbolBase(option.symbol), option.name);
+    }
+    for (const execution of tradeExecutions) {
+      if (execution.name) output.set(displaySymbolBase(execution.symbol), execution.name);
+    }
+    return output;
+  }, [tradeExecutions, tradeOptions, watchlist]);
+  const visibleTradeExecutions = showAllTradeLedger ? tradeExecutions : tradeExecutions.slice(0, TRADE_LEDGER_PREVIEW_LIMIT);
+  const hiddenTradeExecutionCount = Math.max(0, tradeExecutions.length - visibleTradeExecutions.length);
 
   useEffect(() => {
     if (!manualSymbol && manualSymbols[0]?.symbol) setManualSymbol(manualSymbols[0].symbol);
@@ -102,6 +134,7 @@ export function DecisionFeedbackPanel({
       const response = await fetch("/api/trades");
       const json = await readJsonResponse<{ executions?: TradeExecutionRecord[] }>(response);
       setTradeExecutions(Array.isArray(json.executions) ? json.executions : []);
+      setShowAllTradeLedger(false);
     } catch (error) {
       setTradeLedgerError(error instanceof Error ? error.message : "资金流水读取失败。");
     } finally {
@@ -385,7 +418,7 @@ export function DecisionFeedbackPanel({
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="text-sm font-semibold">资金明细流水</div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">最近 100 笔流水：买入记为现金流出（成交金额 + 手续费），卖出记为现金流入（成交金额 - 手续费），手续费按买卖同样万分之五估算。</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">默认显示最近 {TRADE_LEDGER_PREVIEW_LIMIT} 笔；{TRADE_CASH_CHANGE_DESCRIPTION}。</p>
           </div>
           <Button type="button" size="sm" variant="outline" onClick={loadTradeLedger} disabled={tradeLedgerLoading}>
             <RefreshCw className={cn("h-4 w-4", tradeLedgerLoading ? "animate-spin" : "")} />
@@ -393,53 +426,79 @@ export function DecisionFeedbackPanel({
           </Button>
         </div>
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <LedgerMetric label="现金流入" value={formatMoney(ledgerSummary.cashIn)} tone="in" muted={!tradeExecutions.length} />
-          <LedgerMetric label="现金流出" value={formatMoney(ledgerSummary.cashOut)} tone="out" muted={!tradeExecutions.length} />
-          <LedgerMetric label="手续费合计" value={formatMoney(ledgerSummary.totalFee)} muted={!tradeExecutions.length} />
-          <LedgerMetric label="现金净变化" value={formatSignedMoney(ledgerSummary.netCashChange)} tone={ledgerSummary.netCashChange >= 0 ? "in" : "out"} muted={!tradeExecutions.length} />
-        </div>
-
         {tradeLedgerError ? <div className="mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{tradeLedgerError}</div> : null}
 
-        <div className="mt-3 overflow-hidden rounded-md border border-border">
-          <div className="hidden grid-cols-[96px_1fr_72px_96px_88px_104px_96px] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
-            <span>时间</span>
-            <span>标的</span>
-            <span>方向</span>
-            <span className="text-right">成交额</span>
-            <span className="text-right">手续费</span>
-            <span className="text-right">现金变化</span>
-            <span className="text-right">已实现盈亏</span>
-          </div>
-          {tradeExecutions.length ? (
-            <div className="divide-y divide-border">
-              {tradeExecutions.map((execution) => (
-                <div key={execution.id} className="grid gap-2 px-3 py-3 text-xs md:grid-cols-[96px_1fr_72px_96px_88px_104px_96px] md:items-center">
-                  <div className="text-muted-foreground">{formatDateTime(execution.executedAt)}</div>
-                  <div className="min-w-0">
-                    <div className="font-medium text-foreground">{execution.symbol}</div>
-                    <div className="mt-0.5 truncate text-muted-foreground">
-                      {formatPrice(execution.price)} x {execution.shares} 股/份{execution.note ? ` · ${execution.note}` : ""}
-                    </div>
-                  </div>
-                  <div className={cn("w-fit rounded-full px-2 py-1", execution.side === "buy" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-red-500/10 text-red-600 dark:text-red-300")}>
-                    {tradeSideLabel(execution.side)}
-                  </div>
-                  <LedgerCell label="成交额" value={formatMoney(execution.amount)} />
-                  <LedgerCell label="手续费" value={formatMoney(execution.fee)} />
-                  <LedgerCell label="现金变化" value={formatSignedMoney(execution.netCashChange)} className={execution.netCashChange >= 0 ? "text-red-500" : "text-emerald-500"} />
-                  <LedgerCell
-                    label="已实现盈亏"
-                    value={execution.realizedPnl === null ? "--" : formatSignedMoney(execution.realizedPnl)}
-                    className={execution.realizedPnl === null ? "text-muted-foreground" : execution.realizedPnl >= 0 ? "text-red-500" : "text-emerald-500"}
-                  />
-                </div>
-              ))}
+        <div className="mt-3 grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="rounded-md border border-border bg-muted/10 p-3">
+            <div className="text-xs font-medium text-muted-foreground">最近 {tradeExecutions.length} 笔汇总</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <LedgerMetric label="现金净变化" value={formatSignedMoney(ledgerSummary.netCashChange)} tone={ledgerSummary.netCashChange >= 0 ? "in" : "out"} muted={!tradeExecutions.length} />
+              <LedgerMetric label="现金流入" value={formatMoney(ledgerSummary.cashIn)} tone="in" muted={!tradeExecutions.length} />
+              <LedgerMetric label="现金流出" value={formatMoney(ledgerSummary.cashOut)} tone="out" muted={!tradeExecutions.length} />
+              <LedgerMetric label="手续费合计" value={formatMoney(ledgerSummary.totalFee)} muted={!tradeExecutions.length} />
             </div>
-          ) : (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">{tradeLedgerLoading ? "正在读取资金流水..." : "暂无资金流水，成交反馈或补录买卖后会自动生成。"}</div>
-          )}
+            <div className="mt-3 rounded-md bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              买入会减少现金，卖出会增加现金；手续费买卖都扣除，所以卖出到账金额会小于成交额。
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-md border border-border">
+            <div className="hidden grid-cols-[92px_minmax(160px,1fr)_66px_94px_76px_102px_94px] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+              <span>时间</span>
+              <span>标的</span>
+              <span>方向</span>
+              <span className="text-right">成交额</span>
+              <span className="text-right">手续费</span>
+              <span className="text-right">现金变化</span>
+              <span className="text-right">已实现盈亏</span>
+            </div>
+            {tradeExecutions.length ? (
+              <>
+                <div className="divide-y divide-border">
+                  {visibleTradeExecutions.map((execution) => {
+                    const stockName = resolveStockDisplayName({
+                      symbol: execution.symbol,
+                      name: execution.name || symbolNameByBase.get(displaySymbolBase(execution.symbol))
+                    });
+                    return (
+                      <div key={execution.id} className="grid gap-2 px-3 py-2.5 text-xs md:grid-cols-[92px_minmax(160px,1fr)_66px_94px_76px_102px_94px] md:items-center">
+                        <div className="text-muted-foreground">{formatDateTime(execution.executedAt)}</div>
+                        <div className="min-w-0">
+                          <StockIdentity symbol={execution.symbol} name={stockName} compact />
+                          <div className="mt-0.5 truncate text-muted-foreground">
+                            {formatPrice(execution.price)} x {formatShares(execution.shares)} 股/份{execution.note ? ` · ${execution.note}` : ""}
+                          </div>
+                        </div>
+                        <div className={cn("w-fit rounded-full px-2 py-1", execution.side === "buy" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-red-500/10 text-red-600 dark:text-red-300")}>
+                          {tradeSideLabel(execution.side)}
+                        </div>
+                        <LedgerCell label="成交额" value={formatMoney(execution.amount)} />
+                        <LedgerCell label="手续费" value={formatMoney(execution.fee)} />
+                        <LedgerCell label="现金变化" value={formatSignedMoney(execution.netCashChange)} className={execution.netCashChange >= 0 ? "text-red-500" : "text-emerald-500"} />
+                        <LedgerCell
+                          label="已实现盈亏"
+                          value={execution.realizedPnl === null ? "--" : formatSignedMoney(execution.realizedPnl)}
+                          className={execution.realizedPnl === null ? "text-muted-foreground" : execution.realizedPnl >= 0 ? "text-red-500" : "text-emerald-500"}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {tradeExecutions.length > TRADE_LEDGER_PREVIEW_LIMIT ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-center gap-2 border-t border-border bg-muted/20 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/35 hover:text-foreground"
+                    onClick={() => setShowAllTradeLedger((value) => !value)}
+                  >
+                    {showAllTradeLedger ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    {showAllTradeLedger ? "收起流水" : `展开其余 ${hiddenTradeExecutionCount} 笔流水`}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">{tradeLedgerLoading ? "正在读取资金流水..." : "暂无资金流水，成交反馈或补录买卖后会自动生成。"}</div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -538,44 +597,6 @@ function planTypeLabel(value?: TradeOption["planType"]) {
 
 function priorityLabel(value?: number | null) {
   return value && Number.isFinite(value) ? `P${value}` : "--";
-}
-
-function formatPrice(value?: number | null) {
-  return value !== null && value !== undefined && Number.isFinite(value) ? String(value) : "--";
-}
-
-function formatMoney(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value);
-}
-
-function formatSignedMoney(value?: number | null) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  return `${value > 0 ? "+" : ""}${formatMoney(value)}`;
-}
-
-function formatRatio(value?: number | null) {
-  return value !== null && value !== undefined && Number.isFinite(value) ? `${value.toFixed(2)} : 1` : "--";
-}
-
-function formatPercent(value?: number | null) {
-  return value !== null && value !== undefined && Number.isFinite(value) ? `${value.toFixed(0)}%` : "--";
-}
-
-function formatDateTime(value?: string | Date | null) {
-  if (!value) return "--";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function tradeSideLabel(value?: string | null) {
-  return value === "buy" ? "买入" : "卖出";
 }
 
 function LedgerMetric({ label, value, tone = "neutral", muted = false }: { label: string; value: string; tone?: "in" | "out" | "neutral"; muted?: boolean }) {
