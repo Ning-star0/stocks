@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { BorderGlowController } from "@/components/BorderGlowController";
 import { LazyChatPanel } from "@/components/LazyChatPanel";
 import { getSession } from "@/lib/auth";
 import "./globals.css";
@@ -29,6 +30,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <script dangerouslySetInnerHTML={{ __html: chunkErrorScript }} />
       </head>
       <body>
+        <BorderGlowController />
         <div className="min-h-screen terminal-grid">
           <AppHeader signedIn={Boolean(session)} />
           <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 sm:py-6 lg:px-8">{children}</main>
