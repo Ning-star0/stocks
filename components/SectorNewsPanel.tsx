@@ -24,6 +24,7 @@ export function SectorNewsPanel() {
   const [fetching, setFetching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectedWatch = watches.find((watch) => watch.sectorName === selectedSector) ?? null;
 
   const loadWatches = useCallback(async () => {
     const response = await fetch("/api/sectors/watch", { cache: "no-store" });
@@ -97,24 +98,32 @@ export function SectorNewsPanel() {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle>行业新闻窗口</CardTitle>
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <CardTitle>行业新闻窗口</CardTitle>
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{watches.length} 个主题</span>
+          {selectedSector ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{selectedSector}</span> : null}
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{news.length} 条新闻</span>
+        </div>
         <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
           <RefreshCw className="h-4 w-4" />
           {fetching ? "抓取中" : "抓取"}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <form className="grid gap-2 md:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={addWatch}>
-          <Input name="sectorName" placeholder="AI 芯片" required />
-          <Input name="keywords" placeholder="AI 芯片, GPU 需求, 数据中心" required />
-          <Input name="symbols" placeholder="NVDA, AMD" />
-          <Button type="submit">
-            <Plus className="h-4 w-4" />
-            添加
-          </Button>
-        </form>
+      <CardContent className="space-y-3 p-4">
+        <details className="glow-card rounded-xl border border-border bg-muted/15 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">添加行业主题</summary>
+          <form className="mt-3 grid gap-2 md:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={addWatch}>
+            <Input name="sectorName" placeholder="AI 芯片" required />
+            <Input name="keywords" placeholder="AI 芯片, GPU 需求, 数据中心" required />
+            <Input name="symbols" placeholder="NVDA, AMD" />
+            <Button type="submit">
+              <Plus className="h-4 w-4" />
+              添加
+            </Button>
+          </form>
+        </details>
         <div className="flex flex-wrap gap-2">
           {watches.map((watch) => (
             <Button key={watch.id} size="sm" variant={selectedSector === watch.sectorName ? "default" : "outline"} onClick={() => setSelectedSector(watch.sectorName)}>
@@ -122,6 +131,12 @@ export function SectorNewsPanel() {
             </Button>
           ))}
         </div>
+        {selectedWatch ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            <SectorMeta label="关键词" value={selectedWatch.keywords.join("、") || "--"} />
+            <SectorMeta label="关联标的" value={selectedWatch.symbols.join("、") || "--"} />
+          </div>
+        ) : null}
         {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading ? (
@@ -130,12 +145,23 @@ export function SectorNewsPanel() {
           <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无行业新闻。添加主题后点击“抓取”。</div>
         ) : (
           <>
-            {news.slice(0, 12).map((item) => <NewsCard key={item.id} item={item} />)}
+            <div className="space-y-2">
+              {news.slice(0, 12).map((item) => <NewsCard key={item.id} item={item} />)}
+            </div>
             <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">低重要性新闻默认归档隐藏。</div>
           </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function SectorMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="glow-card rounded-xl border border-border bg-background/40 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium">{value}</div>
+    </div>
   );
 }
 

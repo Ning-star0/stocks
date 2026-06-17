@@ -56,18 +56,20 @@ export function DailyMarketBriefPanel() {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <div className="flex items-center gap-2">
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <FileText className="h-4 w-4 text-primary" />
           <CardTitle>每日市场简报</CardTitle>
+          {brief ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{brief.date}</span> : null}
+          {brief ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">生成：{new Date(brief.createdAt).toLocaleString("zh-CN")}</span> : null}
         </div>
         <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
           <RefreshCw className={generating ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
           {generating ? "生成中" : "生成"}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 p-4">
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading ? (
           <div className="py-8 text-sm text-muted-foreground">正在加载简报...</div>
@@ -78,7 +80,7 @@ export function DailyMarketBriefPanel() {
             <BriefBlock title="自选股" text={brief.watchlistSummary} />
             <BriefBlock title="行业" text={brief.sectorSummary} />
             <BriefBlock title="风险" text={brief.riskSummary} />
-            <p className="border-t pt-3 text-xs text-muted-foreground">AI 市场简报可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
+            <p className="rounded-xl border border-border/70 bg-background/35 px-3 py-2 text-xs text-muted-foreground">AI 市场简报可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
           </>
         )}
       </CardContent>
@@ -88,7 +90,7 @@ export function DailyMarketBriefPanel() {
 
 function BriefBlock({ title, text }: { title: string; text: string }) {
   return (
-    <div className="glow-card rounded-xl border border-border bg-muted/20 p-3">
+    <div className="glow-card rounded-xl border border-border bg-muted/15 p-3">
       <div className="mb-1 text-xs uppercase text-muted-foreground">{title}</div>
       <p className="text-sm leading-6">{text}</p>
     </div>

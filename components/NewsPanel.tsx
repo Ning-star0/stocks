@@ -98,22 +98,19 @@ export function NewsPanel({
   }
 
   return (
-    <Card className="soft-card">
-      <CardHeader className="flex-row items-center justify-between">
-        <div className="flex items-center gap-2">
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Newspaper className="h-4 w-4 text-primary" />
-          <div>
-            <CardTitle>相关新闻</CardTitle>
-            <div className="mt-1 text-xs text-muted-foreground">先显示新闻结论，展开后查看详情、AI 精读和原文链接。</div>
-          </div>
+          <CardTitle>相关新闻</CardTitle>
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{newsSnapshotLabel}</span>
         </div>
         <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
           <RefreshCw className={fetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
           {fetching ? "抓取中" : "抓取新闻"}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="text-xs text-muted-foreground">{newsSnapshotLabel}</div>
+      <CardContent className="space-y-3 p-4">
         {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
         {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {!loading && allNews.length ? <NewsOverview overview={overview} /> : null}
@@ -192,14 +189,14 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
 
 function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverview> }) {
   return (
-    <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-3">
-      <div className="text-sm font-medium">新闻概览</div>
-      <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
-        {overview.points.map((point) => (
-          <li key={point}>- {point}</li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-muted-foreground">新闻分析可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
+    <div className="grid gap-2 md:grid-cols-3">
+      {overview.points.map((point) => (
+        <div key={point.label} className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-3">
+          <div className="text-xs text-muted-foreground">{point.label}</div>
+          <div className="mt-1 text-sm font-semibold text-foreground">{point.value}</div>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{point.detail}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -218,9 +215,21 @@ function buildNewsOverview(items: NewsCardData[]) {
 
   return {
     points: [
-      `共纳入 ${items.length} 条相关新闻，其中高重要性 ${high} 条、中等重要性 ${medium} 条，AI 已精读 ${analyzed} 条。`,
-      `情绪分布：正面 ${sentiment.positive} 条，中性 ${sentiment.neutral} 条，负面 ${sentiment.negative} 条。`,
-      summaryPoints.length ? `内容要点：${summaryPoints.join("；")}` : "暂无 AI 精读摘要，暂不根据标题推断新闻主线。"
+      {
+        label: "新闻数量",
+        value: `${items.length} 条`,
+        detail: `高重要性 ${high} 条，中等重要性 ${medium} 条，AI 已精读 ${analyzed} 条。`
+      },
+      {
+        label: "情绪分布",
+        value: `正 ${sentiment.positive} / 中 ${sentiment.neutral} / 负 ${sentiment.negative}`,
+        detail: "情绪来自新闻原始标记或 AI 精读结果。"
+      },
+      {
+        label: "内容要点",
+        value: summaryPoints.length ? "已提炼" : "待精读",
+        detail: summaryPoints.length ? summaryPoints.join("；") : "暂无 AI 精读摘要，暂不根据标题推断新闻主线。"
+      }
     ]
   };
 }
