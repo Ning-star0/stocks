@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-const EDGE_SENSITIVITY = 88;
+const EDGE_SENSITIVITY = 72;
 const ACTIVE_SELECTOR = ".glow-card";
 
 export function BorderGlowController() {
@@ -53,12 +53,14 @@ export function BorderGlowController() {
         card.style.setProperty("--glow-x", `${localX}px`);
         card.style.setProperty("--glow-y", `${localY}px`);
         card.style.setProperty("--glow-angle", `${angle}deg`);
+        card.style.setProperty("--cursor-angle", `${angle}deg`);
         card.style.setProperty("--glow-edge", edgeProximity.toFixed(3));
+        card.style.setProperty("--edge-proximity", `${(edgeProximity * 100).toFixed(3)}`);
         nextActiveCards.add(card);
       });
 
       activeCards.forEach((card) => {
-        if (!nextActiveCards.has(card)) card.style.setProperty("--glow-edge", "0");
+        if (!nextActiveCards.has(card)) clearCardGlow(card);
       });
       activeCards.clear();
       nextActiveCards.forEach((card) => activeCards.add(card));
@@ -68,7 +70,7 @@ export function BorderGlowController() {
       if (frame) window.cancelAnimationFrame(frame);
       frame = 0;
       latestEvent = null;
-      activeCards.forEach((card) => card.style.setProperty("--glow-edge", "0"));
+      activeCards.forEach(clearCardGlow);
       activeCards.clear();
     }
 
@@ -95,4 +97,9 @@ function distanceFromRect(x: number, y: number, rect: DOMRect) {
   const dx = Math.max(rect.left - x, 0, x - rect.right);
   const dy = Math.max(rect.top - y, 0, y - rect.bottom);
   return Math.hypot(dx, dy);
+}
+
+function clearCardGlow(card: HTMLElement) {
+  card.style.setProperty("--glow-edge", "0");
+  card.style.setProperty("--edge-proximity", "0");
 }

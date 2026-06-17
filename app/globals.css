@@ -186,12 +186,15 @@
     --glow-angle: 145deg;
     --glow-x: 50%;
     --glow-y: 50%;
+    --cursor-angle: var(--glow-angle);
+    --edge-proximity: 0;
+    --cone-spread: 22;
     position: relative;
     z-index: 0;
     isolation: isolate;
     overflow: hidden;
     background-clip: padding-box;
-    border-color: hsl(var(--primary) / 0.22);
+    border-color: hsl(var(--border) / 0.78);
     transition:
       border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -212,17 +215,25 @@
     border-radius: inherit;
     padding: 1px;
     background:
+      radial-gradient(
+        140px circle at var(--glow-x) var(--glow-y),
+        hsl(var(--primary) / 0.94) 0%,
+        hsl(205 90% 58% / 0.76) 34%,
+        hsl(38 96% 58% / 0.52) 52%,
+        transparent 72%
+      ),
       conic-gradient(
-        from var(--glow-angle),
-        hsl(var(--primary) / 0) 0deg,
-        hsl(var(--primary) / calc(0.16 + var(--glow-edge) * 0.68)) 24deg,
-        hsl(205 90% 58% / calc(0.10 + var(--glow-edge) * 0.44)) 48deg,
-        hsl(38 96% 58% / calc(0.08 + var(--glow-edge) * 0.34)) 72deg,
-        hsl(var(--primary) / calc(0.12 + var(--glow-edge) * 0.42)) 96deg,
-        hsl(var(--primary) / 0) 124deg,
-        hsl(var(--primary) / 0) 360deg
+        from var(--cursor-angle),
+        transparent 0deg,
+        hsl(var(--primary) / 0.00) 12deg,
+        hsl(var(--primary) / 0.95) 28deg,
+        hsl(205 90% 58% / 0.82) 46deg,
+        hsl(38 96% 58% / 0.66) 64deg,
+        hsl(var(--primary) / 0.72) 82deg,
+        transparent 112deg,
+        transparent 360deg
       );
-    opacity: calc(0.20 + var(--glow-edge) * 0.80);
+    opacity: calc(var(--glow-edge) * 1.15);
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
@@ -239,10 +250,13 @@
     z-index: 0;
     border-radius: inherit;
     background:
-      radial-gradient(circle at var(--glow-x) var(--glow-y), hsl(var(--primary) / calc(var(--glow-edge) * 0.16 + var(--glow-soft-alpha))), transparent 20%),
-      radial-gradient(circle at var(--glow-x) var(--glow-y), hsl(205 85% 62% / calc(var(--glow-edge) * 0.10)), transparent 32%),
-      linear-gradient(180deg, hsl(0 0% 100% / 0.06), transparent 42%);
-    opacity: calc(var(--glow-edge) * 0.95);
+      radial-gradient(
+        180px circle at var(--glow-x) var(--glow-y),
+        hsl(var(--primary) / calc(var(--glow-edge) * 0.10 + var(--glow-soft-alpha))) 0%,
+        hsl(205 85% 62% / calc(var(--glow-edge) * 0.07)) 34%,
+        transparent 70%
+      );
+    opacity: calc(var(--glow-edge) * 0.78);
     pointer-events: none;
     transition:
       opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -255,9 +269,8 @@
 
   .glow-click-card:hover,
   .glow-click-card:focus-visible {
-    --glow-border-alpha: 0.58;
-    --glow-soft-alpha: 0.04;
-    border-color: hsl(var(--primary) / 0.38);
+    --glow-soft-alpha: 0.025;
+    border-color: hsl(var(--primary) / 0.32);
     box-shadow:
       inset 0 1px 0 hsl(0 0% 100% / 0.72),
       0 16px 42px hsl(220 35% 18% / var(--glow-shadow-alpha)),
@@ -266,23 +279,10 @@
     transform: translateY(-1px);
   }
 
-  .glow-click-card:hover::before,
-  .glow-click-card:focus-visible::before,
-  .glow-click-card-active::before {
-    opacity: 1;
-  }
-
-  .glow-click-card:hover::after,
-  .glow-click-card:focus-visible::after,
-  .glow-click-card-active::after {
-    opacity: 1;
-    transform: scale(1.01);
-  }
-
   .glow-click-card-active {
-    --glow-border-alpha: 0.62;
-    --glow-soft-alpha: 0.05;
-    --glow-edge: 0.45;
+    --glow-soft-alpha: 0.035;
+    --glow-edge: 0.55;
+    --edge-proximity: 55;
     border-color: hsl(var(--primary) / 0.42);
     box-shadow:
       inset 0 1px 0 hsl(0 0% 100% / 0.76),
@@ -299,15 +299,23 @@
 
   .dark .glow-card::before {
     background:
+      radial-gradient(
+        140px circle at var(--glow-x) var(--glow-y),
+        hsl(var(--primary) / 0.92) 0%,
+        hsl(205 85% 68% / 0.72) 34%,
+        hsl(38 96% 62% / 0.48) 52%,
+        transparent 72%
+      ),
       conic-gradient(
-        from var(--glow-angle),
-        hsl(var(--primary) / 0) 0deg,
-        hsl(var(--primary) / calc(0.14 + var(--glow-edge) * 0.64)) 24deg,
-        hsl(205 85% 68% / calc(0.09 + var(--glow-edge) * 0.36)) 48deg,
-        hsl(38 96% 62% / calc(0.07 + var(--glow-edge) * 0.24)) 72deg,
-        hsl(var(--primary) / calc(0.10 + var(--glow-edge) * 0.36)) 96deg,
-        hsl(var(--primary) / 0) 124deg,
-        hsl(var(--primary) / 0) 360deg
+        from var(--cursor-angle),
+        transparent 0deg,
+        hsl(var(--primary) / 0.00) 12deg,
+        hsl(var(--primary) / 0.90) 28deg,
+        hsl(205 85% 68% / 0.78) 46deg,
+        hsl(38 96% 62% / 0.58) 64deg,
+        hsl(var(--primary) / 0.64) 82deg,
+        transparent 112deg,
+        transparent 360deg
       );
   }
 
