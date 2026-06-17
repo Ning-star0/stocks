@@ -27,6 +27,7 @@ export function AlertRuleForm() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const triggeredCount = alerts.filter((alert) => alert.triggeredAt).length;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,11 +72,14 @@ export function AlertRuleForm() {
 
   return (
     <div className="space-y-5">
-      <Card>
-        <CardHeader>
-          <CardTitle>创建提醒规则</CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>创建提醒规则</CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">价格 / RSI / 成交量</span>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4">
           <form className="grid gap-3 md:grid-cols-5" onSubmit={onSubmit}>
             <Input name="symbol" placeholder="AAPL" required />
             <Select name="alertType" defaultValue="price">
@@ -98,15 +102,19 @@ export function AlertRuleForm() {
 
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>提醒规则</CardTitle>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>提醒规则</CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{alerts.length} 条</span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">已触发 {triggeredCount}</span>
+          </div>
           <Button size="sm" variant="outline" onClick={load} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
             刷新
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4">
           {loading ? (
             <div className="py-8 text-sm text-muted-foreground">正在加载提醒规则...</div>
           ) : alerts.length === 0 ? (

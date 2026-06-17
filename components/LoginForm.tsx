@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { readJsonResponse } from "@/lib/clientApi";
 
@@ -40,12 +40,14 @@ export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-md">
-      <CardHeader>
-        <CardTitle>登录</CardTitle>
-        <CardDescription>请输入 `.env` 中配置的管理员账号和密码。</CardDescription>
+    <Card className="performance-card mx-auto w-full max-w-md overflow-hidden">
+      <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>登录</CardTitle>
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">管理员账号</span>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4">
         <form className="space-y-4" onSubmit={submit}>
           <div className="space-y-2">
             <label className="text-sm text-muted-foreground" htmlFor="email">
