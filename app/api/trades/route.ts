@@ -14,14 +14,17 @@ import {
   rebuildUserPositions
 } from "@/lib/trades/ledger";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
+    const searchParams = request.nextUrl.searchParams;
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam === "all" ? undefined : Math.min(Math.max(Number(limitParam || 100), 1), 500);
     await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, user.id));
     const executions = await prisma.tradeExecution.findMany({
       where: { userId: user.id },
       orderBy: [{ executedAt: "desc" }, { createdAt: "desc" }],
-      take: 100
+      ...(limit ? { take: limit } : {})
     });
     const symbols = [...new Set(executions.map((execution) => execution.symbol.toUpperCase()))];
     const quotes = symbols.length ? await getQuotesBatch(symbols, { cacheOnly: true, allowStale: true }) : {};

@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, Loader2, RefreshCw, Save } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Save, WalletCards } from "lucide-react";
 
 import { StockIdentity } from "@/components/StockIdentity";
 import { Button } from "@/components/ui/button";
@@ -88,7 +89,6 @@ export function DecisionFeedbackPanel({
   const [tradeExecutions, setTradeExecutions] = useState<TradeExecutionRecord[]>([]);
   const [tradeLedgerLoading, setTradeLedgerLoading] = useState(false);
   const [tradeLedgerError, setTradeLedgerError] = useState<string | null>(null);
-  const [showAllTradeLedger, setShowAllTradeLedger] = useState(false);
 
   const selectedTrade = tradeOptions.find((option) => option.key === tradeKey) ?? null;
   const shouldSyncTrade = action === "bought" || action === "sold";
@@ -120,7 +120,7 @@ export function DecisionFeedbackPanel({
     }
     return output;
   }, [tradeExecutions, tradeOptions, watchlist]);
-  const visibleTradeExecutions = showAllTradeLedger ? tradeExecutions : tradeExecutions.slice(0, TRADE_LEDGER_PREVIEW_LIMIT);
+  const visibleTradeExecutions = tradeExecutions.slice(0, TRADE_LEDGER_PREVIEW_LIMIT);
   const hiddenTradeExecutionCount = Math.max(0, tradeExecutions.length - visibleTradeExecutions.length);
 
   useEffect(() => {
@@ -134,7 +134,6 @@ export function DecisionFeedbackPanel({
       const response = await fetch("/api/trades");
       const json = await readJsonResponse<{ executions?: TradeExecutionRecord[] }>(response);
       setTradeExecutions(Array.isArray(json.executions) ? json.executions : []);
-      setShowAllTradeLedger(false);
     } catch (error) {
       setTradeLedgerError(error instanceof Error ? error.message : "资金流水读取失败。");
     } finally {
@@ -420,10 +419,18 @@ export function DecisionFeedbackPanel({
             <div className="text-sm font-semibold">资金明细流水</div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">默认显示最近 {TRADE_LEDGER_PREVIEW_LIMIT} 笔；{TRADE_CASH_CHANGE_DESCRIPTION}。</p>
           </div>
-          <Button type="button" size="sm" variant="outline" onClick={loadTradeLedger} disabled={tradeLedgerLoading}>
-            <RefreshCw className={cn("h-4 w-4", tradeLedgerLoading ? "animate-spin" : "")} />
-            刷新流水
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={loadTradeLedger} disabled={tradeLedgerLoading}>
+              <RefreshCw className={cn("h-4 w-4", tradeLedgerLoading ? "animate-spin" : "")} />
+              刷新流水
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/trades">
+                <WalletCards className="h-4 w-4" />
+                查看全部流水
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {tradeLedgerError ? <div className="mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{tradeLedgerError}</div> : null}
@@ -485,14 +492,12 @@ export function DecisionFeedbackPanel({
                   })}
                 </div>
                 {tradeExecutions.length > TRADE_LEDGER_PREVIEW_LIMIT ? (
-                  <button
-                    type="button"
+                  <Link
+                    href="/trades"
                     className="flex w-full items-center justify-center gap-2 border-t border-border bg-muted/20 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/35 hover:text-foreground"
-                    onClick={() => setShowAllTradeLedger((value) => !value)}
                   >
-                    {showAllTradeLedger ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    {showAllTradeLedger ? "收起流水" : `展开其余 ${hiddenTradeExecutionCount} 笔流水`}
-                  </button>
+                    查看其余 {hiddenTradeExecutionCount} 笔完整流水
+                  </Link>
                 ) : null}
               </>
             ) : (

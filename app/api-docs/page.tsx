@@ -46,7 +46,10 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
       { method: "GET", path: "/api/watchlist", description: "读取当前用户自选股和行情。", cost: "只读" },
       { method: "POST", path: "/api/watchlist/items", description: "添加自选股，重复 symbol 会复用或更新。", body: "{ symbol, note?, holdingPrice?, holdingShares?, targetPrice?, stopLoss? }", cost: "写库" },
       { method: "PATCH", path: "/api/watchlist/items/[id]", description: "编辑备注、持仓、目标价、止损价、周期、风险等级。", cost: "写库" },
-      { method: "DELETE", path: "/api/watchlist/items/[id]", description: "删除自选股。", cost: "写库" }
+      { method: "DELETE", path: "/api/watchlist/items/[id]", description: "删除自选股。", cost: "写库" },
+      { method: "GET", path: "/api/trades", description: "读取资金流水，支持 limit=all 查看全部历史。", notes: "?limit=all", cost: "只读" },
+      { method: "POST", path: "/api/trades", description: "补录买入或卖出，并按流水重算持仓、现金和已实现盈亏。", body: "{ symbol, side, price, shares, executedAt?, note? }", cost: "写库" },
+      { method: "DELETE", path: "/api/trades?id=[executionId]", description: "删除一条资金流水并重算持仓。", cost: "写库" }
     ]
   },
   {
@@ -143,9 +146,6 @@ export default function ApiDocsPage() {
               <span className="text-sm">接口中心</span>
             </div>
             <h1 className="mt-2 text-2xl font-semibold tracking-normal">API 与系统状态</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-              这里汇总当前已实现接口、认证方式、调用成本和实时健康状态。适合排查接口是否可用，也方便以后接移动端或外部自动化。
-            </p>
           </div>
           <div className="grid min-w-[260px] grid-cols-2 gap-2 text-sm">
             <Metric label="接口数" value={endpointCount} />
