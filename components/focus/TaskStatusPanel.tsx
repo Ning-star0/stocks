@@ -45,29 +45,37 @@ export function TaskStatusPanel({
         : "neutral";
 
   return (
-    <Card className="soft-card">
-      <CardHeader>
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <CardTitle className="flex items-center gap-2">
               <Clock3 className="h-4 w-4 text-primary" />
               自动分析任务状态
             </CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">跟踪后台是否按时执行、每只股票是否成功，以及 AI / 行情 / 新闻接口耗时。</p>
+            <Badge variant={enabled ? "success" : "warning"}>{enabled ? "自动任务已启用" : "自动任务未启用"}</Badge>
+            <Badge variant={statusBadgeVariant(runs?.summary.latestStatus ?? "idle")}>{latestStatus}</Badge>
           </div>
-          <Badge variant={statusBadgeVariant(runs?.summary.latestStatus ?? "idle")}>{latestStatus}</Badge>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1">
+              下一次：{runs?.summary.nextRunAt ? formatDateTime(runs.summary.nextRunAt) : nextAnalysisLabel(focus.analysisTimes)}
+            </span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1">
+              今日 {runs?.summary.todayRunCount ?? 0} 次
+            </span>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1">
+              成功 / 失败 {successCount} / {failedCount}
+            </span>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-          <StatusMetric label="自动任务" value={enabled ? "已启用" : "未启用"} tone={enabled ? "success" : "warning"} />
-          <StatusMetric label="下一次 AI 分析" value={runs?.summary.nextRunAt ? formatDateTime(runs.summary.nextRunAt) : nextAnalysisLabel(focus.analysisTimes)} />
-          <StatusMetric label="今日已执行" value={`${runs?.summary.todayRunCount ?? 0} 次`} />
+      <CardContent className="space-y-4 p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <StatusMetric label="最近状态" value={latestStatus} tone={latestTone} />
-          <StatusMetric label="成功 / 失败" value={`${successCount} / ${failedCount}`} tone={failedCount > 0 ? "warning" : "success"} />
           <StatusMetric label="兜底触发" value={`${runs?.summary.fallbackCount ?? 0} 次`} tone={(runs?.summary.fallbackCount ?? 0) > 0 ? "warning" : "success"} />
           <StatusMetric label="当前运行" value={concurrency || decisionLoading ? `${activeTasks} 任务 / ${activeStockItems} 股票` : "0 / 0"} tone={activeTasks || activeStockItems ? "warning" : "neutral"} />
           <StatusMetric label="并发上限" value={concurrency ? `${concurrency.jobWorkerLimit} 任务 / ${concurrency.focusStockAnalysisLimit} 股票` : "--"} />
+          <StatusMetric label="单股平均" value={formatDuration(latestMetrics.averageItemDurationMs)} />
         </div>
 
         {latest ? (

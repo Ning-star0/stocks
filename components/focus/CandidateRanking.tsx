@@ -69,10 +69,15 @@ export function CandidateRanking({
 
   return (
     <Card className="soft-card">
-      <CardHeader className="flex-row items-center justify-between gap-3">
-        <div>
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <CardTitle>候选标的排序</CardTitle>
-          <p className="mt-2 text-sm text-muted-foreground">用于横向比较今日关注标的，持仓盈亏已扣除估算买入和卖出手续费。</p>
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+            {rows.length} 只
+          </span>
+          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+            盈亏含估算买卖手续费
+          </span>
         </div>
         {items.length ? (
           <div className="glow-card flex rounded-xl border border-border bg-muted/20 p-1 text-xs">
@@ -82,7 +87,7 @@ export function CandidateRanking({
           </div>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4">
         {rows.length ? (
           <div className="glow-card overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[860px] text-sm">
