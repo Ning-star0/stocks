@@ -122,7 +122,6 @@ export default function MemoryPage() {
     <PageContainer className="max-w-5xl">
       <SectionHeader
         title="交易记忆"
-        description="AI 会在对话中自动沉淀你的偏好；你也可以手动添加明确规则。所有股票分析、聊天和策略观察都会参考这些记忆。"
         action={
           <>
             <Badge variant="secondary">{state.entries.length} 条</Badge>

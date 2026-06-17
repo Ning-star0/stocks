@@ -212,7 +212,7 @@ export default function SettingsPage() {
 
   return (
     <PageContainer className="max-w-4xl">
-      <SectionHeader title="设置" description="管理 AI 接口、主题、记忆与系统入口。后台类功能已收纳在这里，避免主导航过重。" />
+      <SectionHeader title="设置" />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <QuickLink href="/api-docs" icon={<Code2 className="h-4 w-4" />} title="接口与健康检查" text="查看 API、连接状态与运行成本。" />

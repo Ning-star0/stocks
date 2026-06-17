@@ -91,15 +91,17 @@ export default function TradesPage() {
         <LedgerStat label="已实现盈亏" value={formatSignedMoney(summary.realizedPnl)} tone={summary.realizedPnl >= 0 ? "in" : "out"} />
       </div>
 
-      <Card className="soft-card overflow-hidden">
-        <CardHeader className="border-b border-border/70 bg-muted/10">
-          <CardTitle className="flex items-center gap-2">
-            <WalletCards className="h-4 w-4 text-primary" />
-            全部交易明细
-          </CardTitle>
-          <div className="grid gap-2 text-xs leading-5 text-muted-foreground md:grid-cols-[1.2fr_1fr]">
-            <span>{TRADE_CASH_CHANGE_DESCRIPTION}。</span>
-            <span>已实现盈亏 = 卖出成交额 - 卖出手续费 - 本次卖出对应的持仓成本；持仓成本已包含买入手续费。</span>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/70 bg-background/25 p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <WalletCards className="h-4 w-4 text-primary" />
+              全部交易明细
+            </CardTitle>
+            <div className="grid gap-2 text-xs leading-5 text-muted-foreground md:grid-cols-[1.05fr_1.2fr] xl:max-w-3xl">
+              <span className="rounded-lg border border-border bg-background/55 px-3 py-2">{TRADE_CASH_CHANGE_DESCRIPTION}。</span>
+              <span className="rounded-lg border border-border bg-background/55 px-3 py-2">已实现盈亏 = 卖出成交额 - 卖出手续费 - 本次卖出对应的持仓成本；持仓成本已包含买入手续费。</span>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -171,7 +173,7 @@ function summarizeExecutions(executions: TradeExecutionRecord[]) {
 
 function LedgerStat({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "in" | "out" | "neutral" }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-card/80 px-4 py-3 shadow-sm">
+    <div className="glow-card rounded-xl border border-border/70 bg-card/80 px-4 py-3 shadow-sm">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("mt-1 text-lg font-semibold tabular-nums", tone === "in" ? "text-red-500" : tone === "out" ? "text-emerald-500" : "text-foreground")}>{value}</div>
     </div>

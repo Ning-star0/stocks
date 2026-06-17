@@ -205,17 +205,15 @@ export default function FocusPage() {
     <PageContainer>
       <SectionHeader
         title="今日工作台"
-        description="先看今天的 AI 策略观察，再管理关注标的和自动分析时间。今日关注用于从自选股中筛选少量重点标的，减少无效消耗。"
       />
 
       <Card id="decision" className="soft-card">
-        <CardHeader className="flex-row items-start justify-between gap-3">
-          <div>
+        <CardHeader className="flex-row items-center justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
               今日 AI 策略观察
             </CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">读取最近一次自动分析保存的策略观察；按钮用于手动重新分析。</p>
           </div>
           <Button onClick={generateDecision} disabled={decisionLoading || !focus.symbols.length || !focus.capital}>
             {decisionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <WalletCards className="h-4 w-4" />}

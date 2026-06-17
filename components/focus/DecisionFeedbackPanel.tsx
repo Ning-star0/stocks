@@ -271,149 +271,155 @@ export function DecisionFeedbackPanel({
   }
 
   return (
-    <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="text-sm font-semibold">记录你的最终决策</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">填写实际成交价和数量后会同步持仓；继续观察、未采纳或其他决策不会改动持仓。</p>
-        </div>
-        {feedback?.updatedAt ? <span className="text-xs text-muted-foreground">上次记录：{formatDateTime(feedback.updatedAt)}</span> : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => selectAction(option.value)}
-            className={cn(
-              "glow-card glow-click-card rounded-full border px-3 py-1.5 text-xs transition-colors",
-              action === option.value
-                ? "glow-click-card-active border-primary/40 bg-primary/12 text-primary"
-                : "border-border bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      {tradeOptions.length ? (
-        <div className="mt-3 grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground">同步交易标的</label>
-          <select
-            value={tradeKey}
-            onChange={(event) => selectTrade(event.target.value)}
-            disabled={!shouldSyncTrade}
-            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-55"
-          >
-            <option value="">不同步持仓</option>
-            {tradeOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label} · {option.symbol}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">实际买卖必须绑定一条交易计划，并按 100 股/份整数手记录；保存后会更新自选股里的持仓成本和持仓数量。</p>
-          {selectedTrade ? <TradeExecutionHint trade={selectedTrade} /> : null}
-        </div>
-      ) : null}
-
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <Input
-          value={executedPrice}
-          onChange={(event) => setExecutedPrice(event.target.value)}
-          inputMode="decimal"
-          disabled={!shouldSyncTrade}
-          placeholder={shouldSyncTrade ? "实际成交价，必填" : "非成交反馈不记录成交价"}
-        />
-        <Input
-          value={executedShares}
-          onChange={(event) => setExecutedShares(event.target.value)}
-          inputMode="numeric"
-          min={100}
-          step={100}
-          disabled={!shouldSyncTrade}
-          placeholder={shouldSyncTrade ? "实际数量，按 100 的整数倍" : "非成交反馈不记录数量"}
-        />
-      </div>
-      <textarea
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        rows={2}
-        placeholder="备注，可选，例如：价格没到，继续观察。"
-        className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-      />
-      <div className="mt-3 grid gap-2">
-        <label className="text-xs font-medium text-muted-foreground">实际成交时间</label>
-        <Input
-          type="datetime-local"
-          value={executedAt}
-          onChange={(event) => setExecutedAt(event.target.value)}
-          disabled={!shouldSyncTrade}
-        />
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId || tradeFeedbackBlocked}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          保存反馈
-        </Button>
-        {tradeFeedbackBlocked ? (
-          <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交时间和价格，并按 100 股/份整数手填写数量。</span>
-        ) : message ? (
-          <span className="text-xs text-muted-foreground">{message}</span>
-        ) : null}
-      </div>
-
-      <div className="mt-5 border-t border-border pt-4">
-        <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="text-sm font-semibold">补录历史买卖</div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">适合补填之前忘记记录的买入或卖出；保存后会按全部交易流水重新统计持仓、成本、现金和已实现盈亏。</p>
+    <div className="glow-card rounded-xl border border-border bg-background/35 p-3 sm:p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+        <section className="rounded-xl border border-border bg-background/45 p-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-sm font-semibold">记录你的最终决策</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">成交会同步持仓；观察和未采纳只保存反馈。</p>
+            </div>
+            {feedback?.updatedAt ? <span className="text-xs text-muted-foreground">上次记录：{formatDateTime(feedback.updatedAt)}</span> : null}
           </div>
-          <span className="text-xs text-muted-foreground">规则：最低 100 股/份，按整数手</span>
-        </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.2fr)_140px_1fr_1fr]">
-          <select
-            value={manualSymbol}
-            onChange={(event) => setManualSymbol(event.target.value)}
-            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-          >
-            {manualSymbols.map((item) => (
-              <option key={item.symbol} value={item.symbol}>
-                {item.name} · {item.symbol}
-              </option>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => selectAction(option.value)}
+                className={cn(
+                  "glow-card glow-click-card rounded-full border px-3 py-1.5 text-xs transition-colors",
+                  action === option.value
+                    ? "glow-click-card-active border-primary/40 bg-primary/12 text-primary"
+                    : "border-border bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                )}
+              >
+                {option.label}
+              </button>
             ))}
-          </select>
-          <select
-            value={manualSide}
-            onChange={(event) => setManualSide(event.target.value === "buy" ? "buy" : "sell")}
-            className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-          >
-            <option value="buy">买入/增持</option>
-            <option value="sell">卖出/减仓</option>
-          </select>
-          <Input value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，必填" />
-          <Input value={manualShares} onChange={(event) => setManualShares(event.target.value)} inputMode="numeric" min={100} step={100} placeholder="实际数量，按 100 的整数倍" />
-        </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
-          <Input type="datetime-local" value={manualExecutedAt} onChange={(event) => setManualExecutedAt(event.target.value)} />
-          <Input value={manualNote} onChange={(event) => setManualNote(event.target.value)} placeholder="备注，可选，例如：补录上周卖出。" />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Button type="button" size="sm" variant="outline" onClick={submitManualTrade} disabled={manualSaving || manualTradeBlocked}>
-            {manualSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            补录并重算
-          </Button>
-          {manualTradeBlocked ? (
-            <span className="text-xs text-muted-foreground">请选择标的，填写有效成交价，并按 100 股/份整数手填写数量。</span>
-          ) : manualMessage ? (
-            <span className="text-xs text-muted-foreground">{manualMessage}</span>
+          </div>
+
+          {tradeOptions.length ? (
+            <div className="mt-3 grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">同步交易标的</label>
+              <select
+                value={tradeKey}
+                onChange={(event) => selectTrade(event.target.value)}
+                disabled={!shouldSyncTrade}
+                className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-55"
+              >
+                <option value="">不同步持仓</option>
+                {tradeOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label} · {option.symbol}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">实际买卖必须绑定交易计划，并按 100 股/份整数手记录。</p>
+              {selectedTrade ? <TradeExecutionHint trade={selectedTrade} /> : null}
+            </div>
           ) : null}
-        </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Input
+              value={executedPrice}
+              onChange={(event) => setExecutedPrice(event.target.value)}
+              inputMode="decimal"
+              disabled={!shouldSyncTrade}
+              placeholder={shouldSyncTrade ? "实际成交价，必填" : "非成交反馈不记录成交价"}
+            />
+            <Input
+              value={executedShares}
+              onChange={(event) => setExecutedShares(event.target.value)}
+              inputMode="numeric"
+              min={100}
+              step={100}
+              disabled={!shouldSyncTrade}
+              placeholder={shouldSyncTrade ? "实际数量，按 100 的整数倍" : "非成交反馈不记录数量"}
+            />
+          </div>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={2}
+            placeholder="备注，可选，例如：价格没到，继续观察。"
+            className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+          />
+          <div className="mt-3 grid gap-2">
+            <label className="text-xs font-medium text-muted-foreground">实际成交时间</label>
+            <Input
+              type="datetime-local"
+              value={executedAt}
+              onChange={(event) => setExecutedAt(event.target.value)}
+              disabled={!shouldSyncTrade}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm" onClick={submitFeedback} disabled={saving || !decisionId || tradeFeedbackBlocked}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              保存反馈
+            </Button>
+            {tradeFeedbackBlocked ? (
+              <span className="text-xs text-muted-foreground">请选择同步标的，填写有效成交时间和价格，并按 100 股/份整数手填写数量。</span>
+            ) : message ? (
+              <span className="text-xs text-muted-foreground">{message}</span>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border bg-background/45 p-3">
+          <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-sm font-semibold">补录历史买卖</div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">保存后按全部流水重算持仓、成本、现金和已实现盈亏。</p>
+            </div>
+            <span className="text-xs text-muted-foreground">最低 100 股/份</span>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.2fr)_140px] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1.2fr)_140px]">
+            <select
+              value={manualSymbol}
+              onChange={(event) => setManualSymbol(event.target.value)}
+              className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            >
+              {manualSymbols.map((item) => (
+                <option key={item.symbol} value={item.symbol}>
+                  {item.name} · {item.symbol}
+                </option>
+              ))}
+            </select>
+            <select
+              value={manualSide}
+              onChange={(event) => setManualSide(event.target.value === "buy" ? "buy" : "sell")}
+              className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            >
+              <option value="buy">买入/增持</option>
+              <option value="sell">卖出/减仓</option>
+            </select>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Input value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} inputMode="decimal" placeholder="实际成交价，必填" />
+            <Input value={manualShares} onChange={(event) => setManualShares(event.target.value)} inputMode="numeric" min={100} step={100} placeholder="实际数量，按 100 的整数倍" />
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr] xl:grid-cols-1 2xl:grid-cols-[220px_1fr]">
+            <Input type="datetime-local" value={manualExecutedAt} onChange={(event) => setManualExecutedAt(event.target.value)} />
+            <Input value={manualNote} onChange={(event) => setManualNote(event.target.value)} placeholder="备注，可选，例如：补录上周卖出。" />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm" variant="outline" onClick={submitManualTrade} disabled={manualSaving || manualTradeBlocked}>
+              {manualSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              补录并重算
+            </Button>
+            {manualTradeBlocked ? (
+              <span className="text-xs text-muted-foreground">请选择标的，填写有效成交价，并按 100 股/份整数手填写数量。</span>
+            ) : manualMessage ? (
+              <span className="text-xs text-muted-foreground">{manualMessage}</span>
+            ) : null}
+          </div>
+        </section>
       </div>
 
-      <div className="mt-5 border-t border-border pt-4">
+      <section className="mt-4 rounded-xl border border-border bg-background/45 p-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="text-sm font-semibold">资金明细流水</div>
@@ -505,7 +511,7 @@ export function DecisionFeedbackPanel({
             )}
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

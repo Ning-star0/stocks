@@ -179,7 +179,6 @@ export function WatchlistTable() {
     <PageContainer>
       <SectionHeader
         title="自选股"
-        description="快速扫读价格、风险和 AI 策略观察；详细理由保留在股票详情页。"
         action={
           <>
             <Button size="sm" variant="outline" onClick={() => refreshQuotes()} disabled={loading || refreshing}>
@@ -202,15 +201,16 @@ export function WatchlistTable() {
       </div>
 
       <Card className="performance-card watchlist-scroll-surface overflow-hidden">
-        <CardHeader className="gap-4">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>
-                策略观察列表
-              </CardTitle>
-              <p className="mt-2 text-sm text-muted-foreground">
-                当前显示 {filteredRows.length} / {rows.length} 只标的，本页 {pageStart}-{pageEnd} 条。
-              </p>
+        <CardHeader className="gap-3 border-b border-border/60 bg-background/20 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>策略观察列表</CardTitle>
+              <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+                {filteredRows.length} / {rows.length} 只
+              </span>
+              <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+                本页 {pageStart}-{pageEnd}
+              </span>
             </div>
             {hasAnyFilter ? (
               <Button size="sm" variant="outline" onClick={clearFilters}>
@@ -220,7 +220,7 @@ export function WatchlistTable() {
             ) : null}
           </div>
 
-          <div className="grid gap-2 md:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(132px,1fr))]">
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,1.35fr)_repeat(4,minmax(124px,0.9fr))]">
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或代码" className="pl-9" />
@@ -260,7 +260,7 @@ export function WatchlistTable() {
             onPageChange={setCurrentPage}
           />
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4">
           {loading ? (
             <WatchlistSkeleton />
           ) : rows.length === 0 ? (
