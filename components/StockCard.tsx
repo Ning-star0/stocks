@@ -23,7 +23,7 @@ export function StockCard({ symbol, name, price, currency, changePercent, volume
 
   return (
     <Link href={`/stocks/${symbol}`}>
-      <Card className="h-full transition-colors hover:border-primary/60">
+      <Card className="glow-click-card h-full transition-colors hover:border-primary/60">
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
           <div className="flex items-start gap-2">
             <BarChart3 className="mt-0.5 h-4 w-4 text-primary" />

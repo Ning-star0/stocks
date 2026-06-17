@@ -71,7 +71,7 @@ export function TaskStatusPanel({
         </div>
 
         {latest ? (
-          <div className="rounded-xl border border-border bg-background/35 p-4">
+          <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="text-sm font-semibold">最近一次执行</div>
@@ -114,7 +114,7 @@ export function TaskStatusPanel({
                   <StatusLine label="股票数量" value={String(run.totalSymbols)} />
                   <StatusLine label="兜底规则" value={run.fallbackUsed ? "已触发" : "未触发"} />
                 </div>
-                <div className="overflow-hidden rounded-md border border-border">
+                <div className="glow-card overflow-hidden rounded-xl border border-border">
                   {run.items.length ? run.items.map((item) => (
                     <div key={item.id} className="grid gap-2 border-b border-border px-3 py-2 text-xs last:border-0 md:grid-cols-[1fr_76px_86px_86px_86px_120px_1.3fr]">
                       <span className="font-medium">{item.stockName || item.symbol} <span className="text-muted-foreground">{item.symbol}</span></span>
@@ -156,7 +156,7 @@ function StatusMetric({
     danger: "border-red-500/25 bg-red-500/10"
   }[tone];
   return (
-    <div className={cn("rounded-lg border px-3 py-3", toneClass)}>
+    <div className={cn("glow-card rounded-lg border px-3 py-3", toneClass)}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
     </div>

@@ -20,11 +20,11 @@ export function CollapsiblePanel({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className={cn("liquid-glass rounded-2xl", className)}>
+    <div className={cn("liquid-glass glow-card rounded-2xl", className)}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-white/28 dark:hover:bg-white/6"
+        className="glow-click-card flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-white/28 dark:hover:bg-white/6"
       >
         {title}
         <ChevronDown

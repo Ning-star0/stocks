@@ -279,7 +279,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-3 rounded-xl border border-border bg-muted/15 p-3">
+          <div className="glow-card space-y-3 rounded-xl border border-border bg-muted/15 p-3">
             <div>
               <div className="text-sm font-medium">Token 费用估算</div>
               <p className="mt-1 text-xs text-muted-foreground">按每 100 万 token 单价计算。价格不固定，建议按厂商控制台最新价格填写。</p>
@@ -296,7 +296,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-3 rounded-xl border border-border bg-muted/15 p-3">
+          <div className="glow-card space-y-3 rounded-xl border border-border bg-muted/15 p-3">
             <div>
               <div className="text-sm font-medium">自动分析并发</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -344,7 +344,7 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className="flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
+          <label className="glow-card glow-click-card flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
             <span>
               <span className="block text-sm font-medium">启用实时推送</span>
               <span className="mt-1 block text-xs leading-5 text-muted-foreground">只有 AI 决策形成策略观察计划时才推送；等待、回避、暂无计划不会推送。</span>
@@ -415,7 +415,7 @@ export default function SettingsPage() {
 
 function QuickLink({ href, icon, title, text }: { href: string; icon: ReactNode; title: string; text: string }) {
   return (
-    <Link href={href} className="group rounded-lg border border-border/70 bg-card/85 p-4 shadow-sm transition-all duration-150 hover:-translate-y-px hover:border-primary/30 hover:shadow-md">
+    <Link href={href} className="group glow-card glow-click-card rounded-xl border border-border/70 bg-card/85 p-4 shadow-sm transition-all duration-150 hover:-translate-y-px hover:border-primary/30 hover:shadow-md">
       <div className="flex items-center gap-2 text-sm font-semibold">
         <span className="text-primary transition-transform duration-150 group-hover:-translate-y-px">{icon}</span>
         {title}

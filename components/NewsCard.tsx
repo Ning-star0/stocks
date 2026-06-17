@@ -42,7 +42,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.map(toSimplifiedChinese) : [];
 
   return (
-    <details className="group rounded-md border border-border bg-card px-3 py-2">
+    <details className="group glow-card glow-click-card rounded-xl border border-border bg-card px-3 py-2">
       <summary className="grid cursor-pointer list-none gap-2 md:grid-cols-[auto_auto_minmax(0,1fr)_auto] md:items-center">
         <div className="flex items-center gap-2">
           <ImpactLevelBadge level={impact} />
@@ -76,7 +76,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
         {riskNotes.length ? (
           <div className="mt-3 space-y-1">
             {riskNotes.slice(0, 3).map((note) => (
-              <div key={note} className="rounded-md border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+              <div key={note} className="glow-card rounded-lg border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
                 {note}
               </div>
             ))}

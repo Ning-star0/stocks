@@ -275,16 +275,29 @@ export default function FocusPage() {
                   {watchlist.map((item) => (
                     <div
                       key={item.symbol}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleSymbol(item.symbol)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          toggleSymbol(item.symbol);
+                        }
+                      }}
                       className={cn(
-                        "group flex items-start gap-3 rounded-md border px-3 py-3 text-sm transition-all duration-150 hover:-translate-y-px",
+                        "group glow-card glow-click-card flex items-start gap-3 rounded-xl border px-3 py-3 text-left text-sm outline-none transition-all duration-150 hover:-translate-y-px",
                         focus.symbols.includes(item.symbol)
-                          ? "border-primary/35 bg-primary/10 shadow-sm"
+                          ? "glow-click-card-active border-primary/35 bg-primary/10 shadow-sm"
                           : "border-border/70 bg-background/30 hover:border-primary/30 hover:bg-muted/40"
                       )}
                     >
                       <button
                         type="button"
-                        onClick={() => toggleSymbol(item.symbol)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleSymbol(item.symbol);
+                        }}
+                        onKeyDown={(event) => event.stopPropagation()}
                         className={cn(
                           "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
                           focus.symbols.includes(item.symbol) ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background"
@@ -299,7 +312,11 @@ export default function FocusPage() {
                           <span className="text-xs tabular-nums text-muted-foreground">{item.symbol}</span>
                           <button
                             type="button"
-                            onClick={() => toggleHolding(item, !item.isHolding)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void toggleHolding(item, !item.isHolding);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
                             className={cn(
                               "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
                               item.isHolding
@@ -424,7 +441,7 @@ function DecisionHistoryTimeline({ records }: { records: DecisionHistoryRecord[]
           return (
             <div
               key={record.id}
-              className={cn(motionClassNames.fadeUp, "relative rounded-lg border border-border bg-background/35 p-4")}
+              className={cn(motionClassNames.fadeUp, "glow-card glow-click-card relative rounded-xl border border-border bg-background/35 p-4")}
               style={{ animationDelay: `${staggerDelay(index)}ms` }}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -529,7 +546,7 @@ function decisionChangeTone(status: "first" | "continued" | "changed") {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+    <div className="glow-card rounded-lg border border-border bg-muted/20 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
     </div>

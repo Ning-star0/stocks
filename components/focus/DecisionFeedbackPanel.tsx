@@ -272,7 +272,7 @@ export function DecisionFeedbackPanel({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-background/35 p-4">
+    <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-sm font-semibold">记录你的最终决策</div>
@@ -288,9 +288,9 @@ export function DecisionFeedbackPanel({
             type="button"
             onClick={() => selectAction(option.value)}
             className={cn(
-              "rounded-full border px-3 py-1.5 text-xs transition-colors",
+              "glow-card glow-click-card rounded-full border px-3 py-1.5 text-xs transition-colors",
               action === option.value
-                ? "border-primary/40 bg-primary/12 text-primary"
+                ? "glow-click-card-active border-primary/40 bg-primary/12 text-primary"
                 : "border-border bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
             )}
           >
@@ -429,7 +429,7 @@ export function DecisionFeedbackPanel({
         {tradeLedgerError ? <div className="mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{tradeLedgerError}</div> : null}
 
         <div className="mt-3 grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="rounded-md border border-border bg-muted/10 p-3">
+          <div className="glow-card rounded-xl border border-border bg-muted/10 p-3">
             <div className="text-xs font-medium text-muted-foreground">最近 {tradeExecutions.length} 笔汇总</div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <LedgerMetric label="现金净变化" value={formatSignedMoney(ledgerSummary.netCashChange)} tone={ledgerSummary.netCashChange >= 0 ? "in" : "out"} muted={!tradeExecutions.length} />
@@ -442,7 +442,7 @@ export function DecisionFeedbackPanel({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-md border border-border">
+          <div className="glow-card overflow-hidden rounded-xl border border-border">
             <div className="hidden grid-cols-[92px_minmax(160px,1fr)_66px_94px_76px_102px_94px] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
               <span>时间</span>
               <span>标的</span>
@@ -572,7 +572,7 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
   if (!rows.length) return null;
 
   return (
-    <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+    <div className="glow-card grid gap-2 rounded-xl border border-border bg-muted/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
       {rows.map(([label, value]) => (
         <div key={label} className="min-w-0">
           <div className="text-muted-foreground">{label}</div>
@@ -601,7 +601,7 @@ function priorityLabel(value?: number | null) {
 
 function LedgerMetric({ label, value, tone = "neutral", muted = false }: { label: string; value: string; tone?: "in" | "out" | "neutral"; muted?: boolean }) {
   return (
-    <div className="rounded-md border border-border bg-muted/15 px-3 py-2">
+    <div className="glow-card rounded-lg border border-border bg-muted/15 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("mt-1 text-sm font-semibold tabular-nums", muted ? "text-muted-foreground" : tone === "in" ? "text-red-500" : tone === "out" ? "text-emerald-500" : "text-foreground")}>{value}</div>
     </div>

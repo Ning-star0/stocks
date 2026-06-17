@@ -14,7 +14,7 @@ export function WatchlistSkeleton() {
       </div>
       <div className="space-y-3 lg:hidden">
         {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="rounded-lg border border-border bg-background/50 p-3">
+          <div key={index} className="glow-card rounded-xl border border-border bg-background/50 p-3">
             <div className="h-4 w-1/3 rounded-full bg-muted motion-loading-sweep" />
             <div className="mt-3 h-3 w-2/3 rounded-full bg-muted motion-loading-sweep" />
             <div className="mt-4 flex gap-2">

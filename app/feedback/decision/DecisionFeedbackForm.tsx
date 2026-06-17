@@ -105,9 +105,9 @@ export function DecisionFeedbackForm({
             type="button"
             onClick={() => selectAction(option.value)}
             className={cn(
-              "flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+              "glow-card glow-click-card flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
               action === option.value
-                ? "border-primary/40 bg-primary/10 text-primary"
+                ? "glow-click-card-active border-primary/40 bg-primary/10 text-primary"
                 : "border-border bg-background/40 text-foreground hover:border-primary/30"
             )}
           >

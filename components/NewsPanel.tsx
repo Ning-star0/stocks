@@ -124,7 +124,7 @@ export function NewsPanel({
         ) : (
           <>
             <AnalyzedNewsSummaries items={analyzedNews} />
-            <details className="rounded-md border border-border bg-muted/15 p-3">
+            <details className="glow-card rounded-xl border border-border bg-muted/15 p-3">
               <summary className="cursor-pointer text-sm text-muted-foreground">展开新闻列表 {allNews.length} 条</summary>
               <div className="mt-3 space-y-2">
                 {news.slice(0, 8).map((item) => (
@@ -132,7 +132,7 @@ export function NewsPanel({
                 ))}
               </div>
               {lowNews.length ? (
-                <details className="mt-3 rounded-md border border-border bg-background/30 p-3">
+                <details className="glow-card mt-3 rounded-xl border border-border bg-background/30 p-3">
                   <summary className="cursor-pointer text-sm text-muted-foreground">低重要性新闻 {lowNews.length} 条</summary>
                   <div className="mt-3 space-y-2">
                     {lowNews.slice(0, 10).map((item) => (
@@ -164,7 +164,7 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
         const analysis = item.analyses?.[0];
         const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.filter(Boolean) : [];
         return (
-          <div key={item.id} className="rounded-md border border-border bg-muted/20 px-3 py-2">
+          <div key={item.id} className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{shortText(toSimplifiedChinese(item.title), 48)}</span>
               <span>{analysis?.impactLevel ?? item.importance}</span>
@@ -192,7 +192,7 @@ function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
 
 function NewsOverview({ overview }: { overview: ReturnType<typeof buildNewsOverview> }) {
   return (
-    <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+    <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-3">
       <div className="text-sm font-medium">新闻概览</div>
       <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
         {overview.points.map((point) => (

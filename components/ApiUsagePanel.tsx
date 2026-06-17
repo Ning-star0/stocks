@@ -86,7 +86,7 @@ export function ApiUsagePanel() {
   const externalItems = usageItems.filter((item) => !item.key.startsWith("ai_"));
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-card/80 shadow-sm">
+    <Card className="soft-card overflow-hidden border-border/70 bg-card/80 shadow-sm">
       <CardHeader className="border-b border-border/60 bg-muted/10 px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -141,7 +141,7 @@ function AiCostSummary({
 function BalanceCard({ balance }: { balance: UsageResponse["aiBalance"] }) {
   const primary = balance?.balanceInfos?.[0] ?? null;
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/10 p-4 text-sm leading-6">
+    <div className="glow-card rounded-xl border border-border/70 bg-muted/10 p-4 text-sm leading-6">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-medium text-muted-foreground">DeepSeek 官方余额</div>
         {balance ? <Badge variant={balance.available ? "success" : "warning"}>{balance.available ? "可用" : "不可用"}</Badge> : <Badge variant="secondary">未接入</Badge>}
@@ -162,7 +162,7 @@ function BalanceCard({ balance }: { balance: UsageResponse["aiBalance"] }) {
 
 function CostCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-primary/15 bg-primary/5 p-4">
+    <div className="glow-card rounded-xl border border-primary/15 bg-primary/5 p-4">
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
       <div className="mt-2 text-2xl font-semibold tracking-normal text-foreground tabular-nums">{value}</div>
     </div>
@@ -192,7 +192,7 @@ function UsageSection({ title, description, items, compact = false }: { title: s
 function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currency: string }) {
   if (!rows.length) return null;
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/10 p-4">
+    <div className="glow-card rounded-xl border border-border/70 bg-muted/10 p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium">AI 模型 Token 明细</div>
@@ -239,7 +239,7 @@ function UsageCard({ item }: { item: UsageItem }) {
   const monthPercent = item.monthlyLimit ? Math.min(100, Math.round((item.usedMonth / item.monthlyLimit) * 100)) : null;
   const todayPercent = item.dailyLimit ? Math.min(100, Math.round((item.usedToday / item.dailyLimit) * 100)) : null;
   return (
-    <div className="rounded-xl border border-border/70 bg-background/45 p-4 transition-colors hover:border-primary/25">
+    <div className="glow-card glow-click-card rounded-xl border border-border/70 bg-background/45 p-4 transition-colors hover:border-primary/25">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-medium">{item.label}</div>

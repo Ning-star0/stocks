@@ -103,7 +103,7 @@ export function WatchlistRows({
       </div>
       <div className="space-y-3 lg:hidden">
         {rows.map((row) => (
-          <div key={row.item.id} className="motion-card-enter rounded-lg border border-border bg-background/50 p-3">
+          <div key={row.item.id} className="glow-card glow-click-card motion-card-enter rounded-lg border border-border bg-background/50 p-3">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <Link href={`/stocks/${row.symbol}`} className="font-semibold text-primary">

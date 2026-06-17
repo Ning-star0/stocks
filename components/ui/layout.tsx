@@ -71,7 +71,7 @@ export function LoadingInsight({ text = "正在综合行情、技术指标与新
   const steps = ["读取行情数据", "分析技术指标", "综合新闻情绪", "生成策略观察"];
   const normalizedStep = Math.min(Math.max(activeStepIndex, 0), steps.length - 1);
   return (
-    <div className={cn("rounded-lg border border-border bg-muted/20 p-4", motionClassNames.fadeUp, motionClassNames.loadingSweep)}>
+    <div className={cn("glow-card rounded-xl border border-border bg-muted/20 p-4", motionClassNames.fadeUp, motionClassNames.loadingSweep)}>
       <div className="flex items-center gap-3 text-sm font-medium">
         <span className={motionClassNames.softDots} aria-hidden="true">
           <span />
@@ -83,7 +83,7 @@ export function LoadingInsight({ text = "正在综合行情、技术指标与新
           <div
             key={step}
             className={cn(
-              "rounded-md border px-3 py-2 text-xs transition-colors",
+              "glow-card rounded-lg border px-3 py-2 text-xs transition-colors",
               index <= normalizedStep
                 ? "border-primary/25 bg-primary/5 text-foreground"
                 : "border-border bg-background/60 text-muted-foreground",

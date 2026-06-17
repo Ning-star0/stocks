@@ -14,7 +14,7 @@ export function MarketIndexCard({ item, loading }: { item: MarketIndexItem; load
 
   return (
     <Link href={href}>
-      <Card className="performance-card motion-hover-lift h-full transition-all hover:border-primary/40">
+      <Card className="performance-card glow-click-card motion-hover-lift h-full transition-all hover:border-primary/40">
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
           <div className="flex items-start gap-2">
             <BarChart3 className="mt-0.5 h-4 w-4 text-primary" />

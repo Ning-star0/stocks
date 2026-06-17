@@ -213,7 +213,7 @@ function MemoryList({
         {entries.length ? (
           <div className="space-y-2">
             {entries.map((entry) => (
-              <div key={entry.id} className="flex items-start gap-3 rounded-md border border-border bg-background/30 p-3">
+              <div key={entry.id} className="glow-card flex items-start gap-3 rounded-xl border border-border bg-background/30 p-3">
                 <p className="min-w-0 flex-1 text-sm leading-6">{entry.text}</p>
                 <button
                   onClick={() => onDelete(entry.id)}

@@ -103,7 +103,7 @@ export function FocusDecisionPanel({
         <NotificationBadge notification={decision.notification} />
       </div>
       {decision.notification ? <NotificationStatus notification={decision.notification} /> : null}
-      <div className={cn("rounded-xl border p-5", hasBuy ? "border-primary/25 bg-primary/12" : shouldSell ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
+      <div className={cn("glow-card rounded-xl border p-5", hasBuy ? "border-primary/25 bg-primary/12" : shouldSell ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
         <div className="flex flex-wrap items-center gap-2">
           <StrategyBadge tone={hasBuy ? "bullish" : shouldSell ? "avoid" : "wait"}>今日结论：{conclusionLabel}</StrategyBadge>
           <StrategyBadge tone={hasBuy ? "watch" : shouldSell ? "avoid" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
@@ -115,7 +115,7 @@ export function FocusDecisionPanel({
         </p>
       </div>
       <div className="grid gap-3 xl:grid-cols-[1.05fr_1fr_1fr]">
-        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
+        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">资产概览</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <AssetMetric label="总资产" value={formatMoney(totalAssets)} size="lg" />
@@ -124,7 +124,7 @@ export function FocusDecisionPanel({
             <AssetMetric label="计划后现金" value={formatMoney(decision.cashReserve)} tone={decision.cashReserve < availableCash ? "warning" : "neutral"} />
           </div>
         </div>
-        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
+        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-medium text-muted-foreground">持仓与盈亏</div>
             {valuationStatus !== "empty" ? <Badge variant={valuationStatus === "live" ? "success" : "warning"}>{valuationStatusLabel(valuationStatus)}</Badge> : null}
@@ -139,7 +139,7 @@ export function FocusDecisionPanel({
             <p className="mt-3 text-xs leading-5 text-muted-foreground">{valuationStatusHelp(valuationStatus)}</p>
           ) : null}
         </div>
-        <div className={cn("soft-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
+        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">本次计划影响</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <AssetMetric label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} muted={decision.totalBudgetToUse === 0} />
@@ -151,7 +151,7 @@ export function FocusDecisionPanel({
       {decision.orders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">
           {decision.orders.map((order) => (
-            <div key={order.symbol} className="rounded-md border border-border bg-background/30 p-4">
+            <div key={order.symbol} className="glow-card rounded-xl border border-border bg-background/30 p-4">
               <div className="flex items-start justify-between gap-3">
                 <StockIdentity symbol={order.symbol} name={order.name} />
                 <Badge variant="success">{order.action === "add" ? "增持" : "买入"}</Badge>
@@ -187,7 +187,7 @@ export function FocusDecisionPanel({
       {sellOrders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">
           {sellOrders.map((order) => (
-            <div key={order.symbol} className="rounded-md border border-rose-500/25 bg-rose-500/10 p-4">
+            <div key={order.symbol} className="glow-card rounded-xl border border-rose-500/25 bg-rose-500/10 p-4">
               <div className="flex items-start justify-between gap-3">
                 <StockIdentity symbol={order.symbol} name={order.name} />
                 <Badge variant="danger">{order.action === "sell" ? "卖出" : "减仓"}</Badge>
@@ -316,7 +316,7 @@ function notificationReasonLabel(value?: string | null) {
 
 function DecisionNumber({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
-    <div className={cn("rounded-md border border-border bg-background/40 px-3 py-2", className)}>
+    <div className={cn("glow-card rounded-lg border border-border bg-background/40 px-3 py-2", className)}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-medium tabular-nums">{value}</div>
     </div>
@@ -330,7 +330,7 @@ function TradePlanDetails({ items }: { items: Array<[string, string | null | und
   return (
     <div className="mt-4 grid gap-2 text-xs">
       {visibleItems.map(([label, value]) => (
-        <div key={label} className="rounded-md border border-border/70 bg-background/35 px-3 py-2">
+        <div key={label} className="glow-card rounded-lg border border-border/70 bg-background/35 px-3 py-2">
           <div className="font-medium text-foreground">{label}</div>
           <div className="mt-1 whitespace-pre-wrap break-words leading-5 text-muted-foreground">{value}</div>
         </div>
@@ -353,7 +353,7 @@ function AssetMetric({
   size?: "md" | "lg";
 }) {
   return (
-    <div className="rounded-md border border-border bg-background/35 px-3 py-2">
+    <div className="glow-card rounded-lg border border-border bg-background/35 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div
         className={cn(

@@ -166,7 +166,7 @@ export default function ApiDocsPage() {
         </CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-2">
           {principles.map((item) => (
-            <div key={item} className="rounded-md border border-border bg-muted/15 px-3 py-2 text-sm leading-6 text-muted-foreground">
+            <div key={item} className="glow-card rounded-lg border border-border bg-muted/15 px-3 py-2 text-sm leading-6 text-muted-foreground">
               {item}
             </div>
           ))}
@@ -199,7 +199,7 @@ export default function ApiDocsPage() {
 
 function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
   return (
-    <div className="rounded-md border border-border bg-background/35 p-3">
+    <div className="glow-card rounded-xl border border-border bg-background/35 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={methodVariant(endpoint.method)}>{endpoint.method}</Badge>
         <code className="text-sm text-foreground">{endpoint.path}</code>
@@ -229,7 +229,7 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+    <div className="glow-card rounded-lg border border-border bg-muted/20 px-3 py-2">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
     </div>

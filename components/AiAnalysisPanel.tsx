@@ -75,7 +75,7 @@ export function AiAnalysisPanel({
         {decisionChange ? <DecisionChangeCard change={decisionChange} /> : null}
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <StrategyBadge tone={trendToStrategy(analysis.trend).tone}>策略方向：{trendToStrategy(analysis.trend).label}</StrategyBadge>
               <StrategyBadge tone={actionTone(primaryAdvice.action)}>当前动作：{primaryAdvice.action || "继续观察"}</StrategyBadge>
@@ -84,7 +84,7 @@ export function AiAnalysisPanel({
             <h3 className="mt-4 text-xl font-semibold">{strategyHeadline(analysis, primaryAdvice.action)}</h3>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{analysis.summary || primaryAdvice.reason || "暂无摘要。"}</p>
           </div>
-          <div className="grid gap-2 rounded-xl border border-border bg-muted/15 p-4 text-sm">
+          <div className="glow-card grid gap-2 rounded-xl border border-border bg-muted/15 p-4 text-sm">
             <ScopeLine label="置信度" value={formatConfidence(confidence)} />
             <ScopeLine label="适合状态" value={primaryAdvice.isHolding ? "持仓跟踪" : "未持仓观察"} />
             <ScopeLine label="当前动作" value={primaryAdvice.action || "继续观察"} />
@@ -99,7 +99,7 @@ export function AiAnalysisPanel({
             <div className="space-y-2">
               {possibleActions.length ? (
                 possibleActions.map((item, index) => (
-                  <div key={`${item.action}-${index}`} className="rounded-md border border-border bg-muted/20 p-3">
+                  <div key={`${item.action}-${index}`} className="glow-card rounded-xl border border-border bg-muted/20 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="text-sm font-semibold text-foreground">{formatAction(item.action)}</div>
                       {item.timing ? <Badge variant="secondary">{item.timing}</Badge> : null}
@@ -137,7 +137,7 @@ export function AiAnalysisPanel({
         <CollapsiblePanel title="分析依据与数据来源">
           <div className="space-y-4">
             {dataScope ? (
-              <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground md:grid-cols-2">
+              <div className="glow-card grid gap-2 rounded-xl border border-border bg-muted/20 p-3 text-sm text-muted-foreground md:grid-cols-2">
                 <ScopeLine label="报价时间" value={formatTime(dataScope.quoteTime)} />
                 <ScopeLine label="历史数据" value={`${dataScope.historyRange ?? "--"} / ${dataScope.historyInterval ?? "--"}，${dataScope.historyCandles ?? 0} 根 K 线`} />
                 <ScopeLine label="历史范围" value={`${formatDate(dataScope.historyFrom)} 至 ${formatDate(dataScope.historyTo)}`} />
@@ -161,7 +161,7 @@ function DecisionChangeCard({ change }: { change: DecisionChange }) {
   const variant = change.status === "changed" ? "warning" : change.status === "first" ? "secondary" : "success";
   const title = change.status === "changed" ? "结论发生变化" : change.status === "first" ? "首次记录" : "结论延续";
   return (
-    <div className="rounded-xl border border-border bg-background/45 p-4">
+    <div className="glow-card rounded-xl border border-border bg-background/45 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm font-semibold">{title}</div>
         <Badge variant={variant}>{change.status === "changed" ? "需复核" : "稳定"}</Badge>
@@ -190,7 +190,7 @@ function PrimaryAdviceCard({
   const secondary = primaryAdvice.isHolding ? analysis.entryAdvice : analysis.holdAdvice;
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-primary/25 bg-background/45 p-4">
+      <div className="glow-card rounded-xl border border-primary/25 bg-background/45 p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold text-primary">
           <span>{primaryAdvice.isHolding ? "持仓策略" : "交易情景"}</span>
           <Badge variant="secondary">{primaryAdvice.isHolding ? "持仓跟踪" : "未持仓观察"}</Badge>
@@ -208,7 +208,7 @@ function PrimaryAdviceCard({
         )}
       </div>
       {secondary ? (
-        <details className="rounded-md border border-border bg-muted/15 p-3">
+        <details className="glow-card rounded-xl border border-border bg-muted/15 p-3">
           <summary className="cursor-pointer text-sm text-muted-foreground">查看另一种交易情景</summary>
           <div className="mt-3 text-sm leading-6 text-muted-foreground">{secondary.reason}</div>
         </details>
@@ -277,7 +277,7 @@ function ScopeLine({ label, value }: { label: string; value?: string | null }) {
 
 function LevelList({ title, values, currency, symbol, unit }: { title: string; values: number[]; currency?: string; symbol?: string; unit?: string }) {
   return (
-    <div className="rounded-md border border-border p-3">
+    <div className="glow-card rounded-xl border border-border p-3">
       <div className="mb-2 text-xs uppercase text-muted-foreground">{title}</div>
       <div className="flex flex-wrap gap-2">
         {values.length ? (
@@ -328,7 +328,7 @@ function ActionGrid({
   return (
     <div className="mt-3 grid gap-2 md:grid-cols-2">
       {rows.map(([label, value]) => (
-        <div key={label} className="rounded-md border border-border bg-background/40 px-3 py-2">
+        <div key={label} className="glow-card rounded-lg border border-border bg-background/40 px-3 py-2">
           <div className="text-[11px] text-muted-foreground">{label}</div>
           <div className="mt-1 text-sm leading-5 text-foreground">{value}</div>
         </div>
@@ -387,7 +387,7 @@ function NewsLink({
   const meta = `${item.source ?? "未知来源"}${item.publishedAt ? ` · ${formatTime(item.publishedAt)}` : ""}${item.impactLevel ? ` · ${item.impactLevel}` : ""}`;
 
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+    <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2">
       {item.url ? (
         <a className="flex flex-col gap-1 hover:text-primary" href={item.url} target="_blank" rel="noreferrer">
           <span className="flex items-center gap-1 font-medium text-foreground">
@@ -413,7 +413,7 @@ function List({ values }: { values: string[] }) {
     <div className="space-y-2">
       {values.length ? (
         values.map((value, index) => (
-          <div key={`${value}-${index}`} className="rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
+          <div key={`${value}-${index}`} className="glow-card rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm">
             {value}
           </div>
         ))

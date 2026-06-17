@@ -75,7 +75,7 @@ export function CandidateRanking({
           <p className="mt-2 text-sm text-muted-foreground">用于横向比较今日关注标的，持仓盈亏已扣除估算买入和卖出手续费。</p>
         </div>
         {items.length ? (
-          <div className="flex rounded-lg border border-border bg-muted/20 p-1 text-xs">
+          <div className="glow-card flex rounded-xl border border-border bg-muted/20 p-1 text-xs">
             <SortButton active={sortKey === "rank"} onClick={() => setSortKey("rank")}>默认</SortButton>
             <SortButton active={sortKey === "confidence"} onClick={() => setSortKey("confidence")}>置信度</SortButton>
             <SortButton active={sortKey === "profit"} onClick={() => setSortKey("profit")}>持仓盈亏</SortButton>
@@ -84,7 +84,7 @@ export function CandidateRanking({
       </CardHeader>
       <CardContent>
         {rows.length ? (
-          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="glow-card overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[860px] text-sm">
               <thead className="bg-muted/25 text-xs text-muted-foreground">
                 <tr className="border-b border-border">
@@ -138,7 +138,7 @@ function SortButton({ active, onClick, children }: { active: boolean; onClick: (
     <button
       type="button"
       onClick={onClick}
-      className={cn("rounded-md px-2.5 py-1.5 transition-colors", active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+      className={cn("glow-card glow-click-card rounded-lg px-2.5 py-1.5 transition-colors", active ? "glow-click-card-active bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
     >
       {children}
     </button>

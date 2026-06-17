@@ -88,7 +88,7 @@ export function DailyMarketBriefPanel() {
 
 function BriefBlock({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-md border border-border bg-muted/20 p-3">
+    <div className="glow-card rounded-xl border border-border bg-muted/20 p-3">
       <div className="mb-1 text-xs uppercase text-muted-foreground">{title}</div>
       <p className="text-sm leading-6">{text}</p>
     </div>
