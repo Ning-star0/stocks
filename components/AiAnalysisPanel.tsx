@@ -32,11 +32,11 @@ export function AiAnalysisPanel({
 }) {
   if (!analysis) {
     return (
-      <Card className="soft-card">
-        <CardHeader>
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
           <CardTitle>AI 策略观察</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">暂无 AI 分析，可点击重新分析。</CardContent>
+        <CardContent className="p-4 text-sm text-muted-foreground">暂无 AI 分析，可点击重新分析。</CardContent>
       </Card>
     );
   }
@@ -52,12 +52,12 @@ export function AiAnalysisPanel({
   const primaryAdvice = getPrimaryAdvice(analysis, position);
 
   return (
-    <Card className="soft-card">
-      <CardHeader className="flex-row items-center justify-between gap-3">
-        <div>
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+        <div className="min-w-0">
           <CardTitle>AI 策略观察</CardTitle>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>生成：{formatTime(createdAt)}</span>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-muted-foreground">生成：{formatTime(createdAt)}</span>
             <Badge variant="secondary">置信度 {formatConfidence(confidence)}</Badge>
             {fromCache ? <Badge variant="secondary">缓存结果</Badge> : null}
             {analysis.isFallback ? <Badge variant="danger">本地兜底</Badge> : null}
@@ -65,7 +65,7 @@ export function AiAnalysisPanel({
         </div>
         <TrendBadge trend={analysis.trend} />
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4 p-4">
         {analysis.isFallback && analysis.fallbackReason ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
             {analysis.fallbackReason}
@@ -74,17 +74,17 @@ export function AiAnalysisPanel({
 
         {decisionChange ? <DecisionChangeCard change={decisionChange} /> : null}
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <StrategyBadge tone={trendToStrategy(analysis.trend).tone}>策略方向：{trendToStrategy(analysis.trend).label}</StrategyBadge>
               <StrategyBadge tone={actionTone(primaryAdvice.action)}>当前动作：{primaryAdvice.action || "继续观察"}</StrategyBadge>
               <Badge variant="secondary">风险等级：{riskLevelText(riskFactors)}</Badge>
             </div>
-            <h3 className="mt-4 text-xl font-semibold">{strategyHeadline(analysis, primaryAdvice.action)}</h3>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{analysis.summary || primaryAdvice.reason || "暂无摘要。"}</p>
+            <h3 className="mt-3 text-lg font-semibold">{strategyHeadline(analysis, primaryAdvice.action)}</h3>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{analysis.summary || primaryAdvice.reason || "暂无摘要。"}</p>
           </div>
-          <div className="glow-card grid gap-2 rounded-xl border border-border bg-muted/15 p-4 text-sm">
+          <div className="glow-card grid gap-2 rounded-xl border border-border bg-muted/15 p-3 text-sm">
             <ScopeLine label="置信度" value={formatConfidence(confidence)} />
             <ScopeLine label="适合状态" value={primaryAdvice.isHolding ? "持仓跟踪" : "未持仓观察"} />
             <ScopeLine label="当前动作" value={primaryAdvice.action || "继续观察"} />
@@ -259,10 +259,10 @@ function EntryAdviceDetails({ advice }: { advice: AiAnalysisResult["entryAdvice"
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div>
+    <section className="rounded-xl border border-border/70 bg-background/35 p-3">
       <div className="mb-2 text-xs uppercase text-muted-foreground">{title}</div>
       {children}
-    </div>
+    </section>
   );
 }
 

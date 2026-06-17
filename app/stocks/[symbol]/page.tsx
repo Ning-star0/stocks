@@ -108,25 +108,31 @@ export default async function StockDetailPage({
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{quote.error ?? "行情不可用。"}</div>
       ) : null}
 
-      <Card className="soft-card">
-        <CardContent className="p-5">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="performance-card overflow-hidden">
+        <CardContent className="p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-semibold tracking-normal">{displayName}</h1>
-                <span className="text-sm text-muted-foreground">{quoteSymbol}</span>
+                <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">{displayName}</h1>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{quoteSymbol}</span>
                 {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                <span className="text-3xl font-semibold text-foreground tabular-nums">{displayQuote.price === null ? "--" : formatPriceValue(displayQuote.price, { currency: quote.currency, symbol: quoteSymbol })}</span>
-                <span className={displayQuote.changePct === null ? "text-muted-foreground" : displayQuote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}>
-                  {displayQuote.changePct === null ? "--" : formatPercent(displayQuote.changePct)}
-                </span>
-                <span>成交量 {displayQuote.volume === null ? "--" : formatNumber(displayQuote.volume)}</span>
-                <span>{displayQuote.updatedAt ? new Date(displayQuote.updatedAt).toLocaleString("zh-CN") : "--"}</span>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <QuoteMetric
+                  label="当前价格"
+                  value={displayQuote.price === null ? "--" : formatPriceValue(displayQuote.price, { currency: quote.currency, symbol: quoteSymbol })}
+                  prominent
+                />
+                <QuoteMetric
+                  label="涨跌幅"
+                  value={displayQuote.changePct === null ? "--" : formatPercent(displayQuote.changePct)}
+                  className={displayQuote.changePct === null ? "text-muted-foreground" : displayQuote.changePct >= 0 ? "text-red-500" : "text-emerald-500"}
+                />
+                <QuoteMetric label="成交量" value={displayQuote.volume === null ? "--" : formatNumber(displayQuote.volume)} />
+                <QuoteMetric label="更新时间" value={displayQuote.updatedAt ? new Date(displayQuote.updatedAt).toLocaleString("zh-CN") : "--"} />
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <StrategyBadge tone={strategy.tone}>策略方向：{strategy.label}</StrategyBadge>
               <StrategyBadge tone={currentAction.tone}>当前动作：{currentAction.label}</StrategyBadge>
               <AnalyzeStockButton symbol={quoteSymbol} />
@@ -204,6 +210,15 @@ export default async function StockDetailPage({
         lastNewsFetch={focusGroup?.lastNewsFetch?.toISOString() ?? null}
       />
     </PageContainer>
+  );
+}
+
+function QuoteMetric({ label, value, prominent, className }: { label: string; value: string; prominent?: boolean; className?: string }) {
+  return (
+    <div className="glow-card rounded-xl border border-border/70 bg-background/50 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`${prominent ? "text-xl" : "text-sm"} mt-1 truncate font-semibold tabular-nums ${className ?? "text-foreground"}`}>{value}</div>
+    </div>
   );
 }
 
