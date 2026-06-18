@@ -99,16 +99,20 @@ export function NewsPanel({
 
   return (
     <Card className="performance-card overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Newspaper className="h-4 w-4 text-primary" />
-          <CardTitle>相关新闻</CardTitle>
-          <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{newsSnapshotLabel}</span>
+      <CardHeader className="gap-3 border-b border-border/70 bg-muted/10 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Newspaper className="h-4 w-4 text-primary" />
+            <CardTitle>相关新闻</CardTitle>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{allNews.length} 条</span>
+            {analyzedNews.length ? <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs text-primary">AI 精读 {analyzedNews.length}</span> : null}
+          </div>
+          <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
+            <RefreshCw className={fetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            {fetching ? "抓取中" : "抓取新闻"}
+          </Button>
         </div>
-        <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
-          <RefreshCw className={fetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          {fetching ? "抓取中" : "抓取新闻"}
-        </Button>
+        <div className="rounded-lg border border-border/70 bg-background/45 px-3 py-2 text-xs leading-5 text-muted-foreground">{newsSnapshotLabel}</div>
       </CardHeader>
       <CardContent className="space-y-3 p-4">
         {message ? <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}

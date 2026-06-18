@@ -42,13 +42,13 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
   const riskNotes = Array.isArray(analysis?.riskNotes) ? analysis.riskNotes.map(toSimplifiedChinese) : [];
 
   return (
-    <details className="group glow-card glow-click-card rounded-xl border border-border bg-card px-3 py-2">
-      <summary className="grid cursor-pointer list-none gap-2 md:grid-cols-[auto_auto_minmax(0,1fr)_auto] md:items-center">
+    <details className="group glow-card glow-click-card rounded-xl border border-border bg-card/85 px-3 py-2 shadow-sm">
+      <summary className="grid cursor-pointer list-none gap-2 md:grid-cols-[auto_88px_minmax(0,1fr)_auto] md:items-center">
         <div className="flex items-center gap-2">
           <ImpactLevelBadge level={impact} />
           <NewsSentimentBadge sentiment={sentiment} />
         </div>
-        <div className="text-xs text-muted-foreground">{formatTime(item.publishedAt)}</div>
+        <div className="text-xs tabular-nums text-muted-foreground">{formatTime(item.publishedAt)}</div>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">{cleanTitle(item.title)}</div>
           <div className="mt-1 truncate text-xs text-muted-foreground">{compactSummary(summary)}</div>
@@ -60,7 +60,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
         </div>
       </summary>
 
-      <div className="mt-3 border-t pt-3">
+      <div className="mt-3 border-t border-border/70 pt-3">
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span>{item.source ? toSimplifiedChinese(item.source) : "未知来源"}</span>
           {sectors.length ? <span>{sectors.slice(0, 3).join(", ")}</span> : null}
@@ -71,12 +71,12 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
             </a>
           ) : null}
         </div>
-        <p className="glow-card mt-3 max-h-32 overflow-auto rounded-xl border border-border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
+        <p className="mt-3 max-h-32 overflow-auto rounded-lg border border-border/70 bg-background/35 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
         {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{toSimplifiedChinese(analysis.whyItMatters)}</p> : null}
         {riskNotes.length ? (
-          <div className="mt-3 space-y-1">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {riskNotes.slice(0, 3).map((note) => (
-              <div key={note} className="glow-card rounded-lg border border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+              <div key={note} className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
                 {note}
               </div>
             ))}

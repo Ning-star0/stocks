@@ -103,7 +103,6 @@ export function SectorNewsPanel() {
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <CardTitle>行业新闻窗口</CardTitle>
           <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{watches.length} 个主题</span>
-          {selectedSector ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{selectedSector}</span> : null}
           <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{news.length} 条新闻</span>
         </div>
         <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetching}>
@@ -112,29 +111,27 @@ export function SectorNewsPanel() {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3 p-4">
-        <details className="glow-card rounded-xl border border-border bg-muted/15 p-3">
-          <summary className="cursor-pointer text-sm font-medium text-foreground">添加行业主题</summary>
-          <form className="mt-3 grid gap-2 md:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={addWatch}>
-            <Input name="sectorName" placeholder="AI 芯片" required />
-            <Input name="keywords" placeholder="AI 芯片, GPU 需求, 数据中心" required />
-            <Input name="symbols" placeholder="NVDA, AMD" />
-            <Button type="submit">
-              <Plus className="h-4 w-4" />
-              添加
-            </Button>
-          </form>
-        </details>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1">
           {watches.map((watch) => (
-            <Button key={watch.id} size="sm" variant={selectedSector === watch.sectorName ? "default" : "outline"} onClick={() => setSelectedSector(watch.sectorName)}>
+            <button
+              key={watch.id}
+              type="button"
+              onClick={() => setSelectedSector(watch.sectorName)}
+              className={`glow-card glow-click-card shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                selectedSector === watch.sectorName
+                  ? "glow-click-card-active border-primary/40 bg-primary text-primary-foreground"
+                  : "border-border bg-background/45 text-muted-foreground hover:text-foreground"
+              }`}
+            >
               {watch.sectorName}
-            </Button>
+            </button>
           ))}
         </div>
         {selectedWatch ? (
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_120px]">
             <SectorMeta label="关键词" value={selectedWatch.keywords.join("、") || "--"} />
             <SectorMeta label="关联标的" value={selectedWatch.symbols.join("、") || "--"} />
+            <SectorMeta label="当前新闻" value={`${news.length} 条`} />
           </div>
         ) : null}
         {message ? <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
@@ -151,6 +148,18 @@ export function SectorNewsPanel() {
             <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-3 text-xs text-muted-foreground">低重要性新闻默认归档隐藏。</div>
           </>
         )}
+        <details className="rounded-xl border border-border/70 bg-background/35 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">添加行业主题</summary>
+          <form className="mt-3 grid gap-2 md:grid-cols-[1fr_2fr_1fr_auto]" onSubmit={addWatch}>
+            <Input name="sectorName" placeholder="AI 芯片" required />
+            <Input name="keywords" placeholder="AI 芯片, GPU 需求, 数据中心" required />
+            <Input name="symbols" placeholder="NVDA, AMD" />
+            <Button type="submit">
+              <Plus className="h-4 w-4" />
+              添加
+            </Button>
+          </form>
+        </details>
       </CardContent>
     </Card>
   );

@@ -77,9 +77,11 @@ export function DailyMarketBriefPanel() {
           <div className="glow-card rounded-xl border border-dashed border-border bg-muted/10 p-6 text-center text-sm text-muted-foreground">今天还没有生成市场简报。</div>
         ) : (
           <>
-            <BriefBlock title="自选股" text={brief.watchlistSummary} />
-            <BriefBlock title="行业" text={brief.sectorSummary} />
-            <BriefBlock title="风险" text={brief.riskSummary} />
+            <div className="grid gap-2">
+              <BriefBlock title="自选股" text={brief.watchlistSummary} />
+              <BriefBlock title="行业" text={brief.sectorSummary} />
+              <BriefBlock title="风险" text={brief.riskSummary} tone="risk" />
+            </div>
             <p className="rounded-xl border border-border/70 bg-background/35 px-3 py-2 text-xs text-muted-foreground">AI 市场简报可能遗漏上下文，仅供研究参考，不构成投资建议。</p>
           </>
         )}
@@ -88,10 +90,10 @@ export function DailyMarketBriefPanel() {
   );
 }
 
-function BriefBlock({ title, text }: { title: string; text: string }) {
+function BriefBlock({ title, text, tone = "default" }: { title: string; text: string; tone?: "default" | "risk" }) {
   return (
-    <div className="glow-card rounded-xl border border-border bg-muted/15 p-3">
-      <div className="mb-1 text-xs uppercase text-muted-foreground">{title}</div>
+    <div className={`rounded-xl border p-3 ${tone === "risk" ? "border-amber-500/25 bg-amber-500/10" : "border-border/70 bg-background/35"}`}>
+      <div className="mb-1 text-xs font-medium text-muted-foreground">{title}</div>
       <p className="text-sm leading-6">{text}</p>
     </div>
   );
