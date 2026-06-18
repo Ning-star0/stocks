@@ -211,14 +211,27 @@ export default function SettingsPage() {
   }
 
   return (
-    <PageContainer className="max-w-4xl">
+    <PageContainer className="max-w-[90rem]">
       <SectionHeader title="设置" />
+
+      <SettingsStatusGrid
+        aiProvider={aiProvider}
+        hasExistingKey={hasExistingKey}
+        model={model}
+        standardModel={standardModel}
+        focusConcurrency={focusConcurrency}
+        pushEnabled={pushEnabled}
+        pushProvider={pushProvider}
+        pushReady={pushReady}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <QuickLink href="/api-docs" icon={<Code2 className="h-4 w-4" />} title="接口与健康检查" text="查看 API、连接状态与运行成本。" />
         <QuickLink href="/memory" icon={<BookOpen className="h-4 w-4" />} title="记忆管理" text="维护手动记忆和自动沉淀的偏好。" />
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
+      <div className="space-y-4">
       <Card className="performance-card overflow-hidden">
         <CardHeader className="border-b border-border/60 bg-background/20 p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -334,6 +347,9 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      </div>
+
+      <div className="space-y-4 xl:sticky xl:top-20">
       <Card className="performance-card overflow-hidden">
         <CardHeader className="border-b border-border/60 bg-background/20 p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -355,7 +371,7 @@ export default function SettingsPage() {
             <input type="checkbox" checked={pushEnabled} onChange={(event) => setPushEnabled(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
           </label>
 
-          <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+          <div className="grid gap-3">
             <div className="space-y-2">
               <span className="block text-sm font-medium">推送通道</span>
               <Select value={pushProvider} onChange={(event) => setPushProvider(event.target.value)}>
@@ -412,7 +428,49 @@ export default function SettingsPage() {
           {pushMessage ? <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">{pushMessage}</div> : null}
         </CardContent>
       </Card>
+      </div>
+      </div>
     </PageContainer>
+  );
+}
+
+function SettingsStatusGrid({
+  aiProvider,
+  hasExistingKey,
+  model,
+  standardModel,
+  focusConcurrency,
+  pushEnabled,
+  pushProvider,
+  pushReady
+}: {
+  aiProvider: string;
+  hasExistingKey: boolean;
+  model: string;
+  standardModel: string;
+  focusConcurrency: string;
+  pushEnabled: boolean;
+  pushProvider: string;
+  pushReady: boolean;
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+      <SettingsStatusItem label="AI 厂商" value={aiProvider || "--"} hint={hasExistingKey ? "密钥已配置" : "密钥待配置"} />
+      <SettingsStatusItem label="旗舰模型" value={model || "--"} hint="深度分析" />
+      <SettingsStatusItem label="普通模型" value={standardModel || "--"} hint="常规任务" />
+      <SettingsStatusItem label="分析并发" value={`${focusConcurrency || "0"} 只`} hint="今日策略观察" />
+      <SettingsStatusItem label="推送" value={pushEnabled ? "已启用" : "未启用"} hint={`${pushProvider} · ${pushReady ? "可测试" : "待配置"}`} />
+    </div>
+  );
+}
+
+function SettingsStatusItem({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="glow-card rounded-xl border border-border/70 bg-card/80 px-3 py-2.5 shadow-sm">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold tabular-nums text-foreground">{value}</div>
+      <div className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</div>
+    </div>
   );
 }
 
