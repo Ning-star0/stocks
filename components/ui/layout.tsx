@@ -52,7 +52,7 @@ export function StatCard({
     danger: "from-rose-500/[0.12] to-transparent"
   }[tone];
   return (
-    <Card className={cn("soft-card overflow-hidden bg-gradient-to-br p-4", motionClassNames.cardEnter, motionClassNames.hoverLift, toneClass, className)} style={{ animationDelay: `${staggerDelay(delayIndex)}ms` }}>
+    <Card className={cn("performance-card overflow-hidden bg-gradient-to-br p-4", motionClassNames.cardEnter, motionClassNames.hoverLift, toneClass, className)} style={{ animationDelay: `${staggerDelay(delayIndex)}ms` }}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <AnimatedNumberValue className="mt-2 text-2xl font-semibold tabular-nums tracking-tight" value={value} />
       {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
@@ -61,7 +61,7 @@ export function StatCard({
 }
 
 export function InsightCard({ children, className, delayIndex = 0 }: { children: ReactNode; className?: string; delayIndex?: number }) {
-  return <Card className={cn("soft-card", motionClassNames.cardEnter, className)} style={{ animationDelay: `${staggerDelay(delayIndex)}ms` }}>{children}</Card>;
+  return <Card className={cn("performance-card overflow-hidden", motionClassNames.cardEnter, className)} style={{ animationDelay: `${staggerDelay(delayIndex)}ms` }}>{children}</Card>;
 }
 
 export function LoadingInsight({ text = "正在综合行情、技术指标与新闻情绪...", activeStepIndex = 0 }: { text?: string; activeStepIndex?: number }) {

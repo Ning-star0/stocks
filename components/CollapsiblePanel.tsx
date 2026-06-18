@@ -20,11 +20,11 @@ export function CollapsiblePanel({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className={cn("liquid-glass glow-card rounded-2xl", className)}>
+    <div className={cn("performance-card overflow-hidden rounded-xl border border-border", className)}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="glow-click-card flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-white/28 dark:hover:bg-white/6"
+        className="glow-click-card flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/35"
       >
         {title}
         <ChevronDown
@@ -38,7 +38,7 @@ export function CollapsiblePanel({
       >
         <div className="overflow-hidden">
           <div
-            className={cn("border-t border-white/30 px-4 py-4 transition-all dark:border-white/10", open ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0")}
+            className={cn("border-t border-border/70 px-4 py-4 transition-all", open ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0")}
             style={{ transitionDuration: `${motionDurations.collapse}ms`, transitionTimingFunction: motionEase }}
           >
             {children}

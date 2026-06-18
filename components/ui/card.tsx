@@ -6,7 +6,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "liquid-glass glow-card rounded-2xl text-card-foreground transition-all duration-150",
+        "glow-card rounded-xl border border-border bg-card/85 text-card-foreground shadow-sm transition-all duration-150",
         className
       )}
       {...props}
