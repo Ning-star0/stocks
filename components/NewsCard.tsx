@@ -71,7 +71,7 @@ export function NewsCard({ item, onAnalyze }: { item: NewsCardData; onAnalyze?: 
             </a>
           ) : null}
         </div>
-        <p className="mt-3 max-h-32 overflow-auto rounded-md bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
+        <p className="glow-card mt-3 max-h-32 overflow-auto rounded-xl border border-border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">{compactSummary(summary, 420)}</p>
         {analysis?.whyItMatters ? <p className="mt-2 text-xs text-muted-foreground">影响说明：{toSimplifiedChinese(analysis.whyItMatters)}</p> : null}
         {riskNotes.length ? (
           <div className="mt-3 space-y-1">

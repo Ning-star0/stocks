@@ -99,7 +99,7 @@ export function SectorNewsPanel() {
 
   return (
     <Card className="performance-card overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <CardTitle>行业新闻窗口</CardTitle>
           <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{watches.length} 个主题</span>
@@ -137,18 +137,18 @@ export function SectorNewsPanel() {
             <SectorMeta label="关联标的" value={selectedWatch.symbols.join("、") || "--"} />
           </div>
         ) : null}
-        {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+        {message ? <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
+        {error ? <div className="glow-card rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading ? (
-          <div className="py-8 text-sm text-muted-foreground">正在加载行业新闻...</div>
+          <div className="glow-card rounded-xl border border-border bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在加载行业新闻...</div>
         ) : news.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无行业新闻。添加主题后点击“抓取”。</div>
+          <div className="glow-card rounded-xl border border-dashed border-border bg-muted/10 p-6 text-center text-sm text-muted-foreground">暂无行业新闻。添加主题后点击“抓取”。</div>
         ) : (
           <>
             <div className="space-y-2">
               {news.slice(0, 12).map((item) => <NewsCard key={item.id} item={item} />)}
             </div>
-            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">低重要性新闻默认归档隐藏。</div>
+            <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-3 text-xs text-muted-foreground">低重要性新闻默认归档隐藏。</div>
           </>
         )}
       </CardContent>

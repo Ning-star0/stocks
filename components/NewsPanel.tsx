@@ -99,7 +99,7 @@ export function NewsPanel({
 
   return (
     <Card className="performance-card overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Newspaper className="h-4 w-4 text-primary" />
           <CardTitle>相关新闻</CardTitle>
@@ -111,13 +111,13 @@ export function NewsPanel({
         </Button>
       </CardHeader>
       <CardContent className="space-y-3 p-4">
-        {message ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+        {message ? <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{message}</div> : null}
+        {error ? <div className="glow-card rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {!loading && allNews.length ? <NewsOverview overview={overview} /> : null}
         {loading ? (
-          <div className="py-8 text-sm text-muted-foreground">正在加载新闻...</div>
+          <div className="glow-card rounded-xl border border-border bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在加载新闻...</div>
         ) : news.length === 0 && lowNews.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">暂无匹配该股票或行业关键词的新闻。点击“抓取新闻”后会更新。</div>
+          <div className="glow-card rounded-xl border border-dashed border-border bg-muted/10 p-6 text-center text-sm text-muted-foreground">暂无匹配该股票或行业关键词的新闻。点击“抓取新闻”后会更新。</div>
         ) : (
           <>
             <AnalyzedNewsSummaries items={analyzedNews} />
@@ -149,7 +149,7 @@ export function NewsPanel({
 function AnalyzedNewsSummaries({ items }: { items: NewsCardData[] }) {
   if (!items.length) {
     return (
-      <div className="rounded-md border border-dashed border-border bg-background/20 p-3 text-sm text-muted-foreground">
+      <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-3 text-sm text-muted-foreground">
         暂无 AI 精读新闻摘要。高重要性新闻完成精读后会显示在这里；原始新闻已折叠在下方。
       </div>
     );

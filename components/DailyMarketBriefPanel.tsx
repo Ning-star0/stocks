@@ -57,7 +57,7 @@ export function DailyMarketBriefPanel() {
 
   return (
     <Card className="performance-card overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <FileText className="h-4 w-4 text-primary" />
           <CardTitle>每日市场简报</CardTitle>
@@ -70,11 +70,11 @@ export function DailyMarketBriefPanel() {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3 p-4">
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+        {error ? <div className="glow-card rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading ? (
-          <div className="py-8 text-sm text-muted-foreground">正在加载简报...</div>
+          <div className="glow-card rounded-xl border border-border bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在加载简报...</div>
         ) : !brief ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">今天还没有生成市场简报。</div>
+          <div className="glow-card rounded-xl border border-dashed border-border bg-muted/10 p-6 text-center text-sm text-muted-foreground">今天还没有生成市场简报。</div>
         ) : (
           <>
             <BriefBlock title="自选股" text={brief.watchlistSummary} />

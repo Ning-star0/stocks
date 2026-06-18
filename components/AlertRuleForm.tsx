@@ -116,9 +116,9 @@ export function AlertRuleForm() {
         </CardHeader>
         <CardContent className="p-4">
           {loading ? (
-            <div className="py-8 text-sm text-muted-foreground">正在加载提醒规则...</div>
+            <div className="glow-card rounded-xl border border-border bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在加载提醒规则...</div>
           ) : alerts.length === 0 ? (
-            <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-md border border-dashed text-center">
+            <div className="glow-card flex min-h-36 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/10 text-center">
               <div className="text-sm font-medium">还没有提醒规则。</div>
               <p className="text-sm text-muted-foreground">创建价格、RSI 或成交量规则后，会在这里显示触发状态。</p>
             </div>

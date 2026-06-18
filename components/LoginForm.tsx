@@ -61,7 +61,7 @@ export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
             </label>
             <Input id="password" name="password" type="password" autoComplete="current-password" required minLength={12} />
           </div>
-          {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+          {error ? <div className="glow-card rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
           <Button className="w-full" type="submit" disabled={loading}>
             {loading ? "登录中..." : "登录"}
           </Button>
