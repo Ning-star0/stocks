@@ -127,7 +127,7 @@ export function DecisionFeedbackForm({
               onChange={(event) => selectTrade(event.target.value)}
               disabled={!shouldSyncTrade}
               required={shouldSyncTrade}
-              className="h-10 w-full rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-55"
+              className="h-10 w-full rounded-xl border border-white/50 bg-white/42 px-3 text-sm shadow-[inset_0_1px_0_hsl(0_0%_100%/0.38)] outline-none backdrop-blur-xl transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/15 dark:border-white/10 dark:bg-white/6 disabled:opacity-55"
             >
               <option value="">不同步持仓</option>
               {tradeOptions.map((order) => (
@@ -183,7 +183,7 @@ export function DecisionFeedbackForm({
         <Textarea name="note" placeholder="例如：价格没到，没有买；或实际买入 200 份。" defaultValue={feedbackNote ?? ""} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="glow-card flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/15 p-3">
         <Button type="submit" disabled={tradeBlocked}>保存反馈</Button>
         <Button asChild variant="outline">
           <Link href="/focus">回到今日工作台</Link>

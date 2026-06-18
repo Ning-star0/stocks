@@ -121,11 +121,11 @@ export function StockChartPanel({
   }, [interval, isLoading, range, updateChart]);
 
   return (
-    <Card className="soft-card">
-      <CardHeader className="gap-3">
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="gap-3 border-b border-border/70 bg-muted/10 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>价格走势</CardTitle>
-          <div className="rounded-lg border border-border bg-muted/10 p-2">
+          <div className="glow-card rounded-xl border border-border bg-background/35 p-2">
             <div className="grid gap-2 lg:grid-cols-[auto_auto] lg:items-center">
               <div className="text-[11px] font-medium text-muted-foreground">周期</div>
               <div className="flex flex-wrap gap-1">
@@ -136,9 +136,9 @@ export function StockChartPanel({
                     onClick={() => updateChart(option.value, normalizeRange(range, option.value), { force: true })}
                     disabled={isLoading}
                     className={cn(
-                      "min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                      "glow-card glow-click-card min-w-11 rounded-lg border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                       interval === option.value
-                        ? "border-primary bg-primary text-primary-foreground"
+                        ? "glow-click-card-active border-primary bg-primary text-primary-foreground"
                         : "border-border bg-background/40 text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -155,9 +155,9 @@ export function StockChartPanel({
                     onClick={() => updateChart(interval, option.value, { force: true })}
                     disabled={isLoading}
                     className={cn(
-                      "min-w-11 rounded-md border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                      "glow-card glow-click-card min-w-11 rounded-lg border px-2.5 py-1 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                       range === option.value
-                        ? "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                        ? "glow-click-card-active border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
                         : "border-border bg-background/40 text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -169,24 +169,24 @@ export function StockChartPanel({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4">
         <div className="relative min-h-[460px] md:min-h-[520px]">
           {candles.length ? (
             <StockChart candles={candles} currency={currency} symbol={symbol} unit={unit} interval={interval} />
           ) : (
-            <div className="flex min-h-[460px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground md:min-h-[520px]">
+            <div className="glow-card flex min-h-[460px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:min-h-[520px]">
               暂无可展示的 K 线数据。
             </div>
           )}
           {isLoading ? (
-            <div className="pointer-events-none absolute inset-0 rounded-md bg-background/35 backdrop-blur-[1px]">
+            <div className="pointer-events-none absolute inset-0 rounded-xl bg-background/35 backdrop-blur-[1px]">
               <div className="absolute right-3 top-3 rounded-full border border-border bg-background/80 px-3 py-1 text-xs text-muted-foreground shadow-sm">
                 正在更新图表...
               </div>
             </div>
           ) : null}
         </div>
-        {error ? <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
+        {error ? <div className="glow-card mt-3 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
       </CardContent>
     </Card>
   );

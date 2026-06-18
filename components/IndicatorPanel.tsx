@@ -31,12 +31,15 @@ export function IndicatorPanel({
     { label: "布林下轨", value: indicators.bollingerLower, state: "支撑" }
   ];
   return (
-    <Card className="soft-card">
-      <CardHeader>
-        <CardTitle>技术指标</CardTitle>
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>技术指标</CardTitle>
+          <span className="rounded-full border border-border bg-background/55 px-3 py-1 text-xs text-muted-foreground">{rows.length} 项</span>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="overflow-hidden rounded-lg border border-border">
+      <CardContent className="p-4">
+        <div className="glow-card overflow-hidden rounded-xl border border-border bg-background/35">
           {rows.map((row) => (
             <div key={row.label} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border px-3 py-2.5 text-sm last:border-b-0">
               <div className="text-muted-foreground">{row.label}</div>
@@ -56,11 +59,11 @@ export function IndicatorPanel({
 
 function LevelLine({ title, values, currency, symbol, unit }: { title: string; values: number[]; currency?: string; symbol?: string; unit?: string }) {
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+    <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2">
       <div className="text-xs text-muted-foreground">{title}</div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {values.length ? values.slice(0, 3).map((value) => (
-          <span key={value} className="rounded-md bg-background/70 px-2 py-1 text-xs font-medium tabular-nums">
+          <span key={value} className="rounded-lg border border-border/70 bg-background/70 px-2 py-1 text-xs font-medium tabular-nums">
             {formatPriceValue(value, { currency, symbol, unit })}
           </span>
         )) : <span className="text-xs text-muted-foreground">--</span>}

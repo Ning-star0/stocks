@@ -4,7 +4,7 @@ import { DecisionFeedbackForm } from "@/app/feedback/decision/DecisionFeedbackFo
 import { StockIdentity } from "@/components/StockIdentity";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageContainer } from "@/components/ui/layout";
+import { PageContainer, SectionHeader } from "@/components/ui/layout";
 import { feedbackActionLabel, normalizeFeedbackAction, verifyDecisionFeedbackToken } from "@/lib/decisionFeedback";
 import { prisma } from "@/lib/prisma";
 import { formatMoney, formatPercent, formatPrice, formatShares } from "@/lib/trading/display";
@@ -32,11 +32,11 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
   if (!decision || !verifyDecisionFeedbackToken({ userId: decision.userId, decisionId: decision.id, token })) {
     return (
       <PageContainer className="max-w-2xl">
-        <Card className="soft-card">
-          <CardHeader>
+        <Card className="performance-card overflow-hidden">
+          <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
             <CardTitle>反馈链接无效</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 p-4">
             <p className="text-sm leading-6 text-muted-foreground">这条反馈链接不存在、已失效，或签名不正确。请从最新推送重新进入。</p>
             <Button asChild variant="outline">
               <Link href="/focus">返回今日工作台</Link>
@@ -76,25 +76,33 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
 
   return (
     <PageContainer className="max-w-2xl">
-      <Card className="soft-card">
-        <CardHeader>
-          <CardTitle>反馈你的最终决策</CardTitle>
-          <p className="text-sm leading-6 text-muted-foreground">记录你是否采纳了这次 AI 策略观察，后续可以用来复盘“系统建议”和“真实操作”的差异。</p>
+      <SectionHeader title="反馈最终决策" />
+      <Card className="performance-card overflow-hidden">
+        <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>策略采纳记录</CardTitle>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">用于复盘系统建议和真实操作的差异。</p>
+            </div>
+            <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              {feedbackActionLabel(currentAction)}
+            </span>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-5 p-4">
           {saved ? (
-            <div className="rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
+            <div className="glow-card rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
               已保存反馈：{feedbackActionLabel(currentAction)}
             </div>
           ) : null}
 
-          <div className="rounded-xl border border-border bg-background/35 p-4">
+          <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
             <div className="text-xs text-muted-foreground">AI 策略观察摘要</div>
             <p className="mt-2 text-sm leading-6">{summary}</p>
             {orders.length ? (
               <div className="mt-4 space-y-2">
                 {orders.map((order) => (
-                  <div key={`${order.type}-${order.symbol}`} className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
+                  <div key={`${order.type}-${order.symbol}`} className="glow-card rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <StockIdentity symbol={order.symbol} name={order.name} prefix={order.type} compact />
                       <span className="tabular-nums text-muted-foreground">{formatMoney(order.amount)} / {formatShares(order.shares)} 股份</span>
