@@ -126,7 +126,7 @@ export default function MemoryPage() {
           <>
             <Badge variant="secondary">{state.entries.length} 条</Badge>
             {state.updatedAt ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</span> : null}
-            {message ? <span className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
+            {message ? <span className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
           </>
         }
       />
@@ -224,7 +224,7 @@ function MemoryList({
                 <button
                   onClick={() => onDelete(entry.id)}
                   disabled={saving}
-                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-red-400 disabled:opacity-50"
+                  className="glow-card glow-click-card rounded-lg border border-transparent p-1 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-red-400 disabled:opacity-50"
                   aria-label="删除记忆"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -233,7 +233,7 @@ function MemoryList({
             ))}
           </div>
         ) : (
-          <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">暂无{title}。</div>
+          <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">暂无{title}。</div>
         )}
       </CardContent>
     </Card>

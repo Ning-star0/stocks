@@ -45,7 +45,7 @@ export function ApiHealthPanel() {
   }, []);
 
   return (
-    <Card>
+    <Card className="performance-card overflow-hidden">
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -64,7 +64,7 @@ export function ApiHealthPanel() {
           </Button>
         </div>
 
-        {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+        {error ? <div className="glow-card rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <StatusTile icon={<Database className="h-4 w-4" />} label="数据库" value={health?.database ?? "--"} ok={health?.database === "ok"} />
@@ -94,7 +94,7 @@ function StatusTile({
   className?: string;
 }) {
   return (
-    <div className={`rounded-md border border-border bg-muted/15 p-3 ${className ?? ""}`}>
+    <div className={`glow-card rounded-xl border border-border bg-muted/15 p-3 ${className ?? ""}`}>
       <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           {icon}

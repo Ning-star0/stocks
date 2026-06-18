@@ -264,13 +264,13 @@ export function WatchlistTable() {
           {loading ? (
             <WatchlistSkeleton />
           ) : rows.length === 0 ? (
-            <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-dashed text-center">
+            <div className="glow-card flex min-h-40 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/10 text-center">
               <div className="text-sm font-medium">自选股列表为空。</div>
               <p className="max-w-sm text-sm text-muted-foreground">添加股票代码后即可查看行情、指标、提醒和 AI 分析。</p>
               <AddStockDialog onAdded={load} />
             </div>
           ) : filteredRows.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            <div className="glow-card rounded-xl border border-dashed border-border bg-muted/10 px-4 py-8 text-center text-sm text-muted-foreground">
               没有符合当前筛选条件的标的。
             </div>
           ) : (

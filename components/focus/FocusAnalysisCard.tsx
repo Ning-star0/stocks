@@ -33,7 +33,7 @@ export function FocusAnalysisCard({ symbol }: { symbol: string }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-36 items-center gap-2 rounded-md border border-border bg-background/30 p-4 text-sm text-muted-foreground">
+      <div className="glow-card flex min-h-36 items-center gap-2 rounded-xl border border-border bg-background/30 p-4 text-sm text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         {symbol} 加载中
       </div>
@@ -41,7 +41,7 @@ export function FocusAnalysisCard({ symbol }: { symbol: string }) {
   }
   if (!analysis) {
     return (
-      <div className="min-h-36 rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">
+      <div className="glow-card min-h-36 rounded-xl border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">
         <div className="font-medium text-foreground">{symbol}</div>
         <p className="mt-2 leading-6">暂无分析。保存配置后，等待下一个自动分析时间触发。</p>
       </div>
@@ -53,7 +53,7 @@ export function FocusAnalysisCard({ symbol }: { symbol: string }) {
   const summary = makeFriendlySummary(analysis.summary);
 
   return (
-    <div className="flex min-h-48 flex-col rounded-md border border-border bg-background/30 p-4">
+    <div className="glow-card flex min-h-48 flex-col rounded-xl border border-border bg-background/30 p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-semibold tabular-nums">{symbol}</div>

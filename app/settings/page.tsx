@@ -329,8 +329,8 @@ export default function SettingsPage() {
             </Button>
           </div>
 
-          {testResult ? <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">{testResult}</div> : null}
-          {error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
+          {testResult ? <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">{testResult}</div> : null}
+          {error ? <div className="glow-card rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
         </CardContent>
       </Card>
 
@@ -409,7 +409,7 @@ export default function SettingsPage() {
             </Button>
           </div>
 
-          {pushMessage ? <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">{pushMessage}</div> : null}
+          {pushMessage ? <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">{pushMessage}</div> : null}
         </CardContent>
       </Card>
     </PageContainer>

@@ -129,7 +129,7 @@ export function StockChart({
 
   if (!data.length) {
     return (
-      <div className={cn(motionClassNames.shimmer, "flex h-[460px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground md:h-[520px]")}>
+      <div className={cn(motionClassNames.shimmer, "glow-card flex h-[460px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:h-[520px]")}>
         暂无可展示的 K 线数据。
       </div>
     );
@@ -166,7 +166,7 @@ export function StockChart({
 
       <div className="space-y-3">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} showMovingAverages={showMovingAverages} isTimeSharing={isTimeSharing} /> : null}
-        <div className={cn(motionClassNames.chartEnter, "h-[460px] min-w-0 overflow-hidden rounded-md border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
+        <div className={cn(motionClassNames.chartEnter, "glow-card h-[460px] min-w-0 overflow-hidden rounded-xl border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
           <svg
             className="h-full w-full"
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
@@ -465,7 +465,7 @@ function InfoPanel({
   const cursorTime = cursor?.timeLabel ?? point.date;
   const cursorPrice = point.close;
   return (
-    <div className="rounded-md border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
+    <div className="glow-card rounded-xl border border-border bg-popover/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
       <div className="grid gap-x-6 gap-y-1.5 md:grid-cols-4">
         <InfoItem label="时间" value={cursorTime} />
         <InfoItem label="价格" value={formatPriceValue(cursorPrice, { currency, symbol, unit })} strong />

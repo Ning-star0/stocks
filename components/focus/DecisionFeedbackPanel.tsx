@@ -442,7 +442,7 @@ export function DecisionFeedbackPanel({
           </div>
         </div>
 
-        {tradeLedgerError ? <div className="mt-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{tradeLedgerError}</div> : null}
+        {tradeLedgerError ? <div className="glow-card mt-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{tradeLedgerError}</div> : null}
 
         <div className="mt-3 grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
           <div className="glow-card rounded-xl border border-border bg-muted/10 p-3">
@@ -453,7 +453,7 @@ export function DecisionFeedbackPanel({
               <LedgerMetric label="现金流出" value={formatMoney(ledgerSummary.cashOut)} tone="out" muted={!tradeExecutions.length} />
               <LedgerMetric label="手续费合计" value={formatMoney(ledgerSummary.totalFee)} muted={!tradeExecutions.length} />
             </div>
-            <div className="mt-3 rounded-md bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <div className="glow-card mt-3 rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
               买入会减少现金，卖出会增加现金；手续费买卖都扣除，所以卖出到账金额会小于成交额。
             </div>
           </div>

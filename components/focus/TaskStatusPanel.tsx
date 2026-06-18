@@ -94,7 +94,7 @@ export function TaskStatusPanel({
               </div>
             </div>
             {latest.errorSummary || runs?.summary.latestErrorSummary ? (
-              <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+              <div className="glow-card mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
                 {latest.errorSummary || runs?.summary.latestErrorSummary}
               </div>
             ) : null}
@@ -145,7 +145,7 @@ export function TaskStatusPanel({
 }
 
 function EmptyDecision({ message }: { message: string }) {
-  return <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
+  return <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
 }
 
 function StatusMetric({

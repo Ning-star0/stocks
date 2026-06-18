@@ -67,7 +67,7 @@ export function AiAnalysisPanel({
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {analysis.isFallback && analysis.fallbackReason ? (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
+          <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
             {analysis.fallbackReason}
           </div>
         ) : null}
@@ -106,7 +106,7 @@ export function AiAnalysisPanel({
                     </div>
                     <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.reason}</div>
                     <ActionGrid item={item} currency={currency} symbol={symbol} unit={unit} />
-                    <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    <div className="glow-card mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                       失效条件：{item.invalidIf}
                     </div>
                   </div>
@@ -228,7 +228,7 @@ function HoldAdviceDetails({ advice }: { advice: AiAnalysisResult["holdAdvice"] 
         {advice.keyMonitorPoints ? <AdviceRow label="关注重点" value={advice.keyMonitorPoints} /> : null}
       </div>
       {advice.invalidIf ? (
-        <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="glow-card mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           失效条件：{advice.invalidIf}
         </div>
       ) : null}
@@ -249,7 +249,7 @@ function EntryAdviceDetails({ advice }: { advice: AiAnalysisResult["entryAdvice"
         {advice.takeProfit ? <AdviceRow label="止盈目标" value={advice.takeProfit} /> : null}
       </div>
       {advice.invalidIf ? (
-        <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="glow-card mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           失效条件：{advice.invalidIf}
         </div>
       ) : null}
@@ -296,7 +296,7 @@ function LevelList({ title, values, currency, symbol, unit }: { title: string; v
 
 function AdviceRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 rounded-md bg-background/40 px-3 py-2 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-3">
+    <div className="glow-card grid gap-1 rounded-xl border border-border bg-background/40 px-3 py-2 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-3">
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words font-medium sm:text-right">{value}</span>
     </div>

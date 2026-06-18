@@ -89,7 +89,7 @@ export function FocusDecisionPanel({
   return (
     <div className="space-y-4">
       {decision.fallbackReason ? (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{decision.fallbackReason}</div>
+        <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{decision.fallbackReason}</div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
@@ -257,13 +257,13 @@ function NotificationBadge({ notification }: { notification?: FocusDecision["not
 function NotificationStatus({ notification }: { notification: NonNullable<FocusDecision["notification"]> }) {
   if (!notification.skipped) {
     return (
-      <div className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+      <div className="glow-card rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
         手机推送已发送{notification.provider ? `（${notification.provider}）` : ""}：{formatDateTime(notification.sentAt)}
       </div>
     );
   }
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+    <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
       本次未推送：{notificationReasonLabel(notification.reason)}
       {notification.error ? `。${notification.error}` : ""}
     </div>
