@@ -49,37 +49,37 @@ export function WatchlistRows({
           </TableHeader>
           <TableBody>
             {rows.map((row) => (
-              <TableRow key={row.item.id} className="table-row-focus h-16">
-                <TableCell className="py-2.5">
+              <TableRow key={row.item.id} className="table-row-focus h-14">
+                <TableCell className="py-2">
                   <Link href={`/stocks/${row.symbol}`} className="font-semibold text-primary">
                     {row.name}
                   </Link>
                   <div className="text-xs text-muted-foreground">{row.symbol}</div>
                 </TableCell>
-                <TableCell className="py-2.5 text-right font-medium tabular-nums">
+                <TableCell className="py-2 text-right font-medium tabular-nums">
                   {row.quote?.price === null || !row.quote ? (
                     <span className="text-xs text-red-500">{formatQuoteStatus(row.quote?.status)}</span>
                   ) : (
                     formatPriceValue(row.quote.price, { currency: row.quote.currency, symbol: row.quote.symbol })
                   )}
                 </TableCell>
-                <TableCell className={cn("py-2.5 text-right tabular-nums", changeClass(row.quote?.changePct))}>
+                <TableCell className={cn("py-2 text-right tabular-nums", changeClass(row.quote?.changePct))}>
                   {row.quote?.changePct === null || !row.quote ? "--" : formatPercent(row.quote.changePct)}
                 </TableCell>
-                <TableCell className="py-2.5">
+                <TableCell className="py-2">
                   <StrategyBadge tone={row.strategy.tone}>{row.strategy.label}</StrategyBadge>
                 </TableCell>
-                <TableCell className="py-2.5">
+                <TableCell className="py-2">
                   <div className="flex flex-wrap gap-1.5">
                     <RiskBadge risk={riskLabel(row.riskBucket)} />
                     <StrategyBadge tone={row.action.tone}>{row.action.label}</StrategyBadge>
                     <Badge variant={row.isHolding ? "success" : "secondary"}>{row.isHolding ? "已持仓" : "未持仓观察"}</Badge>
                   </div>
                 </TableCell>
-                <TableCell className="py-2.5">
+                <TableCell className="py-2">
                   <ReasonTags tags={row.tags} fallback={row.item.note ?? "暂无理由"} />
                 </TableCell>
-                <TableCell className="py-2.5">
+                <TableCell className="py-2">
                   <div className="row-actions flex justify-end gap-1.5">
                     <Button size="sm" variant="ghost" className="px-2" asChild>
                       <Link href={`/stocks/${row.symbol}`}>

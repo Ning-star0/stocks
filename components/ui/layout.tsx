@@ -5,7 +5,7 @@ import { motionClassNames, staggerDelay } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export function PageContainer({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn(motionClassNames.pageEnter, "mx-auto w-full max-w-7xl space-y-6", className)}>{children}</div>;
+  return <div className={cn(motionClassNames.pageEnter, "workbench-surface mx-auto w-full max-w-[90rem] space-y-4", className)}>{children}</div>;
 }
 
 export function SectionHeader({
@@ -20,10 +20,10 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3 md:flex-row md:items-end md:justify-between", className)}>
+    <div className={cn("flex flex-col gap-3 border-b border-border/55 pb-3 md:flex-row md:items-center md:justify-between", className)}>
       <div className="min-w-0">
         {eyebrow ? <div className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-primary/80">{eyebrow}</div> : null}
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-3xl">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-normal text-foreground md:text-[1.7rem]">{title}</h1>
       </div>
       {action ? <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div> : null}
     </div>

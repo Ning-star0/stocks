@@ -201,7 +201,7 @@ export function WatchlistTable() {
       </div>
 
       <Card className="performance-card watchlist-scroll-surface overflow-hidden">
-        <CardHeader className="gap-3 border-b border-border/60 bg-background/20 p-4">
+        <CardHeader className="gap-3 border-b border-border/60 bg-background/25 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle>策略观察列表</CardTitle>
@@ -220,7 +220,7 @@ export function WatchlistTable() {
             ) : null}
           </div>
 
-          <div className="grid gap-2 md:grid-cols-[minmax(220px,1.35fr)_repeat(4,minmax(124px,0.9fr))]">
+          <div className="grid gap-2 rounded-xl border border-border/70 bg-background/40 p-2 lg:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(124px,0.9fr))]">
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称或代码" className="pl-9" />
@@ -260,7 +260,7 @@ export function WatchlistTable() {
             onPageChange={setCurrentPage}
           />
         </CardHeader>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           {loading ? (
             <WatchlistSkeleton />
           ) : rows.length === 0 ? (
