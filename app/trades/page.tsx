@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, WalletCards } from "lucide-react";
+import { Filter, RefreshCw, Search, WalletCards } from "lucide-react";
 
 import { StockIdentity } from "@/components/StockIdentity";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { PageContainer, SectionHeader } from "@/components/ui/layout";
+import { Select } from "@/components/ui/select";
 import { readJsonResponse } from "@/lib/clientApi";
 import {
   displaySymbolBase,
@@ -36,10 +38,14 @@ type TradeExecutionRecord = {
   note?: string | null;
 };
 
+type TradeSideFilter = "all" | "buy" | "sell";
+
 export default function TradesPage() {
   const [executions, setExecutions] = useState<TradeExecutionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sideFilter, setSideFilter] = useState<TradeSideFilter>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +66,10 @@ export default function TradesPage() {
   }, [load]);
 
   const summary = useMemo(() => summarizeExecutions(executions), [executions]);
+  const filteredExecutions = useMemo(
+    () => filterExecutions(executions, { search, sideFilter }),
+    [executions, search, sideFilter]
+  );
   const nameByBase = useMemo(() => {
     const output = new Map<string, string>();
     for (const execution of executions) {
@@ -82,26 +92,36 @@ export default function TradesPage() {
 
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <LedgerStat label="总流水" value={`${executions.length} 笔`} />
-        <LedgerStat label="现金净变化" value={formatSignedMoney(summary.netCashChange)} tone={summary.netCashChange >= 0 ? "in" : "out"} />
-        <LedgerStat label="现金流入" value={formatMoney(summary.cashIn)} tone="in" />
-        <LedgerStat label="现金流出" value={formatMoney(summary.cashOut)} tone="out" />
-        <LedgerStat label="手续费合计" value={formatMoney(summary.totalFee)} />
-        <LedgerStat label="已实现盈亏" value={formatSignedMoney(summary.realizedPnl)} tone={summary.realizedPnl >= 0 ? "in" : "out"} />
-      </div>
+      <LedgerDashboard summary={summary} total={executions.length} />
 
       <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/70 bg-background/25 p-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <CardHeader className="gap-3 border-b border-border/70 bg-background/25 p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <CardTitle className="flex items-center gap-2">
               <WalletCards className="h-4 w-4 text-primary" />
               全部交易明细
+              <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs font-normal text-muted-foreground">
+                {filteredExecutions.length} / {executions.length} 笔
+              </span>
             </CardTitle>
             <div className="grid gap-2 text-xs leading-5 text-muted-foreground md:grid-cols-[1.05fr_1.2fr] xl:max-w-3xl">
               <span className="rounded-lg border border-border bg-background/55 px-3 py-2">{TRADE_CASH_CHANGE_DESCRIPTION}。</span>
               <span className="rounded-lg border border-border bg-background/55 px-3 py-2">已实现盈亏 = 卖出成交额 - 卖出手续费 - 本次卖出对应的持仓成本；持仓成本已包含买入手续费。</span>
             </div>
+          </div>
+          <div className="grid gap-2 rounded-xl border border-border/70 bg-background/40 p-2 md:grid-cols-[minmax(220px,1fr)_180px]">
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、代码或备注" className="pl-9" />
+            </label>
+            <label className="relative">
+              <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Select value={sideFilter} onChange={(event) => setSideFilter(event.target.value as TradeSideFilter)} className="pl-9">
+                <option value="all">全部方向</option>
+                <option value="buy">只看买入</option>
+                <option value="sell">只看卖出</option>
+              </Select>
+            </label>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -117,9 +137,9 @@ export default function TradesPage() {
           </div>
           {loading && !executions.length ? (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">正在读取资金流水...</div>
-          ) : executions.length ? (
+          ) : filteredExecutions.length ? (
             <div className="divide-y divide-border/70">
-              {executions.map((execution) => {
+              {filteredExecutions.map((execution) => {
                 const stockName = resolveStockDisplayName({
                   symbol: execution.symbol,
                   name: execution.name || nameByBase.get(displaySymbolBase(execution.symbol))
@@ -147,6 +167,8 @@ export default function TradesPage() {
                 );
               })}
             </div>
+          ) : executions.length ? (
+            <div className="px-4 py-10 text-center text-sm text-muted-foreground">没有符合当前筛选条件的流水。</div>
           ) : (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">暂无资金流水，成交反馈或补录买卖后会自动生成。</div>
           )}
@@ -154,6 +176,22 @@ export default function TradesPage() {
       </Card>
     </PageContainer>
   );
+}
+
+function filterExecutions(executions: TradeExecutionRecord[], filters: { search: string; sideFilter: TradeSideFilter }) {
+  const keyword = filters.search.trim().toLowerCase();
+  return executions.filter((execution) => {
+    if (filters.sideFilter !== "all" && execution.side !== filters.sideFilter) return false;
+    if (!keyword) return true;
+    const text = [
+      execution.symbol,
+      execution.name,
+      execution.note,
+      tradeSideLabel(execution.side),
+      formatFullDateTime(execution.executedAt)
+    ].filter(Boolean).join(" ").toLowerCase();
+    return text.includes(keyword);
+  });
 }
 
 function summarizeExecutions(executions: TradeExecutionRecord[]) {
@@ -168,6 +206,32 @@ function summarizeExecutions(executions: TradeExecutionRecord[]) {
       return summary;
     },
     { cashIn: 0, cashOut: 0, netCashChange: 0, totalFee: 0, realizedPnl: 0 }
+  );
+}
+
+function LedgerDashboard({ summary, total }: { summary: ReturnType<typeof summarizeExecutions>; total: number }) {
+  return (
+    <Card className="performance-card overflow-hidden">
+      <CardContent className="grid gap-4 p-4 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,2.05fr)]">
+        <div className="rounded-xl border border-border/70 bg-background/45 p-4">
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>从开始到现在</span>
+            <span>{total} 笔流水</span>
+          </div>
+          <div className={cn("mt-3 text-3xl font-semibold tabular-nums tracking-tight", summary.netCashChange >= 0 ? "text-red-500" : "text-emerald-500")}>
+            {formatSignedMoney(summary.netCashChange)}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">现金净变化</div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <LedgerStat label="现金流入" value={formatMoney(summary.cashIn)} tone="in" />
+          <LedgerStat label="现金流出" value={formatMoney(summary.cashOut)} tone="out" />
+          <LedgerStat label="手续费合计" value={formatMoney(summary.totalFee)} />
+          <LedgerStat label="已实现盈亏" value={formatSignedMoney(summary.realizedPnl)} tone={summary.realizedPnl >= 0 ? "in" : "out"} />
+          <LedgerStat label="平均手续费" value={formatMoney(total ? summary.totalFee / total : 0)} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
