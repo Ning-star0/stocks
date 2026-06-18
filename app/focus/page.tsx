@@ -207,8 +207,8 @@ export default function FocusPage() {
         title="今日工作台"
       />
 
-      <Card id="decision" className="soft-card">
-        <CardHeader className="flex-row items-center justify-between gap-3">
+      <Card id="decision" className="performance-card overflow-hidden">
+        <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
           <div className="min-w-0">
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -220,9 +220,9 @@ export default function FocusPage() {
             {decisionLoading ? "分析中" : "重新分析"}
           </Button>
         </CardHeader>
-        <CardContent>
-          {decisionError ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{decisionError}</div> : null}
-          {decisionNotice ? <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
+        <CardContent className="p-4">
+          {decisionError ? <div className="glow-card mb-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{decisionError}</div> : null}
+          {decisionNotice ? <div className="glow-card mb-3 rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{decisionNotice}</div> : null}
           {!focus.capital ? (
             <EmptyDecision message="先填写总本金，AI 才能计算计划买入金额、保留现金和手续费。" />
           ) : !focus.symbols.length ? (
@@ -252,14 +252,14 @@ export default function FocusPage() {
       <CollapsiblePanel title="今日关注配置">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         {/* 选股区 */}
-        <Card className="soft-card">
-          <CardHeader>
+        <Card className="performance-card overflow-hidden">
+          <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
             <CardTitle className="flex items-center justify-between gap-3">
               <span>今日关注配置</span>
               <span className="text-xs font-normal text-muted-foreground">来自自选股</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-4">
             {watchlist.length === 0 ? (
               <p className="text-sm text-muted-foreground">暂无自选股，请先在 /watchlist 添加。</p>
             ) : (
@@ -336,11 +336,11 @@ export default function FocusPage() {
         </Card>
 
         {/* 时间设置区 */}
-        <Card className="soft-card">
-          <CardHeader>
+        <Card className="performance-card overflow-hidden">
+          <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
             <CardTitle>资金与自动分析时间</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-5 p-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">总本金</label>
               <Input
@@ -482,7 +482,7 @@ function DecisionHistoryTimeline({ records }: { records: DecisionHistoryRecord[]
 }
 
 function EmptyDecision({ message }: { message: string }) {
-  return <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
+  return <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
 }
 
 function resolveNextObserveAt(nextRunAt: string | null | undefined, times: string[]) {

@@ -86,8 +86,8 @@ export function ApiUsagePanel() {
   const externalItems = usageItems.filter((item) => !item.key.startsWith("ai_"));
 
   return (
-    <Card className="soft-card overflow-hidden border-border/70 bg-card/80 shadow-sm">
-      <CardHeader className="border-b border-border/60 bg-muted/10 px-5 py-4">
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -104,10 +104,10 @@ export function ApiUsagePanel() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5 p-5">
-        {error ? <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+      <CardContent className="space-y-5 p-4">
+        {error ? <div className="glow-card mb-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
         {loading && !data ? (
-          <div className="rounded-xl border border-border/70 bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在读取用量...</div>
+          <div className="glow-card rounded-xl border border-border/70 bg-muted/10 px-4 py-8 text-sm text-muted-foreground">正在读取用量...</div>
         ) : (
           <>
             {data?.aiCost ? <AiCostSummary cost={data.aiCost} balance={data.aiBalance ?? null} /> : null}
@@ -141,7 +141,7 @@ function AiCostSummary({
 function BalanceCard({ balance }: { balance: UsageResponse["aiBalance"] }) {
   const primary = balance?.balanceInfos?.[0] ?? null;
   return (
-    <div className="glow-card rounded-xl border border-border/70 bg-muted/10 p-4 text-sm leading-6">
+    <div className="glow-card rounded-xl border border-border/70 bg-background/35 p-4 text-sm leading-6">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-medium text-muted-foreground">DeepSeek 官方余额</div>
         {balance ? <Badge variant={balance.available ? "success" : "warning"}>{balance.available ? "可用" : "不可用"}</Badge> : <Badge variant="secondary">未接入</Badge>}
@@ -192,7 +192,7 @@ function UsageSection({ title, description, items, compact = false }: { title: s
 function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currency: string }) {
   if (!rows.length) return null;
   return (
-    <div className="glow-card rounded-xl border border-border/70 bg-muted/10 p-4">
+    <div className="glow-card rounded-xl border border-border/70 bg-background/35 p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium">AI 模型 Token 明细</div>

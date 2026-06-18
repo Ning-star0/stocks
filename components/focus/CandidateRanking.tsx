@@ -68,8 +68,8 @@ export function CandidateRanking({
   }, [decision?.orders, decision?.sellOrders, history, items, names, sortKey, watchlist]);
 
   return (
-    <Card className="soft-card">
-      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/70 bg-muted/10 p-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <CardTitle>候选标的排序</CardTitle>
           <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
@@ -151,7 +151,7 @@ function SortButton({ active, onClick, children }: { active: boolean; onClick: (
 }
 
 function EmptyDecision({ message }: { message: string }) {
-  return <div className="rounded-md border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
+  return <div className="glow-card rounded-xl border border-dashed border-border bg-background/20 p-4 text-sm text-muted-foreground">{message}</div>;
 }
 
 function symbolVariantsForUi(symbol: string) {

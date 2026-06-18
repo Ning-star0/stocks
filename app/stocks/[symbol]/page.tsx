@@ -262,11 +262,11 @@ function safeCalculateIndicators(symbol: string, candles: Candle[]): { indicator
 
 function EmptyCard({ title, text }: { title: string; text: string }) {
   return (
-    <Card className="soft-card">
-      <CardHeader>
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
         <CardTitle>{title}</CardTitle>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{text}</CardContent>
+      <CardContent className="p-4 text-sm text-muted-foreground">{text}</CardContent>
     </Card>
   );
 }

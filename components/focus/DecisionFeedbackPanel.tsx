@@ -41,6 +41,9 @@ type TradeExecutionRecord = {
   note?: string | null;
 };
 
+const nativeFieldClass =
+  "h-10 rounded-xl border border-white/50 bg-white/42 px-3 text-sm shadow-[inset_0_1px_0_hsl(0_0%_100%/0.38)] outline-none backdrop-blur-xl transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/15 dark:border-white/10 dark:bg-white/6 disabled:opacity-55";
+
 export function DecisionFeedbackPanel({
   decisionId,
   feedback,
@@ -307,7 +310,7 @@ export function DecisionFeedbackPanel({
                 value={tradeKey}
                 onChange={(event) => selectTrade(event.target.value)}
                 disabled={!shouldSyncTrade}
-                className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-55"
+                className={nativeFieldClass}
               >
                 <option value="">不同步持仓</option>
                 {tradeOptions.map((option) => (
@@ -344,7 +347,7 @@ export function DecisionFeedbackPanel({
             onChange={(event) => setNote(event.target.value)}
             rows={2}
             placeholder="备注，可选，例如：价格没到，继续观察。"
-            className="mt-3 w-full resize-none rounded-md border border-input bg-background/40 px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            className="mt-3 w-full resize-none rounded-xl border border-white/50 bg-white/42 px-3 py-2 text-sm shadow-[inset_0_1px_0_hsl(0_0%_100%/0.38)] outline-none backdrop-blur-xl transition-all placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/15 dark:border-white/10 dark:bg-white/6"
           />
           <div className="mt-3 grid gap-2">
             <label className="text-xs font-medium text-muted-foreground">实际成交时间</label>
@@ -380,7 +383,7 @@ export function DecisionFeedbackPanel({
             <select
               value={manualSymbol}
               onChange={(event) => setManualSymbol(event.target.value)}
-              className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+              className={nativeFieldClass}
             >
               {manualSymbols.map((item) => (
                 <option key={item.symbol} value={item.symbol}>
@@ -391,7 +394,7 @@ export function DecisionFeedbackPanel({
             <select
               value={manualSide}
               onChange={(event) => setManualSide(event.target.value === "buy" ? "buy" : "sell")}
-              className="h-10 rounded-md border border-input bg-background/40 px-3 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+              className={nativeFieldClass}
             >
               <option value="buy">买入/增持</option>
               <option value="sell">卖出/减仓</option>

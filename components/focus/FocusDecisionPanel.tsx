@@ -115,7 +115,7 @@ export function FocusDecisionPanel({
         </p>
       </div>
       <div className="grid gap-3 xl:grid-cols-[1.05fr_1fr_1fr]">
-        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
+        <div className={cn("glow-card rounded-xl border border-border bg-background/35 p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">资产概览</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <AssetMetric label="总资产" value={formatMoney(totalAssets)} size="lg" />
@@ -124,7 +124,7 @@ export function FocusDecisionPanel({
             <AssetMetric label="计划后现金" value={formatMoney(decision.cashReserve)} tone={decision.cashReserve < availableCash ? "warning" : "neutral"} />
           </div>
         </div>
-        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
+        <div className={cn("glow-card rounded-xl border border-border bg-background/35 p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(1)}ms` }}>
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-medium text-muted-foreground">持仓与盈亏</div>
             {valuationStatus !== "empty" ? <Badge variant={valuationStatus === "live" ? "success" : "warning"}>{valuationStatusLabel(valuationStatus)}</Badge> : null}
@@ -139,7 +139,7 @@ export function FocusDecisionPanel({
             <p className="mt-3 text-xs leading-5 text-muted-foreground">{valuationStatusHelp(valuationStatus)}</p>
           ) : null}
         </div>
-        <div className={cn("soft-card glow-card p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
+        <div className={cn("glow-card rounded-xl border border-border bg-background/35 p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">本次计划影响</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <AssetMetric label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} muted={decision.totalBudgetToUse === 0} />
