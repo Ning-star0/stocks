@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Loader2, Plus, Save, Trash2, UserRoundPen } from "lucide-react";
+import { Bot, Clock3, Loader2, Plus, RefreshCw, Save, Trash2, UserRoundPen } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,10 @@ export default function MemoryPage() {
 
   const manualEntries = useMemo(() => state.entries.filter((entry) => entry.source === "manual"), [state.entries]);
   const autoEntries = useMemo(() => state.entries.filter((entry) => entry.source === "auto"), [state.entries]);
+  const totalTextLength = useMemo(() => state.entries.reduce((sum, entry) => sum + entry.text.length, 0), [state.entries]);
+  const formattedUpdatedAt = state.updatedAt
+    ? new Date(state.updatedAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "暂无";
 
   async function load() {
     setLoading(true);
@@ -119,75 +123,102 @@ export default function MemoryPage() {
   }
 
   return (
-    <PageContainer className="max-w-5xl">
+    <PageContainer className="max-w-[90rem]">
       <SectionHeader
         title="交易记忆"
         action={
           <>
             <Badge variant="secondary">{state.entries.length} 条</Badge>
-            {state.updatedAt ? <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">最近更新：{new Date(state.updatedAt).toLocaleString("zh-CN")}</span> : null}
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">最近更新：{formattedUpdatedAt}</span>
             {message ? <span className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{message}</span> : null}
+            <Button size="sm" variant="outline" onClick={load} disabled={loading || saving}>
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
           </>
         }
       />
 
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <UserRoundPen className="h-4 w-4 text-primary" />
-              手动添加记忆
-            </CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">去重整理</span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4">
-          <Textarea
-            rows={3}
-            value={newMemory}
-            onChange={(event) => setNewMemory(event.target.value)}
-            placeholder="例如：单只股票最多投入总本金的 20%；不追涨停后的次日高开；ETF 更看重行业景气度。"
-          />
-          <div className="flex items-center gap-3">
-            <Button onClick={addManualMemory} disabled={saving || !newMemory.trim()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              添加记忆
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <MemoryList title="手动记忆" icon={<UserRoundPen className="h-4 w-4" />} entries={manualEntries} saving={saving} onDelete={deleteEntry} />
-        <MemoryList title="自动记忆" icon={<Bot className="h-4 w-4" />} entries={autoEntries} saving={saving} onDelete={deleteEntry} />
+      <div className="grid gap-2 md:grid-cols-4">
+        <MemoryMetric label="全部记忆" value={`${state.entries.length} 条`} />
+        <MemoryMetric label="手动维护" value={`${manualEntries.length} 条`} tone="success" />
+        <MemoryMetric label="自动沉淀" value={`${autoEntries.length} 条`} tone="warning" />
+        <MemoryMetric label="文本规模" value={`${totalTextLength} 字`} />
       </div>
 
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>高级编辑</CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{rawOpen ? "正在编辑" : "已折叠"}</span>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setRawOpen((value) => !value)}>
-            {rawOpen ? "收起" : "编辑原文"}
-          </Button>
-        </CardHeader>
-        {rawOpen ? (
-          <CardContent className="space-y-3 p-4">
-            <Textarea
-              className="font-mono"
-              rows={16}
-              value={rawContent}
-              onChange={(event) => setRawContent(event.target.value)}
-            />
-            <Button onClick={saveRaw} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              保存原文
-            </Button>
-          </CardContent>
-        ) : null}
-      </Card>
+      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
+        <div className="space-y-4 xl:sticky xl:top-20">
+          <Card className="performance-card overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <UserRoundPen className="h-4 w-4 text-primary" />
+                  添加记忆
+                </CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">手动规则</span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4">
+              <Textarea
+                rows={5}
+                value={newMemory}
+                onChange={(event) => setNewMemory(event.target.value)}
+                placeholder="例如：单只股票最多投入总本金的 20%；不追涨停后的次日高开；ETF 更看重行业景气度。"
+              />
+              <Button className="w-full justify-center" onClick={addManualMemory} disabled={saving || !newMemory.trim()}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                添加记忆
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="performance-card overflow-hidden">
+            <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>高级编辑</CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{rawOpen ? "正在编辑" : "已折叠"}</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setRawOpen((value) => !value)}>
+                {rawOpen ? "收起" : "编辑原文"}
+              </Button>
+            </CardHeader>
+            {rawOpen ? (
+              <CardContent className="space-y-3 p-4">
+                <Textarea
+                  className="min-h-[320px] font-mono text-xs"
+                  value={rawContent}
+                  onChange={(event) => setRawContent(event.target.value)}
+                />
+                <Button className="w-full justify-center" onClick={saveRaw} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  保存原文
+                </Button>
+              </CardContent>
+            ) : (
+              <CardContent className="p-4">
+                <div className="glow-card rounded-xl border border-border bg-muted/15 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  原文编辑用于一次性整理全部记忆，日常维护优先使用上方添加和右侧删除。
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <MemoryList title="手动记忆" icon={<UserRoundPen className="h-4 w-4" />} entries={manualEntries} saving={saving} onDelete={deleteEntry} />
+          <MemoryList title="自动记忆" icon={<Bot className="h-4 w-4" />} entries={autoEntries} saving={saving} onDelete={deleteEntry} />
+        </div>
+      </div>
     </PageContainer>
+  );
+}
+
+function MemoryMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "success" | "warning" | "neutral" }) {
+  return (
+    <div className="glow-card rounded-xl border border-border/70 bg-card/80 px-3 py-2.5 shadow-sm">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${tone === "success" ? "text-emerald-500" : tone === "warning" ? "text-amber-500" : "text-foreground"}`}>{value}</div>
+    </div>
   );
 }
 
@@ -215,16 +246,22 @@ function MemoryList({
           <Badge variant="secondary">{entries.length}</Badge>
         </div>
       </CardHeader>
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         {entries.length ? (
-          <div className="space-y-2">
+          <div className="grid max-h-[680px] gap-2 overflow-auto pr-1">
             {entries.map((entry) => (
-              <div key={entry.id} className="glow-card flex items-start gap-3 rounded-xl border border-border bg-background/30 p-3">
-                <p className="min-w-0 flex-1 text-sm leading-6">{entry.text}</p>
+              <div key={entry.id} className="glow-card grid gap-2 rounded-xl border border-border bg-background/30 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Clock3 className="h-3 w-3" />
+                    <span>{entry.source === "manual" ? "手动维护" : "自动沉淀"}</span>
+                  </div>
+                  <p className="text-sm leading-6">{entry.text}</p>
+                </div>
                 <button
                   onClick={() => onDelete(entry.id)}
                   disabled={saving}
-                  className="glow-card glow-click-card rounded-lg border border-transparent p-1 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-red-400 disabled:opacity-50"
+                  className="glow-card glow-click-card h-8 w-8 rounded-lg border border-transparent p-1 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-red-400 disabled:opacity-50"
                   aria-label="删除记忆"
                 >
                   <Trash2 className="h-4 w-4" />
