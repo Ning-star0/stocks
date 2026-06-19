@@ -94,7 +94,7 @@ export function DecisionFeedbackForm({
   }
 
   return (
-    <form method="post" action="/api/decision-feedback" className="space-y-4">
+    <form method="post" action="/api/decision-feedback" className="space-y-3">
       <input type="hidden" name="decisionId" value={decisionId} />
       <input type="hidden" name="token" value={token} />
       <input type="hidden" name="feedbackAction" value={action} />
@@ -136,7 +136,7 @@ export function DecisionFeedbackForm({
                 </option>
               ))}
             </select>
-            <p className="text-xs text-muted-foreground">实际买卖必须绑定一条交易计划，并按 100 股/份整数手记录；继续观察、未采纳或其他决策不会保存成交字段。</p>
+            <p className="text-xs leading-5 text-muted-foreground">实际买卖必须绑定一条交易计划，并按 100 股/份整数手记录；继续观察、未采纳或其他决策不会保存成交字段。</p>
           </div>
         ) : null}
         <div className="space-y-2">

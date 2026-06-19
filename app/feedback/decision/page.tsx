@@ -75,32 +75,28 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
     : datetimeLocalValue();
 
   return (
-    <PageContainer className="max-w-2xl">
+    <PageContainer className="max-w-[76rem]">
       <SectionHeader title="反馈最终决策" />
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>策略采纳记录</CardTitle>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">用于复盘系统建议和真实操作的差异。</p>
-            </div>
-            <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              {feedbackActionLabel(currentAction)}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5 p-4">
-          {saved ? (
-            <div className="glow-card rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
-              已保存反馈：{feedbackActionLabel(currentAction)}
-            </div>
-          ) : null}
+      {saved ? (
+        <div className="glow-card rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
+          已保存反馈：{feedbackActionLabel(currentAction)}
+        </div>
+      ) : null}
 
-          <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
-            <div className="text-xs text-muted-foreground">AI 策略观察摘要</div>
-            <p className="mt-2 text-sm leading-6">{summary}</p>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)] xl:items-start">
+        <Card className="performance-card overflow-hidden xl:sticky xl:top-20">
+          <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle>AI 策略观察摘要</CardTitle>
+              <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">
+                {orders.length} 条计划
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 p-4">
+            <p className="rounded-xl border border-border/70 bg-background/35 p-3 text-sm leading-6">{summary}</p>
             {orders.length ? (
-              <div className="mt-4 space-y-2">
+              <div className="space-y-2">
                 {orders.map((order) => (
                   <div key={`${order.type}-${order.symbol}`} className="glow-card rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -122,22 +118,39 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
                   </div>
                 ))}
               </div>
-            ) : null}
-          </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-border bg-muted/10 p-4 text-sm text-muted-foreground">这次策略没有返回可同步的买卖计划。</div>
+            )}
+          </CardContent>
+        </Card>
 
-          <DecisionFeedbackForm
-            decisionId={decision.id}
-            token={token}
-            currentAction={currentAction}
-            feedbackNote={decision.feedback?.note}
-            tradeOptions={tradeOptions}
-            initialTradeKey={selectedTrade}
-            initialExecutedPrice={initialExecutedPrice}
-            initialExecutedShares={initialExecutedShares}
-            initialExecutedAt={initialExecutedAt}
-          />
-        </CardContent>
-      </Card>
+        <Card className="performance-card overflow-hidden">
+          <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>策略采纳记录</CardTitle>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">记录真实操作，用于复盘系统建议和资金流水。</p>
+              </div>
+              <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                {feedbackActionLabel(currentAction)}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4">
+            <DecisionFeedbackForm
+              decisionId={decision.id}
+              token={token}
+              currentAction={currentAction}
+              feedbackNote={decision.feedback?.note}
+              tradeOptions={tradeOptions}
+              initialTradeKey={selectedTrade}
+              initialExecutedPrice={initialExecutedPrice}
+              initialExecutedShares={initialExecutedShares}
+              initialExecutedAt={initialExecutedAt}
+            />
+          </CardContent>
+        </Card>
+      </div>
     </PageContainer>
   );
 }
