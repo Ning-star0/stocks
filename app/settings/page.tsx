@@ -231,65 +231,68 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
-      <div className="space-y-4">
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>外观与账号</CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">账号会话</span>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3 p-4">
-          <div className="mr-auto min-w-0">
-            <div className="text-sm font-medium">主题：跟随系统</div>
-          </div>
-          <ThemeToggle />
-          <LogoutButton />
-        </CardContent>
-      </Card>
+        <div className="space-y-4">
+          <Card className="performance-card overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>外观与账号</CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">账号会话</span>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3 p-4">
+              <div className="mr-auto min-w-0">
+                <div className="text-sm font-medium">主题：跟随系统</div>
+                <div className="mt-1 text-xs text-muted-foreground">外观切换和退出登录放在一起，避免分散到页面底部。</div>
+              </div>
+              <ThemeToggle />
+              <LogoutButton />
+            </CardContent>
+          </Card>
 
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5" />
-              AI 接口配置
-            </CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{aiProvider}</span>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{hasExistingKey ? "密钥已配置" : "未配置密钥"}</span>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">并发 {focusConcurrency}</span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 p-4">
-          <div className="space-y-2">
-            <span className="block text-sm font-medium mb-1">API 地址</span>
-            <Input id="baseUrl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" />
-          </div>
+          <Card className="performance-card overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5" />
+                  AI 接口配置
+                </CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{aiProvider}</span>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{hasExistingKey ? "密钥已配置" : "未配置密钥"}</span>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">并发 {focusConcurrency}</span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_13rem]">
+            <div className="space-y-2">
+              <span className="block text-sm font-medium">API 地址</span>
+              <Input id="baseUrl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" />
+            </div>
 
-          <div className="space-y-2">
-            <span className="block text-sm font-medium mb-1">API 密钥</span>
-            <Input id="apiKey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasExistingKey ? "已配置，留空则不修改" : "请输入密钥"} autoComplete="off" />
-          </div>
+            <div className="space-y-2">
+              <span className="block text-sm font-medium">API 密钥</span>
+              <Input id="apiKey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasExistingKey ? "已配置，留空则不修改" : "请输入密钥"} autoComplete="off" />
+            </div>
 
-          <div className="space-y-2">
-            <span className="block text-sm font-medium mb-1">厂商</span>
-            <Select value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="qwen">通义千问</option>
-              <option value="zhipu">智谱</option>
-              <option value="moonshot">Moonshot</option>
-              <option value="openai-compatible">OpenAI 兼容接口</option>
-            </Select>
+            <div className="space-y-2">
+              <span className="block text-sm font-medium">厂商</span>
+              <Select value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI</option>
+                <option value="qwen">通义千问</option>
+                <option value="zhipu">智谱</option>
+                <option value="moonshot">Moonshot</option>
+                <option value="openai-compatible">OpenAI 兼容接口</option>
+              </Select>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <span className="block text-sm font-medium mb-1">旗舰模型</span>
+              <span className="block text-sm font-medium">旗舰模型</span>
               <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-v4-pro" />
             </div>
             <div className="space-y-2">
-              <span className="block text-sm font-medium mb-1">普通模型</span>
+              <span className="block text-sm font-medium">普通模型</span>
               <Input value={standardModel} onChange={(e) => setStandardModel(e.target.value)} placeholder="deepseek-v4-flash" />
             </div>
           </div>
@@ -331,38 +334,44 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <Button onClick={save} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              {saved ? "已保存" : "保存配置"}
-            </Button>
-            <Button variant="outline" onClick={testConnection} disabled={testing}>
-              <Server className="h-4 w-4" />
-              {testing ? "测试中..." : "测试连接"}
-            </Button>
+          <div className="rounded-xl border border-border bg-muted/15 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="text-xs leading-5 text-muted-foreground">
+                保存会更新后续 AI 分析任务；测试连接只验证当前接口地址、模型和可用密钥。
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                <Button onClick={save} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  {saved ? "已保存" : "保存配置"}
+                </Button>
+                <Button variant="outline" onClick={testConnection} disabled={testing}>
+                  <Server className="h-4 w-4" />
+                  {testing ? "测试中..." : "测试连接"}
+                </Button>
+              </div>
+            </div>
+            {testResult ? <div className="mt-3 rounded-lg border border-border bg-background/45 px-3 py-2 text-sm">{testResult}</div> : null}
+            {error ? <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
           </div>
+            </CardContent>
+          </Card>
 
-          {testResult ? <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">{testResult}</div> : null}
-          {error ? <div className="glow-card rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
-        </CardContent>
-      </Card>
+        </div>
 
-      </div>
-
-      <div className="space-y-4 xl:sticky xl:top-20">
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              策略推送
-            </CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushEnabled ? "已启用" : "未启用"}</span>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushProvider}</span>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushReady ? "可测试" : "待配置"}</span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 p-4">
+        <div className="space-y-4 xl:sticky xl:top-20">
+          <Card className="performance-card overflow-hidden">
+            <CardHeader className="border-b border-border/60 bg-background/20 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Bell className="h-5 w-5" />
+                  策略推送
+                </CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushEnabled ? "已启用" : "未启用"}</span>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushProvider}</span>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{pushReady ? "可测试" : "待配置"}</span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
           <label className="glow-card glow-click-card flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
             <span>
               <span className="block text-sm font-medium">启用实时推送</span>
@@ -414,21 +423,25 @@ export default function SettingsPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={savePushConfig} disabled={pushSaving}>
-              {pushSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              保存推送配置
-            </Button>
-            <Button variant="outline" onClick={testPush} disabled={pushTesting || !pushReady}>
-              {pushTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              测试推送
-            </Button>
-          </div>
-
-          {pushMessage ? <div className="glow-card rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">{pushMessage}</div> : null}
-        </CardContent>
-      </Card>
-      </div>
+              <div className="rounded-xl border border-border bg-muted/15 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-xs leading-5 text-muted-foreground">保存后会用于后台策略推送；测试按钮只在配置完整时启用。</div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    <Button onClick={savePushConfig} disabled={pushSaving}>
+                      {pushSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      保存推送配置
+                    </Button>
+                    <Button variant="outline" onClick={testPush} disabled={pushTesting || !pushReady}>
+                      {pushTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      测试推送
+                    </Button>
+                  </div>
+                </div>
+                {pushMessage ? <div className="mt-3 rounded-lg border border-border bg-background/45 px-3 py-2 text-sm">{pushMessage}</div> : null}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </PageContainer>
   );
