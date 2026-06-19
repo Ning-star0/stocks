@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, CircleDot, ShieldCheck } from "lucide-react";
 
 import { motionDurations, motionEase } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -69,13 +69,26 @@ export function AppHeader({ signedIn }: { signedIn: boolean }) {
           : `transform ${motionDurations.page}ms ${motionEase}, opacity 240ms ${motionEase}, background-color 240ms ${motionEase}, border-color 240ms ${motionEase}`
       }}
     >
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-4 px-3 py-2 sm:px-5 sm:py-3 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[90rem] items-center justify-between gap-3 px-3 py-2 sm:px-5 sm:py-3 lg:px-7">
         {signedIn ? (
-          <AppNav />
+          <>
+            <div className="hidden shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/58 px-3 py-2 text-sm font-semibold shadow-sm lg:flex">
+              <BarChart3 className="h-4 w-4 text-primary" />
+              <span>股票 AI 监控</span>
+            </div>
+            <div className="flex min-w-0 flex-1 justify-center">
+              <AppNav />
+            </div>
+            <div className="hidden shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/58 px-3 py-2 text-xs text-muted-foreground shadow-sm md:flex">
+              <CircleDot className="h-3.5 w-3.5 text-emerald-500" />
+              运行中
+            </div>
+          </>
         ) : (
-          <div className="flex shrink-0 items-center gap-2 font-semibold">
+          <div className="glow-card mx-auto flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/58 px-4 py-2 font-semibold shadow-sm">
             <BarChart3 className="h-5 w-5 text-primary" />
             股票 AI 监控
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
           </div>
         )}
       </div>

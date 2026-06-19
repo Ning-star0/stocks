@@ -78,7 +78,7 @@ export function AppNav() {
   return (
     <nav
       ref={navRef}
-      className="liquid-nav liquid-glass relative flex h-12 w-max max-w-[calc(100vw-1rem)] items-center gap-1.5 overflow-x-auto rounded-full p-1.5 sm:max-w-[calc(100vw-2rem)]"
+      className="liquid-nav liquid-glass relative flex h-12 w-max max-w-full items-center gap-1.5 overflow-x-auto rounded-full p-1.5"
     >
       {activeIndex >= 0 ? (
         <span
