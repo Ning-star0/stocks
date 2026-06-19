@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Activity, Bot, Clock3, Crosshair, Database, ListChecks, Newspaper, Server, ShieldCheck } from "lucide-react";
+import { Activity, Bot, Clock3, Crosshair, Database, ListChecks, Newspaper, Server, ShieldCheck, Sparkles } from "lucide-react";
 
 import { ApiHealthPanel } from "@/components/ApiHealthPanel";
 import { ApiUsagePanel } from "@/components/ApiUsagePanel";
@@ -134,76 +134,106 @@ const principles = [
 ];
 
 export default function ApiDocsPage() {
-  const endpointCount = apiGroups.reduce((sum, group) => sum + group.endpoints.length, 0);
-  const aiCount = apiGroups.flatMap((group) => group.endpoints).filter((endpoint) => endpoint.cost === "AI").length;
+  const endpoints = apiGroups.flatMap((group) => group.endpoints);
+  const endpointCount = endpoints.length;
+  const aiCount = endpoints.filter((endpoint) => endpoint.cost === "AI").length;
+  const writeCount = endpoints.filter((endpoint) => endpoint.cost === "写库").length;
+  const publicCount = endpoints.filter((endpoint) => endpoint.auth === "公开").length;
 
   return (
-    <PageContainer>
-      <SectionHeader
-        title="API 与系统状态"
-        action={
-          <div className="grid min-w-[220px] grid-cols-2 gap-2 text-sm">
-            <Metric label="接口数" value={endpointCount} />
-            <Metric label="AI 接口" value={aiCount} />
-          </div>
-        }
-      />
+    <PageContainer className="max-w-[90rem]">
+      <SectionHeader title="API 与系统状态" />
 
-      <div className="grid gap-6">
-        <ApiHealthPanel />
-        <ApiUsagePanel />
+      <div className="grid gap-2 md:grid-cols-4">
+        <Metric label="接口总数" value={endpointCount} />
+        <Metric label="AI 消耗" value={aiCount} tone="danger" />
+        <Metric label="写库接口" value={writeCount} tone="warning" />
+        <Metric label="公开接口" value={publicCount} tone="success" />
       </div>
 
-      <Card className="performance-card overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>调用规则</CardTitle>
-            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">安全边界</span>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-2 p-4 md:grid-cols-2">
-          {principles.map((item) => (
-            <div key={item} className="glow-card rounded-lg border border-border bg-muted/15 px-3 py-2 text-sm leading-6 text-muted-foreground">
-              {item}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] xl:items-start">
+        <div className="space-y-4 xl:sticky xl:top-20">
+          <ApiHealthPanel />
+          <ApiUsagePanel />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {apiGroups.map((group) => (
-          <Card key={group.title} className="performance-card overflow-hidden">
+          <Card className="performance-card overflow-hidden">
             <CardHeader className="border-b border-border/60 bg-background/20 p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-md bg-primary/10 p-2 text-primary">{group.icon}</div>
-                <div className="min-w-0">
-                  <CardTitle>{group.title}</CardTitle>
-                </div>
-                <span className="ml-auto rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{group.endpoints.length} 个接口</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  调用规则
+                </CardTitle>
+                <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">安全边界</span>
               </div>
             </CardHeader>
-            <CardContent className="space-y-2 p-4">
-              {group.endpoints.map((endpoint) => (
-                <EndpointRow key={`${endpoint.method}-${endpoint.path}`} endpoint={endpoint} />
+            <CardContent className="grid gap-2 p-4">
+              {principles.map((item, index) => (
+                <div key={item} className="glow-card grid gap-2 rounded-lg border border-border bg-muted/15 px-3 py-2 text-sm leading-6 text-muted-foreground sm:grid-cols-[1.5rem_minmax(0,1fr)]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
+                  <span>{item}</span>
+                </div>
               ))}
             </CardContent>
           </Card>
-        ))}
+        </div>
+
+        <Card className="performance-card overflow-hidden">
+          <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 bg-background/20 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>接口目录</CardTitle>
+              <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{apiGroups.length} 个模块</span>
+            </div>
+            <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{endpointCount} 个接口</span>
+          </CardHeader>
+          <CardContent className="grid gap-3 p-3 sm:p-4">
+            {apiGroups.map((group) => (
+              <ApiGroupSection key={group.title} group={group} />
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </PageContainer>
   );
 }
 
+function ApiGroupSection({ group }: { group: { title: string; icon: ReactNode; description: string; endpoints: Endpoint[] } }) {
+  return (
+    <section className="glow-card rounded-xl border border-border bg-background/35 p-3">
+      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary">{group.icon}</div>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold">{group.title}</h2>
+              <div className="mt-1 text-xs text-muted-foreground">{group.endpoints.length} 个接口</div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">{group.description}</p>
+        </div>
+        <div className="grid gap-2">
+          {group.endpoints.map((endpoint) => (
+            <EndpointRow key={`${endpoint.method}-${endpoint.path}`} endpoint={endpoint} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
   return (
-    <div className="glow-card rounded-xl border border-border bg-background/35 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={methodVariant(endpoint.method)}>{endpoint.method}</Badge>
-        <code className="text-sm text-foreground">{endpoint.path}</code>
-        <Badge variant={endpoint.auth === "公开" ? "outline" : "secondary"}>{endpoint.auth ?? "登录"}</Badge>
-        {endpoint.cost ? <Badge variant={costVariant(endpoint.cost)}>{endpoint.cost}</Badge> : null}
+    <div className="glow-card rounded-lg border border-border/80 bg-card/65 px-3 py-2">
+      <div className="grid gap-2 xl:grid-cols-[minmax(190px,0.82fr)_minmax(0,1fr)_auto] xl:items-start">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Badge variant={methodVariant(endpoint.method)}>{endpoint.method}</Badge>
+          <code className="min-w-0 break-all text-xs text-foreground sm:text-sm">{endpoint.path}</code>
+        </div>
+        <p className="min-w-0 text-sm leading-6 text-muted-foreground">{endpoint.description}</p>
+        <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
+          <Badge variant={endpoint.auth === "公开" ? "outline" : "secondary"}>{endpoint.auth ?? "登录"}</Badge>
+          {endpoint.cost ? <Badge variant={costVariant(endpoint.cost)}>{endpoint.cost}</Badge> : null}
+        </div>
       </div>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{endpoint.description}</p>
       {endpoint.body || endpoint.notes ? (
         <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
           {endpoint.body ? (
@@ -224,11 +254,18 @@ function EndpointRow({ endpoint }: { endpoint: Endpoint }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "success" | "warning" | "danger" | "neutral" }) {
+  const toneClass = {
+    success: "text-emerald-500",
+    warning: "text-amber-500",
+    danger: "text-rose-500",
+    neutral: "text-foreground"
+  }[tone];
+
   return (
-    <div className="glow-card rounded-lg border border-border bg-muted/20 px-3 py-2">
+    <div className="glow-card rounded-xl border border-border/70 bg-card/80 px-3 py-2.5 shadow-sm">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${toneClass}`}>{value}</div>
     </div>
   );
 }
