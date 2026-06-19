@@ -169,12 +169,12 @@ export function StockChartPanel({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-4">
-        <div className="relative min-h-[460px] md:min-h-[520px]">
+      <CardContent className="p-3 sm:p-4">
+        <div className="relative min-h-[360px] md:min-h-[430px]">
           {candles.length ? (
             <StockChart candles={candles} currency={currency} symbol={symbol} unit={unit} interval={interval} />
           ) : (
-            <div className="glow-card flex min-h-[460px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:min-h-[520px]">
+            <div className="glow-card flex min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:min-h-[430px]">
               暂无可展示的 K 线数据。
             </div>
           )}

@@ -129,7 +129,7 @@ export function StockChart({
 
   if (!data.length) {
     return (
-      <div className={cn(motionClassNames.shimmer, "glow-card flex h-[460px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:h-[520px]")}>
+      <div className={cn(motionClassNames.shimmer, "glow-card flex h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-sm text-muted-foreground md:h-[430px]")}>
         暂无可展示的 K 线数据。
       </div>
     );
@@ -166,7 +166,7 @@ export function StockChart({
 
       <div className="space-y-3">
         {hovered ? <InfoPanel point={hovered} cursor={cursor} currency={currency} symbol={symbol} unit={unit} showMovingAverages={showMovingAverages} isTimeSharing={isTimeSharing} /> : null}
-        <div className={cn(motionClassNames.chartEnter, "glow-card h-[460px] min-w-0 overflow-hidden rounded-xl border border-border bg-white md:h-[520px] dark:bg-[#0d1118]")}>
+        <div className={cn(motionClassNames.chartEnter, "glow-card h-[360px] min-w-0 overflow-hidden rounded-xl border border-border bg-white md:h-[430px] dark:bg-[#0d1118]")}>
           <svg
             className="h-full w-full"
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}

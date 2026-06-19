@@ -117,7 +117,7 @@ export default async function StockDetailPage({
                 <span className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground">{quoteSymbol}</span>
                 {watchlistItem ? <RiskBadge risk={watchlistItem.riskLevel} /> : null}
               </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <QuoteMetric
                   label="当前价格"
                   value={displayQuote.price === null ? "--" : formatPriceValue(displayQuote.price, { currency: quote.currency, symbol: quoteSymbol })}
@@ -130,6 +130,7 @@ export default async function StockDetailPage({
                 />
                 <QuoteMetric label="成交量" value={displayQuote.volume === null ? "--" : formatNumber(displayQuote.volume)} />
                 <QuoteMetric label="更新时间" value={displayQuote.updatedAt ? new Date(displayQuote.updatedAt).toLocaleString("zh-CN") : "--"} />
+                <QuoteMetric label="行情状态" value={quote.isMock ? "模拟数据" : quote.status || "实时"} />
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
@@ -157,7 +158,7 @@ export default async function StockDetailPage({
         }}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
         <StockChartPanel
           symbol={quoteSymbol}
           initialCandles={candles}
@@ -167,7 +168,7 @@ export default async function StockDetailPage({
           unit={isIndex ? "point" : undefined}
         />
 
-        <div className="space-y-5">
+        <div className="space-y-4 xl:sticky xl:top-20">
           {indicators ? (
             <IndicatorPanel
               indicators={indicators}
