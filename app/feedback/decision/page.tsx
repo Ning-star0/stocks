@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
+import { CheckCircle2, ClipboardList, TrendingDown, TrendingUp } from "lucide-react";
 
 import { DecisionFeedbackForm } from "@/app/feedback/decision/DecisionFeedbackForm";
 import { StockIdentity } from "@/components/StockIdentity";
@@ -52,6 +54,8 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
   const summary = String(json.summary ?? "暂无摘要。");
   const tradeOptions = [...normalizeOrders(json.orders, "买入/增持", "buy"), ...normalizeOrders(json.sellOrders, "卖出/减仓", "sell")];
   const orders = tradeOptions.slice(0, 4);
+  const buyCount = tradeOptions.filter((order) => order.side === "buy").length;
+  const sellCount = tradeOptions.filter((order) => order.side === "sell").length;
   const hasSyncedTradeFeedback = Boolean(decision.feedback?.positionSyncedAt && decision.feedback.tradeSymbol && decision.feedback.tradeSide);
   const shouldSyncCurrentAction = currentAction === "bought" || currentAction === "sold";
   const selectedTrade = hasSyncedTradeFeedback && decision.feedback?.tradeSymbol && decision.feedback.tradeSide
@@ -75,7 +79,7 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
     : datetimeLocalValue();
 
   return (
-    <PageContainer className="max-w-[76rem]">
+    <PageContainer className="max-w-[90rem]">
       <SectionHeader title="反馈最终决策" />
       {saved ? (
         <div className="glow-card rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
@@ -83,7 +87,14 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)] xl:items-start">
+      <div className="grid gap-2 md:grid-cols-4">
+        <DecisionMetric icon={<ClipboardList className="h-4 w-4" />} label="可反馈计划" value={`${tradeOptions.length} 条`} />
+        <DecisionMetric icon={<TrendingUp className="h-4 w-4" />} label="买入/增持" value={`${buyCount} 条`} tone="success" />
+        <DecisionMetric icon={<TrendingDown className="h-4 w-4" />} label="卖出/减仓" value={`${sellCount} 条`} tone="danger" />
+        <DecisionMetric icon={<CheckCircle2 className="h-4 w-4" />} label="成交同步" value={hasSyncedTradeFeedback ? "已同步" : "未同步"} tone={hasSyncedTradeFeedback ? "success" : "neutral"} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)] xl:items-start">
         <Card className="performance-card overflow-hidden xl:sticky xl:top-20">
           <CardHeader className="border-b border-border/70 bg-muted/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -152,6 +163,24 @@ export default async function DecisionFeedbackPage({ searchParams }: { searchPar
         </Card>
       </div>
     </PageContainer>
+  );
+}
+
+function DecisionMetric({ icon, label, value, tone = "neutral" }: { icon: ReactNode; label: string; value: string; tone?: "success" | "danger" | "neutral" }) {
+  const toneClass = {
+    success: "text-emerald-500",
+    danger: "text-rose-500",
+    neutral: "text-foreground"
+  }[tone];
+
+  return (
+    <div className="glow-card rounded-xl border border-border/70 bg-card/80 px-3 py-2.5 shadow-sm">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className={toneClass}>{icon}</span>
+        {label}
+      </div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${toneClass}`}>{value}</div>
+    </div>
   );
 }
 
