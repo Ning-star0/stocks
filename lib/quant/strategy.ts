@@ -14,6 +14,7 @@ import {
   valueOrZero
 } from "@/lib/quant/math";
 import type { QuantAction, QuantInput, QuantSectorBias, QuantSignal, QuantStrategyContext } from "@/lib/quant/strategyTypes";
+import { TRADE_FEE_MIN_BASE, TRADE_FEE_MINIMUM, TRADE_LOT_SIZE } from "@/lib/trading/rules";
 
 export type { QuantAction, QuantInput, QuantMarketRegime, QuantSectorBias, QuantSignal, QuantStrategyContext } from "@/lib/quant/strategyTypes";
 
@@ -220,6 +221,34 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     newPositionProtection
   });
   const suggestedSellShares = estimateSellShares(input.holdingShares, suggestedSellRatioPct);
+  const entryPlan = buildEntryPlan({
+    action,
+    price,
+    support,
+    resistance,
+    effectiveStopLoss,
+    effectiveTakeProfit,
+    buyScore,
+    sellScore,
+    riskScore,
+    thresholds,
+    suggestedBuyCapitalPct,
+    riskRewardRatio,
+    nearSupport,
+    nearResistance,
+    marketContext,
+    sectorBias
+  });
+  const tradeConstraints = buildTradeConstraints({
+    action,
+    price,
+    suggestedBuyCapitalPct,
+    suggestedSellShares,
+    holdingShares: input.holdingShares,
+    riskRewardRatio,
+    marketContext,
+    sectorBias
+  });
 
   return {
     action,
@@ -250,7 +279,9 @@ export function buildQuantSignal(input: QuantInput): QuantSignal {
     entryZone: formatZone(support, indicators.sma20, price),
     stopLoss: formatLevel(effectiveStopLoss),
     takeProfit: formatLevel(effectiveTakeProfit),
+    entryPlan,
     exitPlan: buildExitPlan({ action, suggestedSellRatioPct, suggestedSellShares, effectiveStopLoss, effectiveTakeProfit, sellScore }),
+    tradeConstraints,
     reasons,
     risks
   };
@@ -318,7 +349,12 @@ function emptySignal(reason: string): QuantSignal {
     entryZone: "--",
     stopLoss: "--",
     takeProfit: "--",
+    entryPlan: "行情价格不可用，不生成买入或增持计划。",
     exitPlan: "行情不可用，不生成卖出或减仓计划。",
+    tradeConstraints: [
+      `交易必须按 ${TRADE_LOT_SIZE} 股/份整数手执行。`,
+      `买入和卖出手续费均按成交金额万分之五估算，最低 ${TRADE_FEE_MINIMUM} 元。`
+    ],
     reasons: [reason],
     risks: [reason]
   };
@@ -505,6 +541,73 @@ function buildExitPlan(input: {
   const actionLabel = input.action === "sell" ? "卖出" : "减仓";
   const sharesText = input.suggestedSellShares > 0 ? `，约 ${input.suggestedSellShares} 股/份` : "";
   return `${actionLabel}观察：建议比例 ${input.suggestedSellRatioPct}%${sharesText}；止损边界 ${formatLevel(input.effectiveStopLoss)}，止盈/压力边界 ${formatLevel(input.effectiveTakeProfit)}。`;
+}
+
+function buildEntryPlan(input: {
+  action: QuantAction;
+  price: number;
+  support: number | null;
+  resistance: number | null;
+  effectiveStopLoss: number | null;
+  effectiveTakeProfit: number | null;
+  buyScore: number;
+  sellScore: number;
+  riskScore: number;
+  thresholds: ReturnType<typeof adjustedThresholds>;
+  suggestedBuyCapitalPct: number;
+  riskRewardRatio: number | null;
+  nearSupport: boolean;
+  nearResistance: boolean;
+  marketContext: QuantStrategyContext;
+  sectorBias: QuantSectorBias;
+}) {
+  const threshold = input.action === "add" ? input.thresholds.add : input.thresholds.buy;
+  const scoreText = `买入分 ${round(input.buyScore)}/${threshold}，卖出分 ${round(input.sellScore)}/${input.thresholds.reduce}，风险分 ${round(input.riskScore)}`;
+  const zoneText = `入场区间 ${formatZone(input.support, null, input.price)}，止损 ${formatLevel(input.effectiveStopLoss)}，首个止盈/压力 ${formatLevel(input.effectiveTakeProfit)}`;
+  const rrText = input.riskRewardRatio !== null ? `风险收益比 ${input.riskRewardRatio.toFixed(2)} : 1` : "风险收益比暂无有效估算";
+
+  if (input.action === "buy" || input.action === "add") {
+    const actionLabel = input.action === "add" ? "增持" : "买入";
+    return `${actionLabel}观察：${scoreText}，建议使用总本金约 ${input.suggestedBuyCapitalPct}%；${zoneText}，${rrText}。只有价格未明显脱离支撑/计划区间、量能没有萎缩且风险分不继续抬升时执行。`;
+  }
+
+  const blockers = [];
+  if (input.buyScore < threshold) blockers.push(`买入分未过动态阈值（${round(input.buyScore)} < ${threshold}）`);
+  if (input.sellScore >= input.thresholds.reduce) blockers.push(`卖出/减仓分偏高（${round(input.sellScore)} >= ${input.thresholds.reduce}）`);
+  if (input.riskScore >= 68) blockers.push(`风险分偏高（${round(input.riskScore)}）`);
+  if (input.riskRewardRatio !== null && input.riskRewardRatio < 1.25) blockers.push(`风险收益比不足（${input.riskRewardRatio.toFixed(2)} : 1）`);
+  if (input.nearResistance) blockers.push("价格接近压力位，追高性价比下降");
+  if (input.marketContext.marketRegime === "risk_off") blockers.push("市场环境偏防守");
+  if (input.sectorBias === "overheated") blockers.push("行业热度偏高，需等待回调或突破确认");
+  if (!blockers.length && input.nearSupport) blockers.push("虽然靠近支撑，但动量或置信度尚未形成可执行买点");
+  return `暂不买入：${scoreText}；${blockers.slice(0, 3).join("；") || "买入条件尚未同时满足"}。${zoneText}，后续只有买入分重新站上阈值且 ${rrText} 改善后再考虑。`;
+}
+
+function buildTradeConstraints(input: {
+  action: QuantAction;
+  price: number;
+  suggestedBuyCapitalPct: number;
+  suggestedSellShares: number;
+  holdingShares?: number | null;
+  riskRewardRatio: number | null;
+  marketContext: QuantStrategyContext;
+  sectorBias: QuantSectorBias;
+}) {
+  const constraints = [
+    `买入和卖出都按成交金额万分之五估算手续费，最低按 ${TRADE_FEE_MIN_BASE} 元计费，即最低手续费 ${TRADE_FEE_MINIMUM} 元。`,
+    `A 股/ETF 买卖数量必须按 ${TRADE_LOT_SIZE} 股/份整数手执行，低于 ${TRADE_LOT_SIZE} 股/份不生成交易计划。`
+  ];
+  if (input.action === "buy" || input.action === "add") {
+    const estimatedAmount = input.suggestedBuyCapitalPct > 0 ? `建议买入资金约占总本金 ${input.suggestedBuyCapitalPct}%` : "当前不建议分配买入资金";
+    constraints.push(`${estimatedAmount}；成交金额低于 ${TRADE_FEE_MIN_BASE / 2} 元时手续费效率偏低，系统会过滤或降级为观察。`);
+  }
+  if (input.action === "sell" || input.action === "reduce") {
+    constraints.push(`建议卖出 ${input.suggestedSellShares} 股/份；当前持仓 ${input.holdingShares ?? 0} 股/份，卖出数量不得超过持仓且必须按整手计算。`);
+  }
+  if (input.marketContext.marketRegime === "risk_off") constraints.push("市场偏防守时保留更多现金缓冲，提高买入门槛并降低减仓触发门槛。");
+  if (input.sectorBias === "overheated") constraints.push("行业过热时不追高，买入只能等待回调、支撑确认或突破后复核。");
+  if (input.riskRewardRatio !== null && input.riskRewardRatio < 1.25) constraints.push("风险收益比低于 1.25 : 1 时，买入计划会被降级或过滤。");
+  return [...new Set(constraints)].slice(0, 5);
 }
 
 function rsiScore(value: number | null) {

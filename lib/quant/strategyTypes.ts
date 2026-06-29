@@ -45,7 +45,9 @@ export type QuantSignal = {
   entryZone: string;
   stopLoss: string;
   takeProfit: string;
+  entryPlan: string;
   exitPlan: string;
+  tradeConstraints: string[];
   reasons: string[];
   risks: string[];
 };

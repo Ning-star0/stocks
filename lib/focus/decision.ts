@@ -948,6 +948,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         shares,
         amount,
         ...planMeta,
+        riskControl: order.riskControl || buildBuyRiskControl(candidate),
+        invalidIf: order.invalidIf || buildBuyInvalidIf(candidate),
         estimatedFee: fee,
         totalCost: Number((amount + fee).toFixed(2)),
         feeRule: TRADING_FEE_RULE.description
@@ -991,6 +993,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         shares,
         amount,
         ...planMeta,
+        riskControl: order.riskControl || buildSellRiskControl(candidate),
+        invalidIf: order.invalidIf || buildSellInvalidIf(candidate),
         estimatedFee: fee,
         netProceeds,
         estimatedPnl,
@@ -1093,6 +1097,7 @@ function inferBuyPlanType(candidate?: Candidate | null): DecisionSchemaValue["or
 
 function buildEntryCondition(input: { candidate?: Candidate | null; triggerPrice: number | null }) {
   const signal = input.candidate?.quantSignal;
+  if (signal?.entryPlan) return signal.entryPlan;
   const triggerText = input.triggerPrice ? `价格接近或有效站上 ${input.triggerPrice}` : "价格回到计划区间";
   const scoreText = signal ? `买入分维持在 ${signal.adjustedBuyThreshold} 以上，风险分不继续抬升` : "最新分析维持偏多或条件入场";
   const volumeText = signal?.volumeRatio !== null && signal?.volumeRatio !== undefined ? `量能不低于近期均量的 ${Math.max(0.8, Math.min(1.2, signal.volumeRatio)).toFixed(2)} 倍附近` : "量能没有明显萎缩";
@@ -1131,6 +1136,38 @@ function buildBuyPositionImpact(input: { candidate?: Candidate | null; shares: n
     stopLossPrice: normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss)
   });
   return `${input.candidate?.isHolding ? "增持" : "新建"} ${input.shares} 股/份，预计占用 ${formatPlanMoney(amount + fee)}；单笔价格风险约 ${formatPlanMoney(risk)}。`;
+}
+
+function buildBuyRiskControl(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  const constraints = signal?.tradeConstraints?.slice(0, 2).join("；");
+  const stopText = signal?.stopLoss && signal.stopLoss !== "--" ? `跌破 ${signal.stopLoss} 或买入分跌回阈值下方时停止执行。` : "跌破关键支撑、风险分抬升或买入分跌回阈值下方时停止执行。";
+  return [stopText, constraints].filter(Boolean).join(" ");
+}
+
+function buildBuyInvalidIf(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  if (!signal) return "最新行情、量能或单股分析发生明显变化。";
+  const conditions = [
+    `买入分低于 ${signal.adjustedBuyThreshold}`,
+    `风险分升至 68 以上`,
+    signal.riskRewardRatio !== null ? "风险收益比低于 1.25 : 1" : "",
+    signal.marketRegime === "risk_off" ? "市场继续转入防守状态" : ""
+  ].filter(Boolean);
+  return conditions.length ? conditions.join("，") + "。" : "价格快速脱离计划区间或最新分析转弱。";
+}
+
+function buildSellRiskControl(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  const feeText = "卖出净回收按成交额扣除同样万分之五、最低 5 元手续费估算。";
+  if (signal?.exitPlan) return `${signal.exitPlan} ${feeText}`;
+  return `若卖出分回落、价格重新站回关键支撑且风险信号消失，可取消减仓观察。${feeText}`;
+}
+
+function buildSellInvalidIf(candidate?: Candidate | null) {
+  const signal = candidate?.quantSignal;
+  if (!signal) return "最新行情、持仓成本或单股分析发生明显变化。";
+  return `卖出分低于 ${signal.adjustedReduceThreshold}，价格重新站回安全趋势区间，且止损/止盈/盈利保护条件未触发。`;
 }
 
 function buildSellPositionImpact(input: { candidate?: Candidate | null; shares: number; price: number; holdingShares: number }) {
@@ -1212,7 +1249,8 @@ function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean
     return `卖出/减仓未通过本地量化阈值，已降级为观察。${quantReason(candidate)}`;
   }
   if (claimedBuy && !candidateSupportsBuy(candidate)) {
-    return `买入/增持未通过本地量化、单股建议、置信度、行情新鲜度或交易单位校验，已降级为观察。${quantReason(candidate)}`;
+    const constraints = candidate.quantSignal?.tradeConstraints?.length ? ` 交易约束：${candidate.quantSignal.tradeConstraints.join("；")}` : "";
+    return `买入/增持未通过本地量化、单股建议、置信度、行情新鲜度、风险收益比或交易单位校验，已降级为观察。${quantReason(candidate)}${constraints}`;
   }
   return quantReason(candidate);
 }

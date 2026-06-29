@@ -41,10 +41,12 @@ export function quantReason(candidate: Candidate) {
   const sizing = `仓位建议：买入资金 ${signal.suggestedBuyCapitalPct}%；卖出比例 ${signal.suggestedSellRatioPct}%${signal.suggestedSellShares ? `，约 ${signal.suggestedSellShares} 股/份` : ""}。`;
   const metrics = `风险收益比 ${signal.riskRewardRatio ?? "--"}，止损距离 ${formatPct(signal.stopDistancePct)}，止盈距离 ${formatPct(signal.takeProfitDistancePct)}。`;
   const context = `环境：${signal.marketRegime} / ${signal.sectorBias}${signal.newPositionProtection ? "，新仓保护中" : ""}。`;
+  const entryPlan = signal.entryPlan ? `入场计划：${signal.entryPlan}` : "";
+  const constraints = signal.tradeConstraints?.length ? `交易约束：${signal.tradeConstraints.slice(0, 2).join("；")}` : "";
   const feedback = candidate.tradeFeedback?.notes?.length ? `交易反馈：${candidate.tradeFeedback.notes.slice(0, 2).join("；")}。` : "";
   const reason = signal.reasons.slice(0, 2).join("；");
   const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, sizing, metrics, context, feedback, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
+  return [scores, sizing, metrics, context, entryPlan, constraints, feedback, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
 }
 
 export function quantAllowsBuy(candidate?: Candidate | null) {

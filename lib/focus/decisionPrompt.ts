@@ -33,7 +33,7 @@ ${JSON.stringify(input.marketContext, null, 2)}
 5. 先判断“市场/行业动态上下文”，再判断单股/ETF。marketContext 是系统根据今日候选、新闻情绪、行业线索和走势生成的动态策略环境：risk_on 可以降低买入阈值并允许小仓试探；risk_off 必须提高买入阈值、降低减仓阈值、控制仓位；sectorBias=overheated 时不能追高，只能等待回调或突破确认。
 6. 使用“市场/行业上下文 + 趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
 7. 每个候选都带有 quantSignal，这是本地量化规则结合市场/行业上下文计算出的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
-8. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、adjustedBuyThreshold、adjustedReduceThreshold、adjustedSellThreshold、marketRegime、sectorBias、newPositionProtection、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、exitPlan 必须进入 reasoning。候选若带有 tradeFeedback，也必须说明最近买入、卖出、亏损卖出、未采纳或冷却原因。不要只写“等待”，必须说明分数、动态阈值或触发条件。
+8. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、adjustedBuyThreshold、adjustedReduceThreshold、adjustedSellThreshold、marketRegime、sectorBias、newPositionProtection、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、entryPlan、exitPlan、tradeConstraints 必须进入 reasoning。候选若带有 tradeFeedback，也必须说明最近买入、卖出、亏损卖出、未采纳或冷却原因。不要只写“等待”，必须说明分数、动态阈值、入场区间、交易约束或触发条件。
 9. newPositionProtection=true 表示新建仓保护期内。除非已经触发硬止损、严重利空或卖出分达到强制卖出级别，否则不要直接卖出刚买入的仓位，只能写继续观察、移动止损或不加仓。
 10. tradeFeedback.buyBlockedUntil 或 addBlockedUntil 尚未过期时，通常不能生成买入/增持计划，只能在 ranking 解释冷却原因；除非 buyScore 明显高于 adjustedBuyThreshold、riskScore 明显下降且 riskRewardRatio 很好，才允许小仓条件触发。
 11. quoteTime 必须是当日或最新可交易数据，status 不能是 stale/unavailable/error。行情不新鲜、报价失败或 K 线截止早于其他候选时，不能进入 orders 或 sellOrders，只能写入 ranking 的风险原因。
@@ -42,10 +42,12 @@ ${JSON.stringify(input.marketContext, null, 2)}
 14. 每笔 sellOrders 必须尽量返回 triggerPrice、stopLossPrice、takeProfitPrice、sellRatioPct、priority、exitCondition、executionWindow、positionImpact。sellRatioPct 必须与 shares / holdingShares 大致一致；触发止损/风控时 priority 应为 1-2，普通止盈减仓可为 2-4；exitCondition 写明什么价格/指标恶化或止盈条件触发卖出；positionImpact 写明卖出后剩余持仓、回收现金、风险释放或止盈/止损目的。
 15. amount 是计划成交金额，不含手续费；买入 shares 必须按 100 股/份整数手计算，买入总成本（amount + 手续费）不能超过“当前可用现金”，不能把已持仓占用成本再次当成现金使用。系统会额外保留现金缓冲，并把单笔买入金额限制在 quantSignal.suggestedBuyCapitalPct 和单股最大仓位以内；如果你返回的金额过大，系统会自动缩小或过滤。卖出 shares 也必须按 100 股/份整数手计算，不能返回 1-99 股/份的卖出计划；卖出 shares 不能超过 holdingShares，优先参考 quantSignal.suggestedSellShares。如果持仓不足 100 股/份，不允许生成 sellOrders，只能写移动止盈/继续观察；如果只持有 100 股/份但触发减仓，sellOrders 实际就是卖出 100 股/份。
 16. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；买入计划若成交金额低于 ${TRADING_FEE_RULE.minimumFeeBase / 2} 元，通常会被系统视为手续费效率不足并过滤，应建议等待、合并交易或提高现金后再执行。
-17. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
-18. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias、tradeFeedback 和手续费性价比排序。
-19. ranking 必须覆盖所有候选，并在 reason 里体现“市场/行业上下文 + 量化信号 + 交易反馈 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 卖出或减仓比例”。
-20. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
+17. 买入分析必须回答四件事：为什么现在可以买或不能买；如果可以买，触发价、止损、止盈、买入金额和股数是多少；如果不能买，缺的是分数、趋势、动量、价格位置、风险收益比、资金效率还是行情新鲜度；这笔交易扣除买入手续费后是否仍有合理风险收益。
+18. 卖出分析必须回答四件事：卖出触发属于止损、止盈、盈利保护还是风险再平衡；卖出比例和股数是否符合整手规则；卖出后净回收现金是否扣除卖出手续费；已实现盈亏是否按卖出成交额 - 卖出手续费 - 对应持仓成本（含买入手续费分摊）估算。
+19. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
+20. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias、tradeFeedback 和手续费性价比排序。
+21. ranking 必须覆盖所有候选，并在 reason 里体现“市场/行业上下文 + 量化信号 + 交易反馈 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 手续费/整手约束 + 卖出或减仓比例”。
+22. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
 
 候选股票：
 ${JSON.stringify(input.candidates, null, 2)}
