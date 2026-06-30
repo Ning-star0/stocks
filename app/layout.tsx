@@ -34,8 +34,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <div className="min-h-screen terminal-grid">
           <AppHeader signedIn={Boolean(session)} />
           <main className="mx-auto w-full max-w-[90rem] px-3 py-4 sm:px-5 sm:py-5 lg:px-7">{children}</main>
-          <footer className="mx-auto w-full max-w-[90rem] px-3 pb-6 text-xs text-muted-foreground sm:px-5 lg:px-7">
-            本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。
+          <footer className="mx-auto flex w-full max-w-[90rem] flex-col gap-2 px-3 pb-6 text-xs text-muted-foreground sm:px-5 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+            <span>本系统仅用于研究和辅助分析，不构成投资建议。市场有风险，决策需独立判断。</span>
+            <a className="transition-colors hover:text-foreground" href="https://beian.miit.gov.cn/" rel="noreferrer" target="_blank">
+              冀ICP备2026007268号-1
+            </a>
           </footer>
           {session ? <LazyChatPanel /> : null}
         </div>
