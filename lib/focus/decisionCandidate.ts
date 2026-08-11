@@ -5,6 +5,7 @@ export function candidateSupportsBuy(candidate: Candidate) {
   if (!candidate.price || candidate.price <= 0) return false;
   if (!quantAllowsBuy(candidate)) return false;
   if (tradeFeedbackBlocksBuy(candidate)) return false;
+  if (candidate.strategyHealth?.entryPermission === "pause") return false;
   if (candidate.latestAnalysis?.trend === "bearish") return false;
   if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
 
@@ -44,9 +45,10 @@ export function quantReason(candidate: Candidate) {
   const entryPlan = signal.entryPlan ? `入场计划：${signal.entryPlan}` : "";
   const constraints = signal.tradeConstraints?.length ? `交易约束：${signal.tradeConstraints.slice(0, 2).join("；")}` : "";
   const feedback = candidate.tradeFeedback?.notes?.length ? `交易反馈：${candidate.tradeFeedback.notes.slice(0, 2).join("；")}。` : "";
+  const strategyHealth = candidate.strategyHealth ? `样本外策略健康：${candidate.strategyHealth.strategyHealth}，新开仓权限 ${candidate.strategyHealth.entryPermission}；${candidate.strategyHealth.reason}` : "";
   const reason = signal.reasons.slice(0, 2).join("；");
   const risk = signal.risks[0] ? `主要风险：${signal.risks[0]}` : "";
-  return [scores, sizing, metrics, context, entryPlan, constraints, feedback, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
+  return [scores, sizing, metrics, context, entryPlan, constraints, feedback, strategyHealth, reason, risk, signal.exitPlan].filter(Boolean).join(" ");
 }
 
 export function quantAllowsBuy(candidate?: Candidate | null) {

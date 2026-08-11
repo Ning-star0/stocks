@@ -586,6 +586,34 @@
   }
 }
 
+@keyframes pnl-positive-change {
+  0% { background-color: rgb(239 68 68 / 0); box-shadow: 0 0 0 rgb(239 68 68 / 0); }
+  35% { background-color: rgb(239 68 68 / 0.14); box-shadow: 0 0 24px rgb(239 68 68 / 0.18); }
+  100% { background-color: rgb(239 68 68 / 0); box-shadow: 0 0 0 rgb(239 68 68 / 0); }
+}
+
+@keyframes pnl-negative-change {
+  0% { background-color: rgb(16 185 129 / 0); box-shadow: 0 0 0 rgb(16 185 129 / 0); }
+  35% { background-color: rgb(16 185 129 / 0.14); box-shadow: 0 0 24px rgb(16 185 129 / 0.18); }
+  100% { background-color: rgb(16 185 129 / 0); box-shadow: 0 0 0 rgb(16 185 129 / 0); }
+}
+
+.pnl-change-positive,
+.pnl-change-negative {
+  width: fit-content;
+  border-radius: 6px;
+  padding: 0 4px;
+  margin-left: -4px;
+}
+
+.pnl-change-positive { animation: pnl-positive-change 900ms ease-out; }
+.pnl-change-negative { animation: pnl-negative-change 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pnl-change-positive,
+  .pnl-change-negative { animation: none; }
+}
+
 @keyframes reduced-fade {
   from {
     opacity: 0;

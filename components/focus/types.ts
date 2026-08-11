@@ -1,3 +1,5 @@
+import type { PortfolioRiskBudget } from "@/lib/trading/riskBudget";
+
 export type FocusData = {
   name: string;
   symbols: string[];
@@ -66,6 +68,33 @@ export type FocusDecision = {
   portfolioSnapshotAt?: string;
   totalBudgetToUse: number;
   totalEstimatedFee: number;
+  totalEstimatedRoundTripFee?: number;
+  totalExpectedNetProfit?: number;
+  riskBudget?: PortfolioRiskBudget;
+  strategyHealthSummary?: {
+    total: number;
+    allowed: number;
+    reduced: number;
+    paused: number;
+    generatedAt: string | null;
+  };
+  strategyHealthGates?: Array<{
+    symbol: string;
+    name?: string | null;
+    capital: number;
+    strategyHealth: "healthy" | "watch" | "pause" | "insufficient";
+    entryPermission: "allow" | "reduce_size" | "pause";
+    recommendedPreset: "current" | "balanced" | "strict";
+    validationReturnPct: number | null;
+    validationMaxDrawdownPct: number | null;
+    validationClosedTrades: number;
+    reason: string;
+    generatedAt: string;
+  }>;
+  plannedRiskAmount?: number;
+  riskAfterPlanAmount?: number;
+  riskAfterPlanPct?: number;
+  availableRiskAfterPlan?: number;
   totalEstimatedCost: number;
   totalSellAmount?: number;
   totalSellEstimatedFee?: number;
@@ -122,6 +151,18 @@ export type FocusDecision = {
     takeProfitPrice?: number | null;
     maxLossAmount?: number | null;
     riskRewardRatio?: number | null;
+    estimatedExitFee?: number | null;
+    roundTripFees?: number | null;
+    feeDragPct?: number | null;
+    breakEvenPrice?: number | null;
+    breakEvenMovePct?: number | null;
+    grossExpectedProfit?: number | null;
+    netExpectedProfit?: number | null;
+    netMaxLossAmount?: number | null;
+    netRiskRewardRatio?: number | null;
+    riskBudgetAmount?: number | null;
+    riskUsagePct?: number | null;
+    portfolioRiskAfterOrder?: number | null;
     priority?: number | null;
     entryCondition?: string | null;
     executionWindow?: string | null;
@@ -175,6 +216,16 @@ export type TradeOption = {
   planType?: FocusDecision["orders"][number]["planType"];
   riskRewardRatio?: number | null;
   maxLossAmount?: number | null;
+  roundTripFees?: number | null;
+  feeDragPct?: number | null;
+  breakEvenPrice?: number | null;
+  breakEvenMovePct?: number | null;
+  netExpectedProfit?: number | null;
+  netMaxLossAmount?: number | null;
+  netRiskRewardRatio?: number | null;
+  riskBudgetAmount?: number | null;
+  riskUsagePct?: number | null;
+  portfolioRiskAfterOrder?: number | null;
   sellRatioPct?: number | null;
   entryCondition?: string | null;
   exitCondition?: string | null;

@@ -8,6 +8,14 @@ import type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
 import { AppError } from "@/lib/errors";
 import { aiAnalysisSchema } from "@/lib/schemas";
 import { containsCjk, toSimplifiedChinese } from "@/lib/text/simplifiedChinese";
+import {
+  calculateTradingFee,
+  roundMoney,
+  TRADE_FEE_MIN_BASE,
+  TRADE_FEE_RULE,
+  TRADE_LOT_SIZE
+} from "@/lib/trading/rules";
+import { calculateTradeEconomics, tradeEconomicsBlockReason } from "@/lib/trading/economics";
 import type { AiAnalysisResult } from "@/lib/types";
 
 export type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
@@ -114,7 +122,7 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
   const newsReferences = normalizeNewsReferences(record.newsReferences, input.recentNews);
   const webSearchResults = normalizeWebSearchResults(record.webSearchResults, input.webSearchResults);
 
-  return {
+  const normalized = {
     trend: normalizeTrend(record.trend),
     confidence: normalizeConfidence(record.confidence),
     analysisAsOf: toNonEmptyString(record.analysisAsOf, input.analysisAsOf ?? new Date().toISOString()),
@@ -152,6 +160,11 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
     holdAdvice: normalizeHoldAdvice(record.holdAdvice, actions),
     entryAdvice: normalizeEntryAdvice(record.entryAdvice, actions),
     disclaimer: toNonEmptyString(record.disclaimer, "本内容由 AI 生成，仅供研究参考，不构成投资建议。")
+  };
+
+  return {
+    ...normalized,
+    tradePlan: buildAnalysisTradePlan(normalized, input)
   };
 }
 
@@ -203,14 +216,14 @@ function normalizeDataScope(value: unknown, input: AnalyzeStockInput) {
   };
 }
 
-function normalizeTrend(value: unknown) {
+function normalizeTrend(value: unknown): AiAnalysisResult["trend"] {
   const text = String(value ?? "").toLowerCase();
   if (text.includes("bull") || text.includes("positive") || text.includes("看多") || text.includes("偏多")) return "bullish";
   if (text.includes("bear") || text.includes("negative") || text.includes("看空") || text.includes("偏空")) return "bearish";
   return "neutral";
 }
 
-function normalizeNewsSentiment(value: unknown) {
+function normalizeNewsSentiment(value: unknown): AiAnalysisResult["newsSentiment"] {
   const text = String(value ?? "").toLowerCase();
   if (text.includes("mixed") || text.includes("分歧") || text.includes("混合")) return "mixed";
   if (text.includes("positive") || text.includes("利好") || text.includes("正面")) return "positive";
@@ -375,6 +388,255 @@ function ensureChineseOptionalText(value: unknown) {
   const text = String(value ?? "").trim();
   if (!text) return "";
   return containsCjk(text) ? toSimplifiedChinese(text) : "";
+}
+
+export function buildAnalysisTradePlan(
+  analysis: Pick<AiAnalysisResult, "trend" | "confidence" | "keyLevels" | "holdAdvice" | "entryAdvice">,
+  input: AnalyzeStockInput
+): AiAnalysisResult["tradePlan"] {
+  const quote = isRecord(input.quote) ? input.quote : {};
+  const userContext = isRecord(input.userContext) ? input.userContext : {};
+  const price = toFiniteNumber(quote.price);
+  const userCapital = toFiniteNumber(input.userCapital);
+  const holdingPrice = toFiniteNumber(userContext.holdingPrice);
+  const holdingShares = toFiniteNumber(userContext.holdingShares);
+  const explicitHolding = typeof userContext.isHolding === "boolean" ? userContext.isHolding : null;
+  const isHolding = explicitHolding === true || (explicitHolding !== false && Boolean(holdingPrice && holdingShares));
+  const support = price ? nearestBelowLevel(price, analysis.keyLevels.support) : null;
+  const resistance = price ? nearestAboveLevel(price, analysis.keyLevels.resistance) : null;
+  const configuredStop = toFiniteNumber(userContext.stopLoss);
+  const configuredTarget = toFiniteNumber(userContext.targetPrice);
+  const stopLossPrice = price ? roundPriceValue(configuredStop ?? support ?? price * 0.96) : null;
+  const takeProfitPrice = price ? roundPriceValue(configuredTarget ?? resistance ?? price * 1.06) : null;
+  const triggerPrice = price ? roundPriceValue(selectEntryTriggerPrice(price, support)) : null;
+
+  return {
+    entry: buildEntryTradePlan({
+      analysis,
+      price,
+      triggerPrice,
+      stopLossPrice,
+      takeProfitPrice,
+      userCapital,
+      isHolding
+    }),
+    exit: buildExitTradePlan({
+      analysis,
+      price,
+      stopLossPrice,
+      takeProfitPrice,
+      isHolding,
+      holdingPrice,
+      holdingShares
+    }),
+    feeRule: TRADE_FEE_RULE
+  };
+}
+
+function buildEntryTradePlan(input: {
+  analysis: Pick<AiAnalysisResult, "trend" | "confidence" | "entryAdvice">;
+  price: number | null;
+  triggerPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  userCapital: number | null;
+  isHolding: boolean;
+}): NonNullable<AiAnalysisResult["tradePlan"]>["entry"] {
+  const constraints: string[] = [];
+  if (!input.price || input.price <= 0) constraints.push("行情价格不可用，不能测算买入股数。");
+  if (!input.userCapital || input.userCapital <= 0) constraints.push("未填写总本金，无法把首次仓位换算为具体股数。");
+  if (input.analysis.trend === "bearish") constraints.push("当前趋势偏空，买入计划需降级为观察。");
+  if (adviceBlocksEntry(input.analysis.entryAdvice)) constraints.push("AI 入场建议明确偏等待或回避，不能直接形成买入计划。");
+
+  const suggestedAmount = input.userCapital ? suggestedEntryAmount(input.userCapital, input.analysis.confidence, input.analysis.trend) : null;
+  const executionPrice = input.triggerPrice ?? input.price;
+  const shares = executionPrice && suggestedAmount ? roundLotShares(suggestedAmount / executionPrice) : 0;
+  const economics = executionPrice && shares > 0
+    ? calculateTradeEconomics({
+        entryPrice: executionPrice,
+        shares,
+        stopLossPrice: input.stopLossPrice,
+        takeProfitPrice: input.takeProfitPrice
+      })
+    : null;
+  const amount = economics?.entryAmount ?? null;
+  const estimatedFee = economics?.entryFee ?? null;
+  const totalCost = economics?.totalEntryCost ?? null;
+  const riskRewardRatio = estimateRiskRewardRatio(input.triggerPrice, input.stopLossPrice, input.takeProfitPrice);
+  const maxLossAmount = shares > 0 && input.triggerPrice && input.stopLossPrice
+    ? roundMoney(Math.max(0, input.triggerPrice - input.stopLossPrice) * shares)
+    : null;
+
+  if (suggestedAmount && shares < TRADE_LOT_SIZE) constraints.push(`按当前预算不足 ${TRADE_LOT_SIZE} 股/份整数手，买入无效。`);
+  if (amount !== null && amount < TRADE_FEE_MIN_BASE / 2) constraints.push("计划成交金额偏小，最低 5 元手续费会明显抬高交易成本。");
+  if (riskRewardRatio !== null && riskRewardRatio < 1.25) constraints.push("按当前止损/止盈估算，风险收益比不足 1.25:1。");
+  const economicsBlock = tradeEconomicsBlockReason(economics);
+  if (economicsBlock) constraints.push(`${economicsBlock} 暂不可做。`);
+  if (economics?.feeDragPct !== null && economics?.feeDragPct !== undefined && economics.feeDragPct > 1) {
+    constraints.push(`预计双边手续费占成交额 ${economics.feeDragPct.toFixed(2)}%，盈亏平衡至少需要上涨 ${economics.breakEvenMovePct.toFixed(2)}%。`);
+  }
+  if (input.userCapital && totalCost && totalCost > input.userCapital) constraints.push("计划总成本超过用户填写的总本金。");
+
+  const hasHardBlock = constraints.some((item) => /不可用|不能|无效|超过/.test(item));
+  const status = hasHardBlock ? "blocked" : shares > 0 && amount ? "conditional" : "watch";
+
+  return {
+    status,
+    action: status === "blocked" ? "avoid" : input.isHolding ? "add" : "buy",
+    triggerPrice: input.triggerPrice,
+    stopLossPrice: input.stopLossPrice,
+    takeProfitPrice: input.takeProfitPrice,
+    shares: shares > 0 ? shares : null,
+    amount,
+    estimatedFee,
+    totalCost,
+    maxLossAmount,
+    riskRewardRatio,
+    estimatedExitFee: economics?.targetExitFee ?? null,
+    roundTripFees: economics?.roundTripFees ?? null,
+    feeDragPct: economics?.feeDragPct ?? null,
+    breakEvenPrice: economics?.breakEvenPrice ?? null,
+    breakEvenMovePct: economics?.breakEvenMovePct ?? null,
+    grossExpectedProfit: economics?.grossExpectedProfit ?? null,
+    netExpectedProfit: economics?.netExpectedProfit ?? null,
+    netMaxLossAmount: economics?.netRiskAmount ?? null,
+    netRiskRewardRatio: economics?.netRiskRewardRatio ?? null,
+    reason: buildEntryTradeReason(input.analysis.entryAdvice?.reason, status, input.isHolding),
+    constraints
+  };
+}
+
+function buildExitTradePlan(input: {
+  analysis: Pick<AiAnalysisResult, "holdAdvice">;
+  price: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  isHolding: boolean;
+  holdingPrice: number | null;
+  holdingShares: number | null;
+}): NonNullable<AiAnalysisResult["tradePlan"]>["exit"] {
+  const constraints: string[] = [];
+  if (!input.isHolding) {
+    return {
+      status: "not_applicable",
+      action: "watch",
+      triggerPrice: input.price ? roundPriceValue(input.price) : null,
+      stopLossPrice: input.stopLossPrice,
+      takeProfitPrice: input.takeProfitPrice,
+      shares: null,
+      amount: null,
+      estimatedFee: null,
+      netProceeds: null,
+      sellRatioPct: null,
+      estimatedPnl: null,
+      reason: "当前未标记持仓，卖出/减仓测算不适用。",
+      constraints: []
+    };
+  }
+
+  if (!input.price || input.price <= 0) constraints.push("行情价格不可用，不能测算卖出金额。");
+  if (!input.holdingShares || input.holdingShares < TRADE_LOT_SIZE) constraints.push(`持仓数量不足 ${TRADE_LOT_SIZE} 股/份整数手，不能生成卖出计划。`);
+
+  const adviceText = stringifyAdviceText(input.analysis.holdAdvice);
+  const hardExit = /止损|离场|清仓|回避|卖出/.test(adviceText);
+  const reduce = hardExit || /减仓|止盈|兑现|盈利保护|降低风险/.test(adviceText);
+  const targetRatio = hardExit ? 100 : reduce ? 50 : 0;
+  const shares = input.holdingShares && targetRatio > 0 ? normalizeSellLotShares(input.holdingShares * (targetRatio / 100), input.holdingShares) : 0;
+  const amount = input.price && shares > 0 ? roundMoney(input.price * shares) : null;
+  const estimatedFee = amount ? calculateTradingFee(amount) : null;
+  const netProceeds = amount && estimatedFee !== null ? roundMoney(amount - estimatedFee) : null;
+  const estimatedPnl = netProceeds !== null && input.holdingPrice && shares > 0
+    ? roundMoney(netProceeds - input.holdingPrice * shares - calculateTradingFee(input.holdingPrice * shares))
+    : null;
+
+  const status = constraints.length ? "blocked" : reduce && shares > 0 ? "conditional" : "watch";
+
+  return {
+    status,
+    action: status === "blocked" ? "avoid" : shares && input.holdingShares && shares >= input.holdingShares ? "sell" : reduce ? "reduce" : "watch",
+    triggerPrice: input.price ? roundPriceValue(input.price) : null,
+    stopLossPrice: input.stopLossPrice,
+    takeProfitPrice: input.takeProfitPrice,
+    shares: shares > 0 ? shares : null,
+    amount,
+    estimatedFee,
+    netProceeds,
+    sellRatioPct: shares > 0 && input.holdingShares ? roundMoney((shares / input.holdingShares) * 100) : null,
+    estimatedPnl,
+    reason: reduce ? "持仓建议触发了减仓、止盈、止损或风险降低语义，系统给出卖出测算。" : "持仓建议暂未触发明确卖出/减仓语义，先保留为观察。",
+    constraints
+  };
+}
+
+function suggestedEntryAmount(capital: number, confidence: number, trend: AiAnalysisResult["trend"]) {
+  const basePct = trend === "bullish" ? 0.08 : trend === "neutral" ? 0.05 : 0.03;
+  const confidenceBoost = confidence >= 0.72 ? 0.02 : confidence >= 0.6 ? 0.01 : 0;
+  const feeEfficientFloor = capital <= TRADE_FEE_MIN_BASE / 2 ? Math.max(500, capital * 0.25) : TRADE_FEE_MIN_BASE / 2;
+  const target = Math.max(feeEfficientFloor, capital * Math.min(0.12, basePct + confidenceBoost));
+  return roundMoney(Math.min(capital * 0.9, target));
+}
+
+function selectEntryTriggerPrice(price: number, support: number | null) {
+  if (!support || support <= 0) return price;
+  const distancePct = ((price - support) / price) * 100;
+  if (distancePct > 3.5 && distancePct <= 10) return support * 1.01;
+  return price;
+}
+
+function adviceBlocksEntry(advice: AiAnalysisResult["entryAdvice"]) {
+  const text = stringifyAdviceText(advice);
+  return /不建议|回避|暂不|等待|观望|不能买|不买/.test(text) && !/条件入场|小仓试探|触发后|分批/.test(text);
+}
+
+function buildEntryTradeReason(reason: string | undefined, status: string, isHolding: boolean) {
+  if (status === "blocked") return "交易测算存在硬约束，暂不形成可执行买入计划。";
+  const actionText = isHolding ? "增持" : "首次买入";
+  return reason || `满足触发条件后才考虑${actionText}，并按止损和手续费约束控制单笔风险。`;
+}
+
+function stringifyAdviceText(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return "";
+  return Object.values(value).map((item) => String(item ?? "")).join(" ");
+}
+
+function estimateRiskRewardRatio(triggerPrice: number | null, stopLossPrice: number | null, takeProfitPrice: number | null) {
+  if (!triggerPrice || !stopLossPrice || !takeProfitPrice) return null;
+  const risk = triggerPrice - stopLossPrice;
+  const reward = takeProfitPrice - triggerPrice;
+  if (risk <= 0 || reward <= 0) return null;
+  return Number((reward / risk).toFixed(2));
+}
+
+function roundLotShares(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value / TRADE_LOT_SIZE) * TRADE_LOT_SIZE;
+}
+
+function normalizeSellLotShares(value: number, holdingShares: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(holdingShares) || holdingShares < TRADE_LOT_SIZE) return 0;
+  const capped = Math.min(Math.max(value, TRADE_LOT_SIZE), holdingShares);
+  return Math.floor(capped / TRADE_LOT_SIZE) * TRADE_LOT_SIZE;
+}
+
+function nearestBelowLevel(price: number, values: number[]) {
+  const candidates = values.filter((value) => Number.isFinite(value) && value > 0 && value <= price);
+  return candidates.length ? Math.max(...candidates) : null;
+}
+
+function nearestAboveLevel(price: number, values: number[]) {
+  const candidates = values.filter((value) => Number.isFinite(value) && value > 0 && value >= price);
+  return candidates.length ? Math.min(...candidates) : null;
+}
+
+function toFiniteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function roundPriceValue(value: number) {
+  return Number(value.toFixed(4));
 }
 
 function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnalysisResult {

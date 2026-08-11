@@ -1,4 +1,7 @@
 import type { QuantSignal, QuantStrategyContext } from "@/lib/quant/strategy";
+import type { TradePerformanceSummary } from "@/lib/trades/performance";
+import type { PortfolioRiskBudget } from "@/lib/trading/riskBudget";
+import type { StrategyHealthGate } from "@/lib/strategy/gate";
 
 export type Candidate = {
   symbol: string;
@@ -39,6 +42,7 @@ export type Candidate = {
   } | null;
   quantSignal?: QuantSignal | null;
   tradeFeedback?: CandidateTradeFeedback | null;
+  strategyHealth?: StrategyHealthGate | null;
 };
 
 export type CandidateTradeFeedback = {
@@ -61,6 +65,8 @@ export type DecisionInput = {
   unrealizedPnl: number;
   realizedPnl: number;
   totalAssets: number;
+  tradePerformance: TradePerformanceSummary;
+  riskBudget: PortfolioRiskBudget;
   marketContext: QuantStrategyContext;
   candidates: Candidate[];
   dataScope: {

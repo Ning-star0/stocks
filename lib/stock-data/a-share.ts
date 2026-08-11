@@ -42,10 +42,21 @@ type TencentKlineResponse = {
 export class AShareEastMoneyProvider implements StockDataProvider {
   private readonly quoteBaseUrl = "http://push2.eastmoney.com/api/qt/stock/get";
   private readonly klineBaseUrl = "http://push2his.eastmoney.com/api/qt/stock/kline/get";
+  private readonly tencentQuoteBaseUrl = "https://qt.gtimg.cn/q";
   private readonly tencentKlineBaseUrl = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline";
 
   async getQuote(symbol: string): Promise<Quote> {
     const target = normalizeAShareSymbol(symbol);
+    try {
+      return await this.getEastMoneyQuote(target);
+    } catch (error) {
+      return this.getTencentFallbackQuote(target).catch(() => {
+        throw error;
+      });
+    }
+  }
+
+  private async getEastMoneyQuote(target: ReturnType<typeof normalizeAShareSymbol>): Promise<Quote> {
     const url = new URL(this.quoteBaseUrl);
     url.searchParams.set("secid", target.secid);
     url.searchParams.set("ut", "fa5fd1943c7b386f172d6893dbfba10b");
@@ -61,11 +72,11 @@ export class AShareEastMoneyProvider implements StockDataProvider {
 
     const payload = await readProviderJsonResponse<EastMoneyQuoteResponse>(response, "东方财富报价");
     const data = payload.data;
-    if (!data || payload.rc !== 0) throw new AppError("SYMBOL_NOT_FOUND", `未找到 A 股代码 ${symbol}。`, { symbol });
+    if (!data || payload.rc !== 0) throw new AppError("SYMBOL_NOT_FOUND", `未找到 A 股代码 ${target.symbol}。`, { symbol: target.symbol });
 
     const price = readNumber(data.f43);
     const previousClose = readNumber(data.f60);
-    if (price === null || previousClose === null) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的有效报价。`, { symbol });
+    if (price === null || previousClose === null) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的有效报价。`, { symbol: target.symbol });
 
     const open = readNumber(data.f46) ?? price;
     const high = readNumber(data.f44) ?? price;
@@ -89,6 +100,48 @@ export class AShareEastMoneyProvider implements StockDataProvider {
       changePercent,
       volume: Math.round(volumeInHands * 100),
       timestamp
+    };
+  }
+
+  private async getTencentFallbackQuote(target: ReturnType<typeof normalizeAShareSymbol>): Promise<Quote> {
+    const marketSymbol = tencentMarketSymbol(target);
+    const response = await fetch(`${this.tencentQuoteBaseUrl}=${marketSymbol}`, {
+      headers: requestHeaders(),
+      cache: "no-store"
+    });
+    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `腾讯报价请求失败：${response.status}`);
+
+    const bytes = await response.arrayBuffer();
+    const text = new TextDecoder("gb18030").decode(bytes);
+    const payload = text.match(/="([^"]*)"/)?.[1];
+    const fields = payload?.split("~") ?? [];
+    const price = readTencentNumber(fields[3]);
+    const previousClose = readTencentNumber(fields[4]);
+    if (!payload || price === null || price <= 0 || previousClose === null || previousClose <= 0) {
+      throw new AppError("SYMBOL_NOT_FOUND", `腾讯未返回 ${target.symbol} 的有效报价。`, { symbol: target.symbol });
+    }
+
+    const open = readTencentNumber(fields[5]) || price;
+    const high = readTencentNumber(fields[33]) || price;
+    const low = readTencentNumber(fields[34]) || price;
+    const change = readTencentNumber(fields[31]) ?? Number((price - previousClose).toFixed(3));
+    const changePercent = readTencentNumber(fields[32]) ?? Number(((change / previousClose) * 100).toFixed(2));
+    const volumeInHands = readTencentNumber(fields[6]) ?? 0;
+
+    return {
+      symbol: target.symbol,
+      name: fields[1] || target.symbol,
+      currency: "CNY",
+      price,
+      open,
+      high,
+      low,
+      close: price,
+      previousClose,
+      change,
+      changePercent,
+      volume: Math.round(volumeInHands * 100),
+      timestamp: parseTencentQuoteTimestamp(fields[30])
     };
   }
 
@@ -228,6 +281,12 @@ function readNumber(value: number | "-" | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readTencentNumber(value?: string) {
+  if (!value?.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function rangeToLimit(range: string, interval: string) {
   if (isIntraday(interval)) {
     const barsPerDay = Math.ceil(240 / intervalMinutes(interval));
@@ -327,6 +386,17 @@ function parseTencentIntradayTimestamp(value: string) {
   const hour = value.slice(8, 10);
   const minute = value.slice(10, 12);
   return new Date(`${year}-${month}-${day}T${hour}:${minute}:00+08:00`).toISOString();
+}
+
+function parseTencentQuoteTimestamp(value?: string) {
+  if (!value || !/^\d{14}$/.test(value)) return new Date().toISOString();
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+  const hour = value.slice(8, 10);
+  const minute = value.slice(10, 12);
+  const second = value.slice(12, 14);
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`).toISOString();
 }
 
 function aggregateIntradayCandles(candles: Candle[], interval: string) {

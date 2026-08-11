@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Bell, Brain, ListChecks, Newspaper, Settings, WalletCards } from "lucide-react";
+import { Bell, Brain, ChartNoAxesCombined, FileArchive, ListChecks, Newspaper, Settings, WalletCards } from "lucide-react";
 
 import { motionDurations, motionEase } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/watchlist", label: "自选股", icon: ListChecks },
   { href: "/focus", label: "AI 决策", icon: Brain },
-  { href: "/trades", label: "资金", icon: WalletCards },
+  { href: "/trades", label: "交易", icon: WalletCards },
+  { href: "/strategy-lab", label: "回测", icon: ChartNoAxesCombined },
+  { href: "/research", label: "研究包", icon: FileArchive },
   { href: "/news", label: "新闻", icon: Newspaper },
   { href: "/alerts", label: "提醒", icon: Bell },
   { href: "/settings", label: "设置", icon: Settings }

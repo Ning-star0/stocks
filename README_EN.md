@@ -6,12 +6,28 @@ A stock monitoring and AI-assisted analysis system built with Next.js 15 App Rou
 
 This project is for research and analysis purposes only. It does not include real trading or order execution.
 
+Actual executions can be recorded for portfolio reconciliation and strategy review. The trading review tracks realized P&L, win rate, profit factor, payoff ratio, drawdown, and fee drag; weak realized performance reduces new-position risk without lowering entry-quality thresholds.
+
+Buy plans are revalidated at the trigger price using round-trip fees, break-even movement, and net risk/reward. Plans are removed when fee drag exceeds 2% or net risk/reward falls below 1.25.
+
+Portfolio risk is budgeted from current equity, open-position stops, market regime, and realized performance. Buy quantities are reduced in whole lots until fee-adjusted stop risk fits both per-trade and portfolio limits; missing stops, exhausted capacity, or an already-breached stop prevent additional risk.
+
+The strategy lab runs no-lookahead daily backtests: signals are generated after the close and executed at the next session open. The first 65% of history selects a preset and the final 35% is reserved for out-of-sample validation. Cross-symbol validation and per-symbol health gates account for net return, drawdown, profit factor, round-trip fees, minimum fees, and board lots. Missing or expired gates are refreshed before strategy generation. Capital-matched gates remain active for 24 hours in the actual AI decision pipeline: paused symbols cannot create new buy orders and reduced-size symbols are capped at half budget.
+
+The rolling gate audit uses 60-trading-day folds. Each fold can only use earlier data to control the next fold's position scale, then compares gated and ungated net performance.
+
+The server can generate ChatGPT research packages containing OHLCV candles, indicators, relevant news, DeepSeek probability scenarios, positions, strategy performance, and historical backtests. Each package is archived as Markdown and JSON for manual upload to a dedicated ChatGPT thread without requiring a ChatGPT API key.
+
 ## Pages
 
 | Route | Description |
 |---|---|
 | `/` | Dashboard: watchlist, cached quotes, AI summaries, high-impact news, alerts |
 | `/watchlist` | Watchlist management |
+| `/focus` | Portfolio AI decisions, candidate ranking, conditional trade plans, and execution feedback |
+| `/trades` | Trading review center with execution entry, portfolio snapshot, risk budget, P&L curve, and performance metrics |
+| `/research` | ChatGPT research package selection, DeepSeek scenario preview, and server archive downloads |
+| `/strategy-lab` | Out-of-sample validation, rolling gate audit, cross-symbol summary, and entry health gates for up to eight symbols |
 | `/stocks/[symbol]` | Stock detail: charts, indicators, news, AI analysis |
 | `/news` | Industry news and daily market briefs |
 | `/alerts` | Price / RSI / volume alert rules |

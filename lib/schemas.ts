@@ -159,6 +159,46 @@ const entryAdviceSchema = z.object({
   invalidIf: z.string().min(1)
 });
 
+const analysisTradePlanLegSchema = z.object({
+  status: z.enum(["conditional", "watch", "blocked", "not_applicable"]),
+  action: z.enum(["buy", "add", "reduce", "sell", "watch", "avoid"]),
+  triggerPrice: z.number().nullable(),
+  stopLossPrice: z.number().nullable(),
+  takeProfitPrice: z.number().nullable(),
+  shares: z.number().nullable(),
+  amount: z.number().nullable(),
+  estimatedFee: z.number().nullable(),
+  totalCost: z.number().nullable().optional(),
+  netProceeds: z.number().nullable().optional(),
+  maxLossAmount: z.number().nullable().optional(),
+  riskRewardRatio: z.number().nullable().optional(),
+  estimatedExitFee: z.number().nullable().optional(),
+  roundTripFees: z.number().nullable().optional(),
+  feeDragPct: z.number().nullable().optional(),
+  breakEvenPrice: z.number().nullable().optional(),
+  breakEvenMovePct: z.number().nullable().optional(),
+  grossExpectedProfit: z.number().nullable().optional(),
+  netExpectedProfit: z.number().nullable().optional(),
+  netMaxLossAmount: z.number().nullable().optional(),
+  netRiskRewardRatio: z.number().nullable().optional(),
+  sellRatioPct: z.number().nullable().optional(),
+  estimatedPnl: z.number().nullable().optional(),
+  reason: z.string().min(1),
+  constraints: z.array(z.string())
+});
+
+const analysisTradePlanSchema = z.object({
+  entry: analysisTradePlanLegSchema,
+  exit: analysisTradePlanLegSchema,
+  feeRule: z.object({
+    rate: z.number(),
+    minimumFeeBase: z.number(),
+    minimumFee: z.number(),
+    lotSize: z.number(),
+    description: z.string()
+  })
+});
+
 export const aiAnalysisSchema = z.object({
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
@@ -195,6 +235,7 @@ export const aiAnalysisSchema = z.object({
   possibleActions: z.array(aiActionSchema).min(1),
   holdAdvice: holdAdviceSchema.optional().nullable(),
   entryAdvice: entryAdviceSchema.optional().nullable(),
+  tradePlan: analysisTradePlanSchema.optional(),
   disclaimer: z.string().min(1)
 });
 

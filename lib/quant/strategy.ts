@@ -599,7 +599,7 @@ function buildTradeConstraints(input: {
   ];
   if (input.action === "buy" || input.action === "add") {
     const estimatedAmount = input.suggestedBuyCapitalPct > 0 ? `建议买入资金约占总本金 ${input.suggestedBuyCapitalPct}%` : "当前不建议分配买入资金";
-    constraints.push(`${estimatedAmount}；成交金额低于 ${TRADE_FEE_MIN_BASE / 2} 元时手续费效率偏低，系统会过滤或降级为观察。`);
+    constraints.push(`${estimatedAmount}；大账户成交金额低于 ${TRADE_FEE_MIN_BASE / 2} 元时手续费效率偏低，小资金账户会按可用现金自适应评估，但仍必须满足整手和风控。`);
   }
   if (input.action === "sell" || input.action === "reduce") {
     constraints.push(`建议卖出 ${input.suggestedSellShares} 股/份；当前持仓 ${input.holdingShares ?? 0} 股/份，卖出数量不得超过持仓且必须按整手计算。`);

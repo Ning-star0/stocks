@@ -4,6 +4,7 @@ node_modules
 .env*.local
 dist
 coverage
+exports/chatgpt
 *.log
 .DS_Store
 **/.DS_Store

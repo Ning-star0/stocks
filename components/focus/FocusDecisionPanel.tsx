@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { ChevronDown, ShieldAlert, ShieldCheck } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { DecisionFeedbackPanel } from "@/components/focus/DecisionFeedbackPanel";
 import { StockIdentity } from "@/components/StockIdentity";
@@ -37,6 +40,7 @@ export function FocusDecisionPanel({
   const totalAssets = marketValueUsesCostFallback
     ? Number((availableCash + currentMarketValue).toFixed(2))
     : decision.totalAssets ?? Number((availableCash + currentMarketValue).toFixed(2));
+  const riskBudget = decision.riskBudget;
   const hasAddOnly = hasBuy && decision.orders.every((order) => order.action === "add");
   const actionLabel = hasBuy && shouldSell ? "买入 + 卖出/减仓" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "形成卖出/减仓计划" : "等待 / 暂不行动";
   const conclusionLabel = hasBuy && shouldSell ? "调仓观察" : hasBuy ? (hasAddOnly ? "形成增持观察计划" : "形成观察买入计划") : shouldSell ? "风险处理 / 减仓观察" : "不建议交易";
@@ -63,6 +67,16 @@ export function FocusDecisionPanel({
       planType: order.planType,
       riskRewardRatio: order.riskRewardRatio,
       maxLossAmount: order.maxLossAmount,
+      roundTripFees: order.roundTripFees,
+      feeDragPct: order.feeDragPct,
+      breakEvenPrice: order.breakEvenPrice,
+      breakEvenMovePct: order.breakEvenMovePct,
+      netExpectedProfit: order.netExpectedProfit,
+      netMaxLossAmount: order.netMaxLossAmount,
+      netRiskRewardRatio: order.netRiskRewardRatio,
+      riskBudgetAmount: order.riskBudgetAmount,
+      riskUsagePct: order.riskUsagePct,
+      portfolioRiskAfterOrder: order.portfolioRiskAfterOrder,
       entryCondition: order.entryCondition,
       executionWindow: order.executionWindow,
       positionImpact: order.positionImpact
@@ -91,6 +105,17 @@ export function FocusDecisionPanel({
       {decision.fallbackReason ? (
         <div className="glow-card rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">{decision.fallbackReason}</div>
       ) : null}
+      <div className={cn("glow-card rounded-xl border p-5", hasBuy ? "border-primary/25 bg-primary/12" : shouldSell ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <StrategyBadge tone={hasBuy ? "bullish" : shouldSell ? "avoid" : "wait"}>今日结论：{conclusionLabel}</StrategyBadge>
+          <StrategyBadge tone={hasBuy ? "watch" : shouldSell ? "avoid" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
+          <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
+        </div>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+          <span className="text-foreground">核心原因：</span>
+          <HighlightedText text={decision.summary} highlights={highlightNames} />
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
         {decision.scheduledFor ? <span>计划时间：{formatDateTime(decision.scheduledFor)}</span> : null}
@@ -103,17 +128,6 @@ export function FocusDecisionPanel({
         <NotificationBadge notification={decision.notification} />
       </div>
       {decision.notification ? <NotificationStatus notification={decision.notification} /> : null}
-      <div className={cn("glow-card rounded-xl border p-5", hasBuy ? "border-primary/25 bg-primary/12" : shouldSell ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/35 bg-amber-50/70 text-foreground dark:bg-amber-500/10")}>
-        <div className="flex flex-wrap items-center gap-2">
-          <StrategyBadge tone={hasBuy ? "bullish" : shouldSell ? "avoid" : "wait"}>今日结论：{conclusionLabel}</StrategyBadge>
-          <StrategyBadge tone={hasBuy ? "watch" : shouldSell ? "avoid" : "wait"}>当前动作：{actionLabel}</StrategyBadge>
-          <Badge variant="secondary">下一次观察：{nextObserveAt}</Badge>
-        </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-          <span className="text-foreground">核心原因：</span>
-          <HighlightedText text={decision.summary} highlights={highlightNames} />
-        </p>
-      </div>
       <div className="grid gap-3 xl:grid-cols-[1.05fr_1fr_1fr]">
         <div className={cn("glow-card rounded-xl border border-border bg-background/35 p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(0)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">资产概览</div>
@@ -141,13 +155,43 @@ export function FocusDecisionPanel({
         </div>
         <div className={cn("glow-card rounded-xl border border-border bg-background/35 p-4", motionClassNames.cardEnter)} style={{ animationDelay: `${staggerDelay(2)}ms` }}>
           <div className="text-xs font-medium text-muted-foreground">本次计划影响</div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <AssetMetric label="计划买入" value={formatMoney(decision.totalBudgetToUse)} tone={hasBuy ? "success" : "neutral"} muted={decision.totalBudgetToUse === 0} />
             <AssetMetric label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} muted={(decision.totalSellAmount ?? 0) === 0} />
-            <AssetMetric label="预计手续费" value={formatMoney(decision.totalEstimatedFee)} muted={decision.totalEstimatedFee === 0} />
+            <AssetMetric label="本次下单手续费" value={formatMoney(decision.totalEstimatedFee)} muted={decision.totalEstimatedFee === 0} />
+            <AssetMetric label="买入计划双边手续费" value={formatMoney(decision.totalEstimatedRoundTripFee ?? 0)} muted={(decision.totalEstimatedRoundTripFee ?? 0) === 0} />
+            <AssetMetric label="买入计划目标净收益" value={formatMoney(decision.totalExpectedNetProfit ?? 0)} tone={(decision.totalExpectedNetProfit ?? 0) >= 0 ? "danger" : "success"} muted={(decision.totalExpectedNetProfit ?? 0) === 0} />
           </div>
         </div>
       </div>
+      {riskBudget ? (
+        <div className="glow-card rounded-xl border border-border bg-background/35 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-medium text-muted-foreground">组合风险预算</div>
+              <div className="mt-1 text-sm font-semibold">{riskBudgetStatusLabel(riskBudget.status)}</div>
+            </div>
+            <Badge variant={riskBudget.status === "normal" ? "success" : riskBudget.status === "tight" ? "warning" : "danger"}>
+              止损覆盖 {riskBudget.positionCount ? `${riskBudget.protectedPositionCount}/${riskBudget.positionCount}` : "暂无持仓"}
+            </Badge>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            <AssetMetric label="现有持仓风险" value={`${formatMoney(riskBudget.openRiskAmount)} / ${formatPrecisePercent(riskBudget.openRiskPct)}`} />
+            <AssetMetric label="组合风险上限" value={`${formatMoney(riskBudget.portfolioRiskLimitAmount)} / ${formatPrecisePercent(riskBudget.portfolioRiskLimitPct)}`} />
+            <AssetMetric label="单笔风险上限" value={`${formatMoney(riskBudget.singleTradeRiskLimitAmount)} / ${formatPrecisePercent(riskBudget.singleTradeRiskLimitPct)}`} />
+            <AssetMetric label="本次计划风险" value={formatMoney(decision.plannedRiskAmount ?? 0)} muted={!decision.plannedRiskAmount} />
+            <AssetMetric label="计划后组合风险" value={`${formatMoney(decision.riskAfterPlanAmount ?? riskBudget.openRiskAmount)} / ${formatPrecisePercent(decision.riskAfterPlanPct ?? riskBudget.openRiskPct)}`} />
+            <AssetMetric label="计划后剩余额度" value={formatMoney(decision.availableRiskAfterPlan ?? riskBudget.availableRiskAmount)} tone={(decision.availableRiskAfterPlan ?? riskBudget.availableRiskAmount) > 0 ? "success" : "warning"} />
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn("h-full rounded-full", riskBudget.status === "normal" ? "bg-primary" : riskBudget.status === "tight" ? "bg-amber-500" : "bg-red-500")}
+              style={{ width: `${Math.min(100, Math.max(0, ((decision.riskAfterPlanAmount ?? riskBudget.openRiskAmount) / Math.max(1, riskBudget.portfolioRiskLimitAmount)) * 100))}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">{riskBudget.reason}</p>
+        </div>
+      ) : null}
       {decision.orders.length ? (
         <div className="grid gap-3 xl:grid-cols-2">
           {decision.orders.map((order) => (
@@ -162,12 +206,22 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="触发价" value={formatMoney(order.triggerPrice ?? order.estimatedPrice)} />
                 <DecisionNumber label="止损价" value={formatMoney(order.stopLossPrice)} />
                 <DecisionNumber label="止盈价" value={formatMoney(order.takeProfitPrice)} />
-                <DecisionNumber label="风险收益比" value={formatRatio(order.riskRewardRatio)} />
+                <DecisionNumber label="毛风险收益比" value={formatRatio(order.riskRewardRatio)} />
+                <DecisionNumber label="净风险收益比" value={formatRatio(order.netRiskRewardRatio)} />
                 <DecisionNumber label="数量" value={`${formatShares(order.shares)} 股/份`} />
                 <DecisionNumber label="参考价" value={formatMoney(order.estimatedPrice)} />
                 <DecisionNumber label="成交金额" value={formatMoney(order.amount)} />
                 <DecisionNumber label="手续费" value={formatMoney(order.estimatedFee)} />
+                <DecisionNumber label="预计双边手续费" value={formatMoney(order.roundTripFees)} />
+                <DecisionNumber label="手续费占比" value={formatPrecisePercent(order.feeDragPct)} />
+                <DecisionNumber label="盈亏平衡价" value={formatMoney(order.breakEvenPrice)} />
+                <DecisionNumber label="盈亏平衡涨幅" value={formatPrecisePercent(order.breakEvenMovePct)} />
+                <DecisionNumber label="目标净收益" value={formatMoney(order.netExpectedProfit)} className={cn((order.netExpectedProfit ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")} />
                 <DecisionNumber label="最大价格风险" value={formatMoney(order.maxLossAmount)} className="col-span-2" />
+                <DecisionNumber label="扣费最大风险" value={formatMoney(order.netMaxLossAmount)} className="col-span-2" />
+                <DecisionNumber label="单笔风险额度" value={formatMoney(order.riskBudgetAmount)} />
+                <DecisionNumber label="额度使用率" value={formatPrecisePercent(order.riskUsagePct)} />
+                <DecisionNumber label="下单后组合风险" value={formatMoney(order.portfolioRiskAfterOrder)} className="col-span-2" />
                 <DecisionNumber label="总成本" value={formatMoney(order.totalCost)} className="col-span-2" />
               </div>
               <TradePlanDetails
@@ -228,8 +282,52 @@ export function FocusDecisionPanel({
         watchlist={watchlist}
         onFeedbackSaved={onFeedbackSaved}
       />
+      {decision.strategyHealthGates?.length ? <StrategyHealthGatePanel decision={decision} /> : null}
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
     </div>
+  );
+}
+
+function StrategyHealthGatePanel({ decision }: { decision: FocusDecision }) {
+  const gates = decision.strategyHealthGates ?? [];
+  const summary = decision.strategyHealthSummary;
+  const hasPause = (summary?.paused ?? 0) > 0;
+  return (
+    <details className="group overflow-hidden rounded-lg border border-border bg-background/35">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3 marker:content-none">
+        {hasPause ? <ShieldAlert className="h-4 w-4 text-amber-500" /> : <ShieldCheck className="h-4 w-4 text-primary" />}
+        <span className="text-sm font-semibold">样本外策略门控</span>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Badge variant="success">允许 {summary?.allowed ?? 0}</Badge>
+          <Badge variant="warning">半仓 {summary?.reduced ?? 0}</Badge>
+          <Badge variant="danger">暂停 {summary?.paused ?? 0}</Badge>
+        </div>
+        {summary?.generatedAt ? <span className="text-xs text-muted-foreground">更新于 {formatDateTime(summary.generatedAt)}</span> : null}
+        <ChevronDown className="ml-auto h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="grid gap-px border-t border-border/70 bg-border/65 sm:grid-cols-2 xl:grid-cols-3">
+        {gates.map((gate) => {
+          const status = strategyGateStatus(gate.entryPermission);
+          return (
+            <div key={gate.symbol} className="min-w-0 bg-card/95 p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <StockIdentity symbol={gate.symbol} name={gate.name} compact />
+                <Badge variant={status.variant}>{status.label}</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div><span className="text-muted-foreground">样本外</span><div className={cn("mt-0.5 font-semibold tabular-nums", (gate.validationReturnPct ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")}>{formatSignedPercent(gate.validationReturnPct)}</div></div>
+                <div><span className="text-muted-foreground">回撤</span><div className="mt-0.5 font-semibold tabular-nums text-emerald-500">{formatPrecisePercent(gate.validationMaxDrawdownPct)}</div></div>
+                <div><span className="text-muted-foreground">平仓</span><div className="mt-0.5 font-semibold tabular-nums">{gate.validationClosedTrades}</div></div>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground" title={gate.reason}>{gate.reason}</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="border-t border-border/70 px-4 py-3 text-right">
+        <Link href="/strategy-lab" className="text-xs font-medium text-primary hover:underline">查看完整回测</Link>
+      </div>
+    </details>
   );
 }
 
@@ -366,6 +464,32 @@ function AssetMetric({
       </div>
     </div>
   );
+}
+
+function formatPrecisePercent(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(2)}%`;
+}
+
+function formatSignedPercent(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function strategyGateStatus(permission: NonNullable<FocusDecision["strategyHealthGates"]>[number]["entryPermission"]): {
+  label: string;
+  variant: "success" | "warning" | "danger";
+} {
+  if (permission === "allow") return { label: "允许", variant: "success" };
+  if (permission === "reduce_size") return { label: "半仓", variant: "warning" };
+  return { label: "暂停", variant: "danger" };
+}
+
+function riskBudgetStatusLabel(status: NonNullable<FocusDecision["riskBudget"]>["status"]) {
+  if (status === "normal") return "风险额度正常";
+  if (status === "tight") return "风险额度偏紧";
+  if (status === "breached_stop") return "先处理已触发止损持仓";
+  return "暂停增加新仓位";
 }
 
 function priorityLabel(value?: number | null) {

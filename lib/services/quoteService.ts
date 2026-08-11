@@ -39,7 +39,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
 
   const cached = options.allowStale || options.cacheOnly ? await readQuoteCacheRows(cacheKeys) : null;
   if (options.cacheOnly) {
-    if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale");
+    if (options.allowStale && cached) return toQuoteWithStatus(cached, fallbackQuoteStatus(cached));
     if (options.allowStale) {
       const snapshot = await readLatestSnapshotForSymbols(stockSymbolVariants(normalized));
       if (snapshot) return snapshot;
@@ -64,7 +64,7 @@ export async function getQuote(symbol: string, options: GetQuoteOptions = {}): P
       status: "failed",
       metadata: { symbol: normalized, error: errorMessage(error) }
     });
-    if (options.allowStale && cached) return toQuoteWithStatus(cached, "stale", errorMessage(error));
+    if (options.allowStale && cached) return toQuoteWithStatus(cached, fallbackQuoteStatus(cached), errorMessage(error));
     if (options.allowStale) {
       const snapshot = await readLatestSnapshotForSymbols(stockSymbolVariants(normalized));
       if (snapshot) return { ...snapshot, error: errorMessage(error) };
@@ -137,7 +137,7 @@ async function readLatestSnapshotForSymbols(symbols: string[]): Promise<QuoteWit
       market: inferMarket(symbol),
       updatedAt: row.timestamp.toISOString(),
       source: getQuoteProviderInfo().quoteProvider,
-      status: "stale",
+      status: fallbackTimestampStatus(row.timestamp),
       isMock: getQuoteProviderInfo().isMock,
       raw: null
     };
@@ -166,6 +166,19 @@ function toQuoteWithStatus(quote: Quote, status: QuoteStatus, error?: string): Q
     isMock: getQuoteProviderInfo().isMock,
     raw: quote
   };
+}
+
+function fallbackQuoteStatus(quote: Quote): QuoteStatus {
+  return fallbackTimestampStatus(quote.timestamp);
+}
+
+function fallbackTimestampStatus(timestamp: string | Date | null | undefined): QuoteStatus {
+  if (!timestamp) return "stale";
+  const time = new Date(timestamp).getTime();
+  if (!Number.isFinite(time)) return "stale";
+  const ageMs = Date.now() - time;
+  const graceMs = numberEnv("QUOTE_TRADE_GRACE_SECONDS", 300) * 1000;
+  return ageMs >= -60_000 && ageMs <= graceMs ? "cached" : "stale";
 }
 
 function unavailableQuote(symbol: string, status: QuoteStatus, error?: string): QuoteWithStatus {

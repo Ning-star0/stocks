@@ -38,6 +38,7 @@ import {
   calculateSellPnl,
   fallbackSellShares,
   isFeeEfficientTrade,
+  minimumFeeEfficientAmount,
   normalizeBuyShares as normalizeShares,
   normalizeSellShares,
   sharesFromAmount,
@@ -48,6 +49,10 @@ import { prisma } from "@/lib/prisma";
 import { buildQuantSignal, type QuantInput, type QuantSectorBias, type QuantStrategyContext } from "@/lib/quant/strategy";
 import { getQuotesBatch } from "@/lib/services/quoteService";
 import { reconcileAndRebuildUserPositions } from "@/lib/trades/ledger";
+import { buildTradePerformance } from "@/lib/trades/performance";
+import { calculateTradeEconomics, tradeEconomicsBlockReason } from "@/lib/trading/economics";
+import { buildPortfolioRiskBudget, fitTradeToRiskBudget } from "@/lib/trading/riskBudget";
+import { ensureStrategyHealthGatesForFocus, loadStrategyHealthGates } from "@/lib/strategy/gate";
 import { toNumber } from "@/lib/utils";
 
 const TRADE_FEEDBACK_LOOKBACK_DAYS = 45;
@@ -75,6 +80,9 @@ export async function getLatestStoredFocusDecision(userId: string) {
 export async function generateAndStoreFocusDecision(options: GenerateFocusDecisionOptions) {
   const source = options.source ?? "manual";
   await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, options.userId));
+  await ensureStrategyHealthGatesForFocus(options.userId).catch((error) => {
+    console.warn("[focus-decision] strategy health refresh failed", error instanceof Error ? error.message : String(error));
+  });
   const seed = await loadDecisionSeed(options.userId);
   const inputHash = createDecisionSignature(seed);
   const cacheKey = `focus_decision:${options.userId}:${inputHash}`;
@@ -325,6 +333,7 @@ async function loadDecisionSeed(userId: string) {
         holdingShares: true,
         targetPrice: true,
         stopLoss: true,
+        riskLevel: true,
         positionOpenedAt: true
       }
     }),
@@ -334,6 +343,8 @@ async function loadDecisionSeed(userId: string) {
         symbol: true,
         holdingPrice: true,
         holdingShares: true,
+        stopLoss: true,
+        riskLevel: true,
         positionOpenedAt: true
       }
     }),
@@ -379,6 +390,7 @@ async function loadDecisionSeed(userId: string) {
     })
   ]);
   const feedbackProfiles = buildTradeFeedbackProfiles(symbols, feedbackRows);
+  const strategyHealthGates = await loadStrategyHealthGates({ userId, capital, symbols });
   const latestAnalysisBySymbol = latestAnalysesForSymbols(symbols, analyses);
   const positionSignature = symbols.map((symbol) => {
     const item = findBySymbol(watchlistItems, symbol, (row) => row.symbol);
@@ -389,6 +401,7 @@ async function loadDecisionSeed(userId: string) {
       holdingShares: toNumber(item?.holdingShares),
       targetPrice: toNumber(item?.targetPrice),
       stopLoss: toNumber(item?.stopLoss),
+      riskLevel: item?.riskLevel ?? null,
       positionOpenedAt: item?.positionOpenedAt?.toISOString() ?? null
     };
   });
@@ -397,6 +410,8 @@ async function loadDecisionSeed(userId: string) {
       symbol: item.symbol.toUpperCase(),
       holdingPrice: toNumber(item.holdingPrice),
       holdingShares: toNumber(item.holdingShares),
+      stopLoss: toNumber(item.stopLoss),
+      riskLevel: item.riskLevel,
       positionOpenedAt: item.positionOpenedAt?.toISOString() ?? null
     }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -415,6 +430,13 @@ async function loadDecisionSeed(userId: string) {
     portfolioSignature,
     ledgerSignature,
     feedbackProfiles,
+    strategyHealthGates,
+    strategyHealthSignature: [...strategyHealthGates.values()].map((gate) => ({
+      symbol: focusSymbolBase(gate.symbol),
+      permission: gate.entryPermission,
+      preset: gate.recommendedPreset,
+      generatedAt: gate.generatedAt
+    })).sort((left, right) => left.symbol.localeCompare(right.symbol)),
     feedbackSignature: buildFeedbackSignature(feedbackProfiles)
   };
 }
@@ -429,7 +451,9 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       select: {
         symbol: true,
         holdingPrice: true,
-        holdingShares: true
+        holdingShares: true,
+        stopLoss: true,
+        riskLevel: true
       }
     }),
     prisma.tradeExecution.findMany({
@@ -449,6 +473,18 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
   });
   const { investedCost, realizedPnl, availableCash, currentMarketValue, unrealizedPnl, totalAssets } = portfolioSnapshot;
   const costBasisBySymbol = calculatePositionCostBasisBySymbol(portfolioItems, tradeExecutions);
+  const tradePerformance = buildTradePerformance(
+    tradeExecutions.map((execution) => ({
+      id: `${execution.symbol}:${execution.executedAt.toISOString()}:${execution.side}`,
+      symbol: execution.symbol,
+      side: String(execution.side),
+      amount: toNumber(execution.amount) ?? 0,
+      fee: toNumber(execution.fee) ?? 0,
+      realizedPnl: toNumber(execution.realizedPnl),
+      executedAt: execution.executedAt
+    })),
+    seed.capital
+  );
 
   const candidateDrafts = seed.symbols.map((symbol) => {
     const quote = quotes[symbol] ?? quotes[symbolVariants(symbol).find((item) => quotes[item]) ?? symbol] ?? null;
@@ -540,6 +576,7 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
         : null,
       quantSignal: null,
       tradeFeedback: seed.feedbackProfiles.get(focusSymbolBase(symbol)) ?? null,
+      strategyHealth: seed.strategyHealthGates.get(focusSymbolBase(symbol)) ?? null,
       quantInput
     } satisfies Candidate & { quantInput: QuantInput };
   });
@@ -551,6 +588,23 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
       strategyContext: marketContext
     })
   }));
+  const riskBudget = buildPortfolioRiskBudget({
+    capital: seed.capital,
+    totalAssets,
+    marketRegime: marketContext.marketRegime,
+    tradePerformance,
+    positions: portfolioItems.map((item) => {
+      const quote = quotes[item.symbol] ?? quotes[symbolVariants(item.symbol).find((symbol) => quotes[symbol]) ?? item.symbol];
+      return {
+        symbol: item.symbol,
+        shares: toNumber(item.holdingShares),
+        currentPrice: quote?.price ?? null,
+        holdingPrice: toNumber(item.holdingPrice),
+        stopLossPrice: toNumber(item.stopLoss),
+        riskLevel: item.riskLevel
+      };
+    })
+  });
 
   return {
     capital: seed.capital,
@@ -560,6 +614,8 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
     unrealizedPnl,
     realizedPnl,
     totalAssets,
+    tradePerformance,
+    riskBudget,
     marketContext,
     candidates,
     dataScope: buildDecisionDataScope(candidates),
@@ -877,6 +933,7 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         portfolioSignature: input.portfolioSignature,
         ledgerSignature: input.ledgerSignature,
         feedbackSignature: input.feedbackSignature,
+        strategyHealthSignature: input.strategyHealthSignature,
         latestAnalysisIds: [...input.latestAnalysisBySymbol.values()].map((analysis) => analysis.id)
       })
     )
@@ -918,7 +975,10 @@ async function generateFocusDecision(input: DecisionInput) {
 function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fallbackReason: string | null) {
   const candidatesBySymbol = new Map(input.candidates.map((candidate) => [candidate.symbol, candidate]));
   const spendableCash = calculateSpendableCash(input);
+  const buyExecutionBlocks = new Map<string, string>();
   let spent = 0;
+  let plannedRisk = 0;
+  let acceptedBuyOrders = 0;
   const orders = value.orders
     .filter((order) => order.action === "buy" || order.action === "add")
     .filter((order) => {
@@ -927,18 +987,53 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     })
     .sort((a, b) => buyOrderQuality(b, input) - buyOrderQuality(a, input))
     .map((order) => {
+      if (acceptedBuyOrders >= 2) return null;
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
+      const executionPrice = normalizedPrice(order.triggerPrice) ?? normalizedPrice(price) ?? 0;
       const remainingCash = Math.max(0, spendableCash - spent);
-      const requestedShares = order.shares || sharesFromAmount(order.amount, price);
-      const maxShares = sharesFromAmount(maxBuyAmountForCandidate(candidate, input, remainingCash), price);
-      const shares = normalizeShares(Math.min(requestedShares, maxShares), price, remainingCash);
-      const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
-      const fee = calculateFocusTradeFee(amount);
-      if (amount + fee > remainingCash) return null;
-      if (!isFeeEfficientTrade(amount)) return null;
+      const requestedShares = order.shares || sharesFromAmount(order.amount, executionPrice);
+      const maxShares = sharesFromAmount(maxBuyAmountForCandidate(candidate, input, remainingCash), executionPrice);
+      const cashLimitedShares = normalizeShares(Math.min(requestedShares, maxShares), executionPrice, remainingCash);
+      const draftPlanMeta = buildBuyPlanMeta({ order, candidate, price, shares: cashLimitedShares });
+      const riskCapacity = Math.min(
+        input.riskBudget.singleTradeRiskLimitAmount,
+        Math.max(0, input.riskBudget.availableRiskAmount - plannedRisk)
+      );
+      const riskBlock = input.riskBudget.status === "breached_stop" ? input.riskBudget.reason : null;
+      const riskFit = riskBlock
+        ? { shares: 0, economics: null, reason: riskBlock }
+        : fitTradeToRiskBudget({
+            requestedShares: cashLimitedShares,
+            entryPrice: draftPlanMeta.triggerPrice ?? executionPrice,
+            stopLossPrice: draftPlanMeta.stopLossPrice,
+            takeProfitPrice: draftPlanMeta.takeProfitPrice,
+            maxRiskAmount: riskCapacity
+          });
+      if (!riskFit.shares || riskFit.reason) {
+        if (candidate) buyExecutionBlocks.set(candidate.symbol, riskFit.reason ?? "风险预算不足，暂不增加新仓位。");
+        return null;
+      }
+      const shares = riskFit.shares;
       const planMeta = buildBuyPlanMeta({ order, candidate, price, shares });
+      const economics = riskFit.economics ?? calculateTradeEconomics({
+        entryPrice: planMeta.triggerPrice ?? executionPrice,
+        shares,
+        stopLossPrice: planMeta.stopLossPrice,
+        takeProfitPrice: planMeta.takeProfitPrice
+      });
+      const amount = economics?.entryAmount ?? (executionPrice > 0 ? Number((shares * executionPrice).toFixed(2)) : Number(order.amount.toFixed(2)));
+      const fee = economics?.entryFee ?? calculateFocusTradeFee(amount);
+      if (amount + fee > remainingCash) return null;
+      if (!isFeeEfficientTrade(amount, input.availableCash)) return null;
+      const economicsBlock = tradeEconomicsBlockReason(economics);
+      if (economicsBlock) {
+        if (candidate) buyExecutionBlocks.set(candidate.symbol, economicsBlock);
+        return null;
+      }
       spent += amount + fee;
+      plannedRisk = Number((plannedRisk + (economics?.netRiskAmount ?? 0)).toFixed(2));
+      acceptedBuyOrders += 1;
       return {
         ...order,
         action: candidate?.isHolding ? ("add" as const) : ("buy" as const),
@@ -951,12 +1046,25 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
         riskControl: order.riskControl || buildBuyRiskControl(candidate),
         invalidIf: order.invalidIf || buildBuyInvalidIf(candidate),
         estimatedFee: fee,
-        totalCost: Number((amount + fee).toFixed(2)),
+        totalCost: economics?.totalEntryCost ?? Number((amount + fee).toFixed(2)),
+        estimatedExitFee: economics?.targetExitFee ?? null,
+        roundTripFees: economics?.roundTripFees ?? null,
+        feeDragPct: economics?.feeDragPct ?? null,
+        breakEvenPrice: economics?.breakEvenPrice ?? null,
+        breakEvenMovePct: economics?.breakEvenMovePct ?? null,
+        grossExpectedProfit: economics?.grossExpectedProfit ?? null,
+        netExpectedProfit: economics?.netExpectedProfit ?? null,
+        netMaxLossAmount: economics?.netRiskAmount ?? null,
+        netRiskRewardRatio: economics?.netRiskRewardRatio ?? null,
+        riskBudgetAmount: Number(riskCapacity.toFixed(2)),
+        riskUsagePct: economics?.netRiskAmount && input.riskBudget.singleTradeRiskLimitAmount > 0
+          ? Number((economics.netRiskAmount / input.riskBudget.singleTradeRiskLimitAmount * 100).toFixed(2))
+          : null,
+        portfolioRiskAfterOrder: Number((input.riskBudget.openRiskAmount + plannedRisk).toFixed(2)),
         feeRule: TRADING_FEE_RULE.description
       };
     })
-    .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0))
-    .slice(0, 2);
+    .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
   const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input, value.ranking);
   const sellOrders = sellOrderCandidates
     .filter((order) => order.action === "sell" || order.action === "reduce")
@@ -1006,9 +1114,29 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
   const normalizedAction = sellOrders.length && orders.length ? "mixed" : sellOrders.length ? "sell" : orders.length ? "buy" : "wait";
   const summary = alignSummaryWithStructuredPlan(value.summary, value, input, orders, sellOrders, normalizedAction);
   const buyFee = Number(orders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
+  const roundTripFee = Number(orders.reduce((sum, order) => sum + (order.roundTripFees ?? order.estimatedFee), 0).toFixed(2));
+  const totalExpectedNetProfit = Number(orders.reduce((sum, order) => sum + (order.netExpectedProfit ?? 0), 0).toFixed(2));
   const sellFee = Number(sellOrders.reduce((sum, order) => sum + order.estimatedFee, 0).toFixed(2));
   const totalSellNetProceeds = Number(sellOrders.reduce((sum, order) => sum + order.netProceeds, 0).toFixed(2));
-  const ranking = normalizeRankingItems(value.ranking, input, orders, sellOrders);
+  const plannedRiskAmount = Number(orders.reduce((sum, order) => sum + (order.netMaxLossAmount ?? 0), 0).toFixed(2));
+  const riskAfterPlanAmount = Number((input.riskBudget.openRiskAmount + plannedRiskAmount).toFixed(2));
+  const riskAfterPlanPct = input.riskBudget.equityBase > 0
+    ? Number((riskAfterPlanAmount / input.riskBudget.equityBase * 100).toFixed(2))
+    : 0;
+  const availableRiskAfterPlan = Number(Math.max(0, input.riskBudget.portfolioRiskLimitAmount - riskAfterPlanAmount).toFixed(2));
+  const ranking = normalizeRankingItems(value.ranking, input, orders, sellOrders, buyExecutionBlocks);
+  const strategyHealthGates = input.candidates.flatMap((candidate) => candidate.strategyHealth ? [{
+    ...candidate.strategyHealth,
+    symbol: candidate.symbol,
+    name: candidate.name ?? null
+  }] : []);
+  const strategyHealthSummary = {
+    total: strategyHealthGates.length,
+    allowed: strategyHealthGates.filter((gate) => gate.entryPermission === "allow").length,
+    reduced: strategyHealthGates.filter((gate) => gate.entryPermission === "reduce_size").length,
+    paused: strategyHealthGates.filter((gate) => gate.entryPermission === "pause").length,
+    generatedAt: strategyHealthGates.map((gate) => gate.generatedAt).sort().at(-1) ?? null
+  };
 
   return {
     ...value,
@@ -1020,6 +1148,13 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalSellAmount: Number(sellOrders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number((buyFee + sellFee).toFixed(2)),
+    totalEstimatedRoundTripFee: roundTripFee,
+    totalExpectedNetProfit,
+    riskBudget: input.riskBudget,
+    plannedRiskAmount,
+    riskAfterPlanAmount,
+    riskAfterPlanPct,
+    availableRiskAfterPlan,
     totalBuyEstimatedFee: buyFee,
     totalSellEstimatedFee: sellFee,
     totalEstimatedCost: Number(orders.reduce((sum, order) => sum + order.totalCost, 0).toFixed(2)),
@@ -1034,6 +1169,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     totalAssets: input.totalAssets,
     dataScope: input.dataScope,
     marketContext: input.marketContext,
+    strategyHealthGates,
+    strategyHealthSummary,
     feeRule: TRADING_FEE_RULE,
     fallbackReason,
     generatedAt: new Date().toISOString()
@@ -1200,7 +1337,8 @@ function normalizeRankingItems(
   ranking: DecisionSchemaValue["ranking"],
   input: DecisionInput,
   orders: Array<{ symbol: string }>,
-  sellOrders: Array<{ symbol: string }>
+  sellOrders: Array<{ symbol: string }>,
+  buyExecutionBlocks: Map<string, string>
 ) {
   const candidatesBySymbol = new Map(input.candidates.flatMap((candidate) => symbolVariants(candidate.symbol).map((symbol) => [symbol, candidate] as const)));
   const buySymbols = symbolVariantSet(orders.map((order) => order.symbol));
@@ -1212,6 +1350,15 @@ function normalizeRankingItems(
     const hasBuy = hasSymbolVariant(buySymbols, candidate.symbol);
     const hasSell = hasSymbolVariant(sellSymbols, candidate.symbol);
     if (hasBuy || hasSell) return { ...item, symbol: candidate.symbol };
+    const executionBlock = findExecutionBlock(buyExecutionBlocks, candidate.symbol);
+    if (executionBlock) {
+      return {
+        ...item,
+        symbol: candidate.symbol,
+        view: candidate.isHolding ? "持有观察" : "观察",
+        reason: `交易净收益校验未通过：${executionBlock} 结构化买入计划已取消。${quantReason(candidate)}`
+      };
+    }
 
     const claimedBuy = /买入|增持|加仓|优先/.test(`${item.view} ${item.reason}`);
     const claimedSell = /卖出|减仓|止盈|止损|离场/.test(`${item.view} ${item.reason}`);
@@ -1228,17 +1375,27 @@ function normalizeRankingItems(
 
   for (const candidate of input.candidates) {
     if (hasSymbolVariant(covered, candidate.symbol)) continue;
+    const executionBlock = findExecutionBlock(buyExecutionBlocks, candidate.symbol);
     normalized.push({
       symbol: candidate.symbol,
       rank: normalized.length + 1,
-      view: candidateHasFreshQuote(candidate) ? quantView(candidate) : "观察",
-      reason: candidateHasFreshQuote(candidate) ? quantReason(candidate) : normalizeBlockedRankingReason(candidate, true, false)
+      view: executionBlock ? "观察" : candidateHasFreshQuote(candidate) ? quantView(candidate) : "观察",
+      reason: executionBlock
+        ? `交易净收益校验未通过：${executionBlock} 结构化买入计划已取消。${quantReason(candidate)}`
+        : candidateHasFreshQuote(candidate) ? quantReason(candidate) : normalizeBlockedRankingReason(candidate, true, false)
     });
   }
 
   return normalized
     .sort((a, b) => a.rank - b.rank)
     .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function findExecutionBlock(blocks: Map<string, string>, symbol: string) {
+  for (const [blockedSymbol, reason] of blocks) {
+    if (sameSymbol(blockedSymbol, symbol)) return reason;
+  }
+  return null;
 }
 
 function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean, claimedSell: boolean) {
@@ -1290,27 +1447,66 @@ function tradeFeedbackBuyPenalty(candidate: Candidate) {
 
 function calculateSpendableCash(input: DecisionInput) {
   if (input.availableCash <= TRADING_FEE_RULE.minimumFee) return 0;
-  const reserveRate =
+  const marketReserveRate =
     input.marketContext.marketRegime === "risk_off" ? 0.2 :
     input.marketContext.marketRegime === "risk_on" ? 0.05 :
     0.1;
+  const performanceScale = tradePerformancePositionScale(input.tradePerformance);
+  const performanceReserveRate = performanceScale <= 0.6 ? 0.2 : performanceScale < 1 ? 0.1 : input.tradePerformance.currentLossStreak >= 2 ? 0.05 : 0;
+  const reserveRate = Math.min(0.4, marketReserveRate + performanceReserveRate);
   const reserve = Math.min(input.availableCash * reserveRate, input.capital * reserveRate);
   return Math.max(0, Number((input.availableCash - reserve).toFixed(2)));
 }
 
 function maxBuyAmountForCandidate(candidate: Candidate | null | undefined, input: DecisionInput, remainingCash: number) {
   if (!candidate?.quantSignal || remainingCash <= 0) return 0;
-  const suggestedBudget = input.capital * (candidate.quantSignal.suggestedBuyCapitalPct / 100);
+  const suggestedBudget = normalizeSuggestedBuyBudget(candidate, input, remainingCash);
   if (!suggestedBudget || suggestedBudget <= 0) return 0;
   const existingExposure = candidate.isHolding && candidate.price && candidate.holdingShares ? candidate.price * candidate.holdingShares : 0;
-  const maxPositionBudget = input.capital * maxSinglePositionPct(candidate) / 100;
+  const maxPositionBudget = input.capital * maxSinglePositionPct(candidate, input.capital) / 100;
   const exposureRoom = Math.max(0, maxPositionBudget - existingExposure);
-  return Number(Math.min(remainingCash, suggestedBudget, exposureRoom).toFixed(2));
+  const performanceAdjustedBudget = suggestedBudget * tradePerformancePositionScale(input.tradePerformance);
+  const strategyHealthScale = candidate.strategyHealth?.entryPermission === "reduce_size" ? 0.5 : candidate.strategyHealth?.entryPermission === "pause" ? 0 : 1;
+  return Number(Math.min(remainingCash, performanceAdjustedBudget * strategyHealthScale, exposureRoom).toFixed(2));
 }
 
-function maxSinglePositionPct(candidate: Candidate) {
+function tradePerformancePositionScale(performance: DecisionInput["tradePerformance"]) {
+  if (performance.closedTrades < 5) return 1;
+  let scale = 1;
+  if ((performance.profitFactor !== null && performance.profitFactor < 0.8) || (performance.expectancy !== null && performance.expectancy < 0 && (performance.maxDrawdownPct ?? 0) >= 5)) scale = Math.min(scale, 0.55);
+  else if ((performance.profitFactor !== null && performance.profitFactor < 1) || (performance.expectancy !== null && performance.expectancy < 0)) scale = Math.min(scale, 0.72);
+  if (performance.currentLossStreak >= 3) scale = Math.min(scale, 0.6);
+  else if (performance.currentLossStreak >= 2) scale = Math.min(scale, 0.8);
+  if ((performance.maxDrawdownPct ?? 0) >= 8) scale = Math.min(scale, 0.6);
+  else if ((performance.maxDrawdownPct ?? 0) >= 5) scale = Math.min(scale, 0.8);
+  return scale;
+}
+
+function normalizeSuggestedBuyBudget(candidate: Candidate, input: DecisionInput, remainingCash: number) {
+  const rawBudget = input.capital * ((candidate.quantSignal?.suggestedBuyCapitalPct ?? 0) / 100);
+  if (input.capital > TRADING_FEE_RULE.minimumFeeBase / 2) return rawBudget;
+  const adaptiveFloor = Math.min(remainingCash, input.capital * smallAccountMinPositionPct(candidate) / 100);
+  return Math.max(rawBudget, adaptiveFloor, minimumFeeEfficientAmount(input.availableCash));
+}
+
+function smallAccountMinPositionPct(candidate: Candidate) {
   const signal = candidate.quantSignal;
   if (!signal) return 20;
+  if (signal.marketRegime === "risk_off") return 24;
+  if (signal.sectorBias === "overheated") return 24;
+  if (signal.marketRegime === "risk_on" && signal.sectorBias === "bullish") return 34;
+  return 28;
+}
+
+function maxSinglePositionPct(candidate: Candidate, capital: number) {
+  const signal = candidate.quantSignal;
+  if (!signal) return 20;
+  if (capital <= TRADING_FEE_RULE.minimumFeeBase / 2) {
+    if (signal.marketRegime === "risk_off") return candidate.isHolding ? 35 : 32;
+    if (signal.sectorBias === "overheated") return candidate.isHolding ? 38 : 35;
+    if (signal.marketRegime === "risk_on" && signal.sectorBias === "bullish") return candidate.isHolding ? 55 : 48;
+    return candidate.isHolding ? 45 : 40;
+  }
   if (signal.marketRegime === "risk_off") return candidate.isHolding ? 18 : 15;
   if (signal.sectorBias === "overheated") return candidate.isHolding ? 20 : 18;
   if (signal.marketRegime === "risk_on" && signal.sectorBias === "bullish") return candidate.isHolding ? 35 : 30;

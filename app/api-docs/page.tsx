@@ -60,6 +60,10 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     endpoints: [
       { method: "GET", path: "/api/stocks/[symbol]/quote", description: "读取当前报价。", cost: "只读" },
       { method: "GET", path: "/api/stocks/[symbol]/history", description: "读取历史 K 线，支持 range 和 interval。", notes: "?range=1y&interval=1d", cost: "只读" },
+      { method: "GET", path: "/api/research-export", description: "列出或下载 ChatGPT 研究包。", notes: "?file=归档文件名", cost: "只读" },
+      { method: "POST", path: "/api/research-export", description: "生成 ChatGPT Markdown / JSON 研究包。", body: "{ symbols, range, interval, newsDays, includeForecast }", cost: "AI" },
+      { method: "GET", path: "/api/strategy-backtest", description: "读取策略回测可选标的和默认参数。", cost: "只读" },
+      { method: "POST", path: "/api/strategy-backtest", description: "运行日线策略回测。", body: "{ symbols, range, initialCapital }", cost: "只读" },
       { method: "GET", path: "/api/stocks/[symbol]/indicators", description: "读取技术指标。", cost: "只读" },
       { method: "GET", path: "/api/stocks/[symbol]/analysis/latest", description: "读取最近一次 AI 分析。", cost: "只读" },
       { method: "POST", path: "/api/stocks/[symbol]/analyze", description: "创建或复用股票分析任务。", body: "{ forceRefresh?: boolean }", cost: "入队" }

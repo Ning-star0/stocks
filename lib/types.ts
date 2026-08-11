@@ -96,6 +96,46 @@ export interface EntryAdvice {
   invalidIf: string;
 }
 
+export interface AnalysisTradePlanLeg {
+  status: "conditional" | "watch" | "blocked" | "not_applicable";
+  action: "buy" | "add" | "reduce" | "sell" | "watch" | "avoid";
+  triggerPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  shares: number | null;
+  amount: number | null;
+  estimatedFee: number | null;
+  totalCost?: number | null;
+  netProceeds?: number | null;
+  maxLossAmount?: number | null;
+  riskRewardRatio?: number | null;
+  estimatedExitFee?: number | null;
+  roundTripFees?: number | null;
+  feeDragPct?: number | null;
+  breakEvenPrice?: number | null;
+  breakEvenMovePct?: number | null;
+  grossExpectedProfit?: number | null;
+  netExpectedProfit?: number | null;
+  netMaxLossAmount?: number | null;
+  netRiskRewardRatio?: number | null;
+  sellRatioPct?: number | null;
+  estimatedPnl?: number | null;
+  reason: string;
+  constraints: string[];
+}
+
+export interface AnalysisTradePlan {
+  entry: AnalysisTradePlanLeg;
+  exit: AnalysisTradePlanLeg;
+  feeRule: {
+    rate: number;
+    minimumFeeBase: number;
+    minimumFee: number;
+    lotSize: number;
+    description: string;
+  };
+}
+
 export interface AiAnalysisResult {
   trend: Trend;
   confidence: number;
@@ -142,6 +182,7 @@ export interface AiAnalysisResult {
   sectorRisks: string[];
   holdAdvice?: HoldAdvice | null;
   entryAdvice?: EntryAdvice | null;
+  tradePlan?: AnalysisTradePlan;
   possibleActions: Array<{
     action: "hold" | "watch" | "reduce" | "consider_entry" | "avoid";
     reason: string;

@@ -577,7 +577,18 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
     ["止损价", formatPrice(trade.stopLossPrice)],
     ["止盈价", formatPrice(trade.takeProfitPrice)],
     ["计划金额", formatMoney(trade.amount)],
-    ...(trade.side === "buy" ? [["风险收益比", formatRatio(trade.riskRewardRatio)], ["最大价格风险", formatMoney(trade.maxLossAmount)]] : []),
+    ...(trade.side === "buy" ? [
+      ["毛风险收益比", formatRatio(trade.riskRewardRatio)],
+      ["净风险收益比", formatRatio(trade.netRiskRewardRatio)],
+      ["双边手续费", formatMoney(trade.roundTripFees)],
+      ["手续费占比", formatPrecisePercent(trade.feeDragPct)],
+      ["盈亏平衡价", formatPrice(trade.breakEvenPrice)],
+      ["目标净收益", formatMoney(trade.netExpectedProfit)],
+      ["扣费最大风险", formatMoney(trade.netMaxLossAmount)],
+      ["单笔风险额度", formatMoney(trade.riskBudgetAmount)],
+      ["额度使用率", formatPrecisePercent(trade.riskUsagePct)],
+      ["下单后组合风险", formatMoney(trade.portfolioRiskAfterOrder)]
+    ] : []),
     [trade.side === "buy" ? "触发条件" : "退出条件", trade.side === "buy" ? trade.entryCondition ?? "--" : trade.exitCondition ?? "--"],
     ["执行窗口", trade.executionWindow ?? "--"],
     ["仓位影响", trade.positionImpact ?? "--"]
@@ -595,6 +606,11 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
       ))}
     </div>
   );
+}
+
+function formatPrecisePercent(value?: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(2)}%`;
 }
 
 function planTypeLabel(value?: TradeOption["planType"]) {

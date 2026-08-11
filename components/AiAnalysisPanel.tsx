@@ -118,6 +118,10 @@ export function AiAnalysisPanel({
           </Block>
         )}
 
+        {analysis.tradePlan ? (
+          <TradePlanCard tradePlan={analysis.tradePlan} currency={currency} symbol={symbol} unit={unit} />
+        ) : null}
+
         <div className="grid gap-4 md:grid-cols-2">
           <LevelList title="支撑位" values={support} currency={currency} symbol={symbol} unit={unit} />
           <LevelList title="压力位" values={resistance} currency={currency} symbol={symbol} unit={unit} />
@@ -157,6 +161,116 @@ export function AiAnalysisPanel({
   );
 }
 
+function TradePlanCard({
+  tradePlan,
+  currency,
+  symbol,
+  unit
+}: {
+  tradePlan: NonNullable<AiAnalysisResult["tradePlan"]>;
+  currency?: string;
+  symbol?: string;
+  unit?: string;
+}) {
+  return (
+    <Block title="交易测算">
+      <div className="grid gap-3 lg:grid-cols-2">
+        <TradePlanLegCard
+          title={tradePlan.entry.action === "add" ? "增持测算" : "买入测算"}
+          leg={tradePlan.entry}
+          mode="entry"
+          currency={currency}
+          symbol={symbol}
+          unit={unit}
+        />
+        <TradePlanLegCard
+          title="卖出 / 减仓测算"
+          leg={tradePlan.exit}
+          mode="exit"
+          currency={currency}
+          symbol={symbol}
+          unit={unit}
+        />
+      </div>
+      <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+        {tradePlan.feeRule.description}
+      </div>
+    </Block>
+  );
+}
+
+function TradePlanLegCard({
+  title,
+  leg,
+  mode,
+  currency,
+  symbol,
+  unit
+}: {
+  title: string;
+  leg: NonNullable<AiAnalysisResult["tradePlan"]>["entry"];
+  mode: "entry" | "exit";
+  currency?: string;
+  symbol?: string;
+  unit?: string;
+}) {
+  const rows: Array<[string, string | null | undefined]> = [
+    ["触发价", formatNullablePrice(leg.triggerPrice, currency, symbol, unit)],
+    ["止损价", formatNullablePrice(leg.stopLossPrice, currency, symbol, unit)],
+    ["止盈价", formatNullablePrice(leg.takeProfitPrice, currency, symbol, unit)],
+    ["数量", leg.shares ? `${leg.shares} 股/份` : null],
+    [mode === "entry" ? "成交金额" : "计划市值", formatAmount(leg.amount)],
+    ["手续费", formatAmount(leg.estimatedFee)]
+  ];
+
+  if (mode === "entry") {
+    rows.push(["总成本", formatAmount(leg.totalCost)]);
+    rows.push(["毛风险收益比", leg.riskRewardRatio ? `${leg.riskRewardRatio.toFixed(2)} : 1` : null]);
+    rows.push(["净风险收益比", leg.netRiskRewardRatio ? `${leg.netRiskRewardRatio.toFixed(2)} : 1` : null]);
+    rows.push(["预计双边手续费", formatAmount(leg.roundTripFees)]);
+    rows.push(["手续费占比", formatPrecisePercent(leg.feeDragPct)]);
+    rows.push(["盈亏平衡价", formatNullablePrice(leg.breakEvenPrice, currency, symbol, unit)]);
+    rows.push(["盈亏平衡涨幅", formatPrecisePercent(leg.breakEvenMovePct)]);
+    rows.push(["目标毛收益", formatAmount(leg.grossExpectedProfit)]);
+    rows.push(["目标净收益", formatAmount(leg.netExpectedProfit)]);
+    rows.push(["最大价格风险", formatAmount(leg.maxLossAmount)]);
+    rows.push(["扣费最大风险", formatAmount(leg.netMaxLossAmount)]);
+  } else {
+    rows.push(["净回收", formatAmount(leg.netProceeds)]);
+    rows.push(["卖出比例", leg.sellRatioPct ? `${leg.sellRatioPct.toFixed(0)}%` : null]);
+    rows.push(["估算盈亏", formatAmount(leg.estimatedPnl)]);
+  }
+
+  return (
+    <div className="glow-card rounded-xl border border-border bg-background/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">{title}</div>
+        <Badge variant={tradePlanStatusVariant(leg.status)}>{tradePlanStatusLabel(leg.status)}</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows
+          .filter((row): row is [string, string] => Boolean(row[1]))
+          .map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-border/70 bg-background/45 px-3 py-2">
+              <div className="text-[11px] text-muted-foreground">{label}</div>
+              <div className="mt-1 text-sm font-medium tabular-nums">{value}</div>
+            </div>
+          ))}
+      </div>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{leg.reason}</p>
+      {leg.constraints.length ? (
+        <div className="mt-3 space-y-1">
+          {leg.constraints.slice(0, 6).map((item) => (
+            <div key={item} className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+              {item}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DecisionChangeCard({ change }: { change: DecisionChange }) {
   const variant = change.status === "changed" ? "warning" : change.status === "first" ? "secondary" : "success";
   const title = change.status === "changed" ? "结论发生变化" : change.status === "first" ? "首次记录" : "结论延续";
@@ -178,6 +292,36 @@ function DecisionChangeCard({ change }: { change: DecisionChange }) {
       ) : null}
     </div>
   );
+}
+
+function tradePlanStatusLabel(status: NonNullable<AiAnalysisResult["tradePlan"]>["entry"]["status"]) {
+  if (status === "conditional") return "条件触发";
+  if (status === "blocked") return "暂不可做";
+  if (status === "not_applicable") return "不适用";
+  return "观察";
+}
+
+function tradePlanStatusVariant(status: NonNullable<AiAnalysisResult["tradePlan"]>["entry"]["status"]) {
+  if (status === "conditional") return "success";
+  if (status === "blocked") return "danger";
+  return "secondary";
+}
+
+function formatNullablePrice(value: number | null | undefined, currency?: string, symbol?: string, unit?: string) {
+  return typeof value === "number" && Number.isFinite(value) ? formatPriceValue(value, { currency, symbol, unit }) : null;
+}
+
+function formatAmount(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function formatPrecisePercent(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return `${value.toFixed(2)}%`;
 }
 
 function PrimaryAdviceCard({
