@@ -13,6 +13,7 @@ import {
   candidateHasFreshQuote,
   candidateSupportsBuy,
   candidateSupportsSell,
+  assessCandidateBuy,
   quantAllowsSell,
   quantReason,
   quantView,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/focus/decisionCandidate";
 import { buildDecisionPrompt, FOCUS_DECISION_SYSTEM_PROMPT } from "@/lib/focus/decisionPrompt";
 import { decisionSchema, type DecisionSchemaValue } from "@/lib/focus/decisionSchema";
-import type { Candidate, CandidateTradeFeedback, DecisionInput, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
+import type { Candidate, CandidateTradeFeedback, DecisionInput, DecisionNearMiss, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
 import {
   buildPortfolioSnapshot,
   calculatePositionCostBasisBySymbol,
@@ -152,6 +153,7 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     totalBudgetToUse: decision.totalBudgetToUse,
     totalEstimatedFee: decision.totalEstimatedFee,
     sellOrders: decision.sellOrders,
+    nearMisses: decision.nearMisses,
     totalSellAmount: decision.totalSellAmount,
     totalSellNetProceeds: decision.totalSellNetProceeds
   }).catch((error) => ({
@@ -1125,6 +1127,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     : 0;
   const availableRiskAfterPlan = Number(Math.max(0, input.riskBudget.portfolioRiskLimitAmount - riskAfterPlanAmount).toFixed(2));
   const ranking = normalizeRankingItems(value.ranking, input, orders, sellOrders, buyExecutionBlocks);
+  const nearMisses = buildDecisionNearMisses(input, orders, buyExecutionBlocks);
   const strategyHealthGates = input.candidates.flatMap((candidate) => candidate.strategyHealth ? [{
     ...candidate.strategyHealth,
     symbol: candidate.symbol,
@@ -1145,6 +1148,7 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     orders,
     sellOrders,
     ranking,
+    nearMisses,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalSellAmount: Number(sellOrders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number((buyFee + sellFee).toFixed(2)),
@@ -1175,6 +1179,45 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     fallbackReason,
     generatedAt: new Date().toISOString()
   };
+}
+
+function buildDecisionNearMisses(
+  input: DecisionInput,
+  orders: Array<{ symbol: string }>,
+  executionBlocks: Map<string, string>
+): DecisionNearMiss[] {
+  const orderedSymbols = symbolVariantSet(orders.map((order) => order.symbol));
+  return input.candidates
+    .flatMap((candidate) => {
+      const signal = candidate.quantSignal;
+      if (!signal || !candidateHasFreshQuote(candidate) || hasSymbolVariant(orderedSymbols, candidate.symbol)) return [];
+      const rawGap = signal.adjustedBuyThreshold - signal.buyScore;
+      const isActiveBuySignal = signal.action === "buy" || signal.action === "add";
+      const isCloseEnough = rawGap <= 5 && signal.riskScore < 72 &&
+        (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.05);
+      if (!isCloseEnough && !(isActiveBuySignal && rawGap <= 8)) return [];
+
+      const assessment = assessCandidateBuy(candidate);
+      const executionBlock = executionBlocks.get(candidate.symbol);
+      const blockers = [
+        ...assessment.blockers,
+        ...(executionBlock ? [executionBlock] : []),
+        ...(assessment.supported && !executionBlock ? ["量化条件已接近或达到，但本轮没有形成结构化买单"] : [])
+      ];
+      return [{
+        symbol: candidate.symbol,
+        name: candidate.name ?? null,
+        side: "buy" as const,
+        price: candidate.price,
+        score: signal.buyScore,
+        threshold: signal.adjustedBuyThreshold,
+        scoreGap: Number(Math.max(0, rawGap).toFixed(1)),
+        entryPermission: candidate.strategyHealth?.entryPermission ?? null,
+        blockers: [...new Set(blockers)].slice(0, 4)
+      }];
+    })
+    .sort((left, right) => left.scoreGap - right.scoreGap || right.score - left.score)
+    .slice(0, 3);
 }
 
 function buildBuyPlanMeta(input: {

@@ -148,24 +148,28 @@ export default function FocusPage() {
     setNames(buildStockNameMap(items));
   }, []);
 
-  const loadDecision = useCallback(async (method: "GET" | "POST") => {
-    setDecisionLoading(true);
-    setDecisionError(null);
-    setDecisionNotice(null);
+  const loadDecision = useCallback(async (method: "GET" | "POST", options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setDecisionLoading(true);
+      setDecisionError(null);
+      setDecisionNotice(null);
+    }
     try {
       const response = await fetch("/api/focus/decision", { method });
       const json = await readJsonResponse<FocusDecision & { decisionUnavailable?: boolean; message?: string }>(response);
       if (json.decisionUnavailable) {
-        setDecision(null);
-        setDecisionNotice(json.message ?? "等待下一个自动分析时间生成策略观察。");
+        if (!options.silent) {
+          setDecision(null);
+          setDecisionNotice(json.message ?? "等待下一个自动分析时间生成策略观察。");
+        }
         return;
       }
       setDecision(json);
-      void refreshTrackingData();
+      if (!options.silent) void refreshTrackingData();
     } catch (error) {
-      setDecisionError(error instanceof Error ? error.message : "生成决策失败");
+      if (!options.silent) setDecisionError(error instanceof Error ? error.message : "生成决策失败");
     } finally {
-      setDecisionLoading(false);
+      if (!options.silent) setDecisionLoading(false);
     }
   }, [refreshTrackingData]);
 
@@ -188,6 +192,21 @@ export default function FocusPage() {
     }, 8000);
     return () => window.clearInterval(timer);
   }, [decisionLoading, refreshTrackingData, runs?.summary.latestStatus, runs?.summary.runningCount]);
+
+  useEffect(() => {
+    if (loading || !focus.symbols.length || !focus.capital) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshTrackingData();
+      void loadDecision("GET", { silent: true });
+    };
+    const timer = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [focus.capital, focus.symbols.length, loadDecision, loading, refreshTrackingData]);
 
   async function generateDecision() {
     await loadDecision("POST");

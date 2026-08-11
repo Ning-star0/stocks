@@ -618,17 +618,41 @@ function signedPercent(value: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function evaluateStrategyHealth(result: StrategyBacktestResult | undefined): Pick<StrategyBacktestComparison, "strategyHealth" | "entryPermission" | "healthReason"> {
-  if (!result || result.closedTrades < 3) {
-    return { strategyHealth: "insufficient", entryPermission: "reduce_size", healthReason: "样本外平仓不足 3 笔，只允许小仓观察，不据此放大仓位。" };
+export function evaluateStrategyHealth(result: StrategyBacktestResult | undefined): Pick<StrategyBacktestComparison, "strategyHealth" | "entryPermission" | "healthReason"> {
+  const closedTrades = result?.closedTrades ?? 0;
+  if (!result || closedTrades < 6) {
+    return {
+      strategyHealth: "insufficient",
+      entryPermission: "reduce_size",
+      healthReason: `样本外仅 ${closedTrades} 笔平仓，证据不足以暂停策略；新开仓缩至建议仓位的一半并继续积累样本。`
+    };
   }
-  if (result.netReturnPct < 0 && (result.maxDrawdownPct >= 6 || (result.profitFactor ?? 0) < 0.85)) {
-    return { strategyHealth: "pause", entryPermission: "pause", healthReason: "样本外净收益为负且回撤或利润因子失衡，暂停该标的新开仓信号。" };
+
+  // A per-symbol hard pause needs materially stronger evidence than a small
+  // losing sample. This prevents 3-13 trades from silently disabling almost
+  // the whole candidate universe while preserving a fail-safe for severe,
+  // repeatedly observed strategy failure.
+  const severeFailure =
+    closedTrades >= 12 &&
+    result.netReturnPct <= -5 &&
+    result.maxDrawdownPct >= 10 &&
+    (result.profitFactor ?? 0) < 0.65;
+  if (severeFailure) {
+    return {
+      strategyHealth: "pause",
+      entryPermission: "pause",
+      healthReason: `样本外 ${closedTrades} 笔平仓同时满足净收益≤-5%、回撤≥10%且利润因子<0.65，暂时停止新开仓；门控会随最新复权数据定期重算。`
+    };
   }
+
   if (result.netReturnPct <= 0 || result.maxDrawdownPct > 8 || (result.profitFactor ?? 0) < 1) {
-    return { strategyHealth: "watch", entryPermission: "reduce_size", healthReason: "样本外稳定性不足，新开仓按建议仓位的一半执行并继续观察。" };
+    return {
+      strategyHealth: "watch",
+      entryPermission: "reduce_size",
+      healthReason: `样本外 ${closedTrades} 笔平仓的稳定性仍不足，不做永久硬暂停；新开仓按建议仓位的一半执行并继续观察。`
+    };
   }
-  return { strategyHealth: "healthy", entryPermission: "allow", healthReason: "样本外净收益、回撤和利润因子未触发降级条件，可按现有风控执行。" };
+  return { strategyHealth: "healthy", entryPermission: "allow", healthReason: `样本外 ${closedTrades} 笔平仓的净收益、回撤和利润因子未触发降级条件，可按现有风控执行。` };
 }
 
 function round(value: number, digits = 2) {

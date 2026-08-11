@@ -1,5 +1,9 @@
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
+import {
+  adjustTencentHistoryForCorporateActions,
+  assertNoUnexplainedCorporateActionGap
+} from "@/lib/stock-data/corporateActions";
 import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
 
 type EastMoneyQuoteResponse = {
@@ -175,7 +179,7 @@ export class AShareEastMoneyProvider implements StockDataProvider {
       const rows = payload.data?.klines;
       if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol });
 
-      return rows.map((row) => {
+      const candles = rows.map((row) => {
         const [date, open, close, high, low, volume] = row.split(",");
         return {
           symbol: target.symbol,
@@ -187,10 +191,19 @@ export class AShareEastMoneyProvider implements StockDataProvider {
           timestamp: parseKlineTimestamp(date, normalizedInterval)
         };
       });
+      if (!isIntraday(normalizedInterval) && normalizedInterval === "1d") {
+        assertNoUnexplainedCorporateActionGap(target.symbol, candles);
+      }
+      return candles;
     } catch (error) {
-      return this.getTencentFallbackHistory(target, range, normalizedInterval).catch(() => {
+      try {
+        return await this.getTencentFallbackHistory(target, range, normalizedInterval);
+      } catch (fallbackError) {
+        // Data-integrity errors from the fallback are more useful than a
+        // connectivity error from the preferred provider.
+        if (fallbackError instanceof AppError && fallbackError.details) throw fallbackError;
         throw error;
-      });
+      }
     }
   }
 
@@ -236,9 +249,12 @@ export class AShareEastMoneyProvider implements StockDataProvider {
 
   private async getTencentDailyHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string, interval: string) {
     const marketSymbol = tencentMarketSymbol(target);
-    const period = interval === "1wk" || interval === "1w" ? "week" : interval === "1mo" ? "month" : "day";
+    // Always adjust daily bars first. A raw weekly/monthly candle can straddle
+    // a split date and cannot be repaired reliably after aggregation.
+    const requestedPeriod = interval === "1wk" || interval === "1w" ? "week" : interval === "1mo" ? "month" : "day";
+    const period = "day";
     const url = new URL(`${this.tencentKlineBaseUrl}/kline`);
-    url.searchParams.set("param", `${marketSymbol},${period},,,${rangeToLimit(range, interval)}`);
+    url.searchParams.set("param", `${marketSymbol},${period},,,${rangeToLimit(range, "1d")}`);
 
     const response = await fetch(url, {
       headers: requestHeaders(),
@@ -248,7 +264,9 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     const payload = await readProviderJsonResponse<TencentKlineResponse>(response, "腾讯日 K 线");
     const rows = payload.data?.[marketSymbol]?.[period];
     if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯历史行情。`);
-    return rows.map((row) => tencentRowToCandle(target.symbol, row, false)).filter(isValidCandle);
+    const rawCandles = rows.map((row) => tencentRowToCandle(target.symbol, row, false)).filter(isValidCandle);
+    const adjusted = adjustTencentHistoryForCorporateActions(target.symbol, rawCandles);
+    return requestedPeriod === "day" ? adjusted : aggregateDailyCandles(adjusted, requestedPeriod);
   }
 }
 
@@ -422,6 +440,33 @@ function aggregateIntradayCandles(candles: Candle[], interval: string) {
     volume: rows.reduce((sum, row) => sum + row.volume, 0),
     timestamp: new Date(timestamp).toISOString()
   }));
+}
+
+function aggregateDailyCandles(candles: Candle[], period: "week" | "month") {
+  const buckets = new Map<string, Candle[]>();
+  for (const candle of candles) {
+    const key = period === "month" ? localDateKey(candle.timestamp).slice(0, 7) : weekKey(candle.timestamp);
+    const rows = buckets.get(key) ?? [];
+    rows.push(candle);
+    buckets.set(key, rows);
+  }
+  return [...buckets.values()].map((rows) => ({
+    symbol: rows[0].symbol,
+    open: rows[0].open,
+    high: Math.max(...rows.map((row) => row.high)),
+    low: Math.min(...rows.map((row) => row.low)),
+    close: rows[rows.length - 1].close,
+    volume: rows.reduce((sum, row) => sum + row.volume, 0),
+    timestamp: rows[rows.length - 1].timestamp
+  }));
+}
+
+function weekKey(timestamp: string) {
+  const dateKey = localDateKey(timestamp);
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - day + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function filterIntradayCandlesByRange(candles: Candle[], range: string) {

@@ -90,6 +90,9 @@ export type FocusDecision = {
     validationClosedTrades: number;
     reason: string;
     generatedAt: string;
+    validUntil?: string;
+    policyVersion?: string;
+    marketDataRevision?: string;
   }>;
   plannedRiskAmount?: number;
   riskAfterPlanAmount?: number;
@@ -113,7 +116,19 @@ export type FocusDecision = {
     sentAt?: string;
     provider?: string;
     error?: string;
+    kind?: "trade_plan" | "near_miss" | string;
   } | null;
+  nearMisses?: Array<{
+    symbol: string;
+    name?: string | null;
+    side: "buy" | "sell";
+    price: number | null;
+    score: number;
+    threshold: number;
+    scoreGap: number;
+    entryPermission: "allow" | "reduce_size" | "pause" | null;
+    blockers: string[];
+  }>;
   feedback?: {
     feedbackAction: string;
     note?: string | null;

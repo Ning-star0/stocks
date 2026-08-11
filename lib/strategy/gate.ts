@@ -2,10 +2,12 @@ import { getCache, setCache } from "@/lib/cache";
 import { focusSymbolBase } from "@/lib/focus/symbols";
 import { prisma } from "@/lib/prisma";
 import { getStockDataProvider } from "@/lib/stock-data";
+import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
 import type { BacktestPresetId, StrategyBacktestComparison } from "@/lib/strategy/backtest";
 import { compareBacktestPresets } from "@/lib/strategy/backtest";
 
-const STRATEGY_GATE_TTL_SECONDS = 24 * 60 * 60;
+const STRATEGY_GATE_TTL_SECONDS = 12 * 60 * 60;
+export const STRATEGY_GATE_POLICY_VERSION = "small-sample-soft-gate-v2";
 
 export type StrategyHealthGate = {
   symbol: string;
@@ -18,6 +20,9 @@ export type StrategyHealthGate = {
   validationClosedTrades: number;
   reason: string;
   generatedAt: string;
+  validUntil: string;
+  policyVersion: string;
+  marketDataRevision: string;
 };
 
 export async function saveStrategyHealthGates(input: {
@@ -37,7 +42,10 @@ export async function saveStrategyHealthGates(input: {
       validationMaxDrawdownPct: validation?.maxDrawdownPct ?? null,
       validationClosedTrades: validation?.closedTrades ?? 0,
       reason: comparison.healthReason,
-      generatedAt: comparison.generatedAt
+      generatedAt: comparison.generatedAt,
+      validUntil: new Date(Date.now() + STRATEGY_GATE_TTL_SECONDS * 1000).toISOString(),
+      policyVersion: STRATEGY_GATE_POLICY_VERSION,
+      marketDataRevision: MARKET_DATA_REVISION
     };
     return setCache(strategyGateKey(input.userId, comparison.symbol), gate, STRATEGY_GATE_TTL_SECONDS);
   }));
@@ -50,7 +58,7 @@ export async function loadStrategyHealthGates(input: {
 }) {
   const pairs = await Promise.all(input.symbols.map(async (symbol) => {
     const gate = await getCache<StrategyHealthGate>(strategyGateKey(input.userId, symbol));
-    if (!gate || !capitalMatches(gate.capital, input.capital)) return [focusSymbolBase(symbol), null] as const;
+    if (!gate || !gateIsCurrent(gate) || !capitalMatches(gate.capital, input.capital)) return [focusSymbolBase(symbol), null] as const;
     return [focusSymbolBase(symbol), gate] as const;
   }));
   return new Map(pairs.filter((pair): pair is readonly [string, StrategyHealthGate] => pair[1] !== null));
@@ -73,7 +81,7 @@ export async function ensureStrategyHealthGatesForFocus(userId: string) {
   const comparisons: StrategyBacktestComparison[] = [];
   for (const symbol of missing) {
     try {
-      const candles = await provider.getHistory(symbol, "2y", "1d");
+      const candles = await provider.getHistory(symbol, "2y", "1d", { forceRefresh: true });
       comparisons.push(compareBacktestPresets({ symbol, candles, initialCapital: capital, range: "2y" }));
     } catch (error) {
       console.warn("[strategy-health] refresh failed", symbol, error instanceof Error ? error.message : String(error));
@@ -84,7 +92,13 @@ export async function ensureStrategyHealthGatesForFocus(userId: string) {
 }
 
 function strategyGateKey(userId: string, symbol: string) {
-  return `strategy_health:${userId}:${focusSymbolBase(symbol)}`;
+  return `strategy_health:v2:${MARKET_DATA_REVISION}:${STRATEGY_GATE_POLICY_VERSION}:${userId}:${focusSymbolBase(symbol)}`;
+}
+
+function gateIsCurrent(gate: StrategyHealthGate) {
+  if (gate.policyVersion !== STRATEGY_GATE_POLICY_VERSION || gate.marketDataRevision !== MARKET_DATA_REVISION) return false;
+  const validUntil = Date.parse(gate.validUntil);
+  return Number.isFinite(validUntil) && validUntil > Date.now();
 }
 
 function capitalMatches(gateCapital: number, currentCapital: number) {

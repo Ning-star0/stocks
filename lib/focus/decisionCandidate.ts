@@ -2,18 +2,45 @@ import type { Candidate } from "@/lib/focus/decisionTypes";
 import type { QuantSignal } from "@/lib/quant/strategy";
 
 export function candidateSupportsBuy(candidate: Candidate) {
-  if (!candidate.price || candidate.price <= 0) return false;
-  if (!quantAllowsBuy(candidate)) return false;
-  if (tradeFeedbackBlocksBuy(candidate)) return false;
-  if (candidate.strategyHealth?.entryPermission === "pause") return false;
-  if (candidate.latestAnalysis?.trend === "bearish") return false;
-  if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55) return false;
+  return assessCandidateBuy(candidate).supported;
+}
+
+export function assessCandidateBuy(candidate: Candidate) {
+  const blockers: string[] = [];
+  if (!candidate.price || candidate.price <= 0) blockers.push("行情价格不可用");
+  if (!candidateHasFreshQuote(candidate)) blockers.push("行情不是最新状态");
+
+  const signal = candidate.quantSignal;
+  if (!signal) blockers.push("缺少量化信号");
+  if (signal) {
+    if (signal.action !== "buy" && signal.action !== "add") blockers.push(`量化动作仍为${actionLabel(signal.action)}`);
+    if (signal.buyScore < signal.adjustedBuyThreshold) blockers.push(`买入分还差 ${formatScoreGap(signal.adjustedBuyThreshold - signal.buyScore)} 分`);
+    if (signal.sellScore >= signal.adjustedReduceThreshold) blockers.push("卖出风险分已达到减仓阈值");
+    if (signal.riskScore >= 68) blockers.push(`风险分 ${signal.riskScore} 过高`);
+    if (signal.riskRewardRatio !== null && signal.riskRewardRatio < 1.25) blockers.push(`风险收益比 ${signal.riskRewardRatio} 低于 1.25`);
+    if (signal.volumeRatio !== null && signal.volumeRatio < 0.75) blockers.push(`量比 ${signal.volumeRatio} 低于 0.75`);
+  }
+  if (tradeFeedbackBlocksBuy(candidate)) blockers.push("近期交易反馈仍在冷静期");
+  if (candidate.strategyHealth?.entryPermission === "pause") blockers.push("足量样本显示策略严重失效，健康门控暂停");
+
+  const strongQuantConfirmation = Boolean(signal &&
+    signal.buyScore >= signal.adjustedBuyThreshold + 6 &&
+    signal.riskScore < 55 &&
+    (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.6) &&
+    (signal.volumeRatio === null || signal.volumeRatio >= 0.9));
+  if (candidate.latestAnalysis?.trend === "bearish" && !strongQuantConfirmation) blockers.push("AI 趋势判断仍偏空");
+  if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55 && !strongQuantConfirmation) blockers.push("AI 分析置信度不足 55%");
 
   const advice = candidate.isHolding ? candidate.latestAnalysis?.holdAdvice : candidate.latestAnalysis?.entryAdvice;
   const text = stringifyAdvice(advice);
-  if (/减仓|止损|离场|回避|不建议/.test(text)) return false;
-  if (candidate.isHolding) return /加仓|增持|逢低|提高仓位/.test(text);
-  return /买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) && !/仅观察|继续观察|观望/.test(text);
+  if (/减仓|止损|离场|回避|不建议/.test(text)) blockers.push("AI 入场建议明确要求回避或降低仓位");
+  if (candidate.isHolding) {
+    if (!/加仓|增持|逢低|提高仓位/.test(text)) blockers.push("AI 尚未给出增持条件");
+  } else if (!/买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) || /仅观察|继续观察|观望/.test(text)) {
+    blockers.push("AI 尚未给出可执行入场条件");
+  }
+
+  return { supported: blockers.length === 0, blockers: [...new Set(blockers)], strongQuantConfirmation };
 }
 
 export function candidateSupportsSell(candidate: Candidate) {
@@ -115,6 +142,10 @@ function isFuture(value?: string | null) {
 
 function formatPct(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "--";
+}
+
+function formatScoreGap(value: number) {
+  return Number(value.toFixed(1)).toString();
 }
 
 function actionLabel(action: QuantSignal["action"]) {

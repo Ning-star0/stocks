@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
+import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -21,7 +22,8 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 5,
+    analysisPromptVersion: 6,
+    marketDataRevision: MARKET_DATA_REVISION,
     symbol: input.symbol.toUpperCase(),
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),

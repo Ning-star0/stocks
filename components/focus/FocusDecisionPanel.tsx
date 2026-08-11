@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, ShieldAlert, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ChevronDown, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { DecisionFeedbackPanel } from "@/components/focus/DecisionFeedbackPanel";
@@ -273,6 +273,7 @@ export function FocusDecisionPanel({
           ))}
         </div>
       ) : null}
+      {decision.nearMisses?.length ? <NearMissPanel items={decision.nearMisses} /> : null}
       <DecisionFeedbackPanel
         decisionId={decision.decisionId}
         feedback={decision.feedback}
@@ -284,6 +285,37 @@ export function FocusDecisionPanel({
       />
       {decision.strategyHealthGates?.length ? <StrategyHealthGatePanel decision={decision} /> : null}
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+    </div>
+  );
+}
+
+function NearMissPanel({ items }: { items: NonNullable<FocusDecision["nearMisses"]> }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-amber-500/30 bg-amber-500/10">
+      <div className="flex items-start gap-3 border-b border-amber-500/20 px-4 py-3">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+        <div>
+          <div className="text-sm font-semibold">接近触发，但本次没有形成交易指令</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">这里展示离阈值最近或已过量化阈值但仍被其他风控拦截的候选，仅用于提前观察。</p>
+        </div>
+      </div>
+      <div className="grid gap-px bg-border/65 sm:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => (
+          <div key={`${item.side}:${item.symbol}`} className="bg-card/95 p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <StockIdentity symbol={item.symbol} name={item.name} compact />
+              <Badge variant="warning">{item.score.toFixed(1)} / {item.threshold.toFixed(1)}</Badge>
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {item.scoreGap > 0 ? `距离阈值还差 ${item.scoreGap.toFixed(1)} 分` : "量化分已达到阈值，仍待其他条件确认"}
+              {item.entryPermission === "reduce_size" ? " · 仅允许半仓" : item.entryPermission === "pause" ? " · 健康门控暂停" : ""}
+            </div>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+              {item.blockers.slice(0, 3).map((blocker) => <li key={blocker}>• {blocker}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -348,7 +380,7 @@ function valuationStatusHelp(status: NonNullable<FocusDecision["portfolioValuati
 
 function NotificationBadge({ notification }: { notification?: FocusDecision["notification"] }) {
   if (!notification) return <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">推送待确认</span>;
-  if (!notification.skipped) return <Badge variant="success">已推送手机</Badge>;
+  if (!notification.skipped) return <Badge variant="success">{notification.kind === "near_miss" ? "已推送近信号" : "已推送手机"}</Badge>;
   return <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">未推送：{notificationReasonLabel(notification.reason)}</span>;
 }
 
@@ -356,7 +388,7 @@ function NotificationStatus({ notification }: { notification: NonNullable<FocusD
   if (!notification.skipped) {
     return (
       <div className="glow-card rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
-        手机推送已发送{notification.provider ? `（${notification.provider}）` : ""}：{formatDateTime(notification.sentAt)}
+        {notification.kind === "near_miss" ? "接近触发提醒" : "手机交易计划推送"}已发送{notification.provider ? `（${notification.provider}）` : ""}：{formatDateTime(notification.sentAt)}
       </div>
     );
   }

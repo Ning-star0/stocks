@@ -57,6 +57,18 @@ export type CandidateTradeFeedback = {
   notes: string[];
 };
 
+export type DecisionNearMiss = {
+  symbol: string;
+  name: string | null;
+  side: "buy" | "sell";
+  price: number | null;
+  score: number;
+  threshold: number;
+  scoreGap: number;
+  entryPermission: "allow" | "reduce_size" | "pause" | null;
+  blockers: string[];
+};
+
 export type DecisionInput = {
   capital: number;
   investedCost: number;
