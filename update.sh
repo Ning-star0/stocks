@@ -1,19 +1,27 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 cd /opt/stocks
+test "$(pwd)" = "/opt/stocks"
 echo "=== 拉取代码 ===" && git pull origin main
-echo "=== 安装依赖 ===" && npm install
+echo "=== 安装依赖 ===" && npm ci
 echo "=== 清理旧构建 ===" && rm -rf .next
 echo "=== 生成 Prisma ===" && npx prisma generate
 echo "=== 数据库迁移 ===" && npx prisma migrate deploy
 echo "=== 构建 ===" && npm run build
-echo "=== 复制静态文件 ===" && cp -r .next/static .next/standalone/.next/static
-echo "=== 重启服务 ==="
-pm2 delete stocks 2>/dev/null || true
-fuser -k 3000/tcp 2>/dev/null || true
-sleep 1
+echo "=== 准备 standalone 环境 ==="
 cp .env .next/standalone/.env
-pm2 start npm --name "stocks" -- run start
-pm2 restart worker 2>/dev/null || pm2 start npm --name "worker" -- run worker
-pm2 save
-echo "=== 完成 ===" && pm2 list
+echo "=== 重启 systemd 服务 ==="
+systemctl restart stocks-web.service
+systemctl restart stocks-worker.service
+echo "=== 健康检查 ==="
+for attempt in {1..20}; do
+  if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3000/api/health; then
+    echo
+    systemctl --no-pager --full status stocks-web.service stocks-worker.service
+    exit 0
+  fi
+  sleep 2
+done
+echo "健康检查失败" >&2
+journalctl -u stocks-web.service -u stocks-worker.service -n 100 --no-pager >&2
+exit 1

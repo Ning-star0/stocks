@@ -233,9 +233,11 @@ export function WatchlistTable() {
             </Select>
             <Select value={actionFilter} onChange={(event) => setActionFilter(event.target.value as "all" | ActionCategory)}>
               <option value="all">全部动作</option>
-              <option value="wait">等待回调</option>
-              <option value="watch">继续观察</option>
-              <option value="avoid">风险规避</option>
+              <option value="entry">条件已满足</option>
+              <option value="wait">等待条件</option>
+              <option value="watch">研究 / 持仓</option>
+              <option value="avoid">拒绝 / 退出风险</option>
+              <option value="insufficient">数据不足</option>
               <option value="none">暂无分析</option>
             </Select>
             <Select value={holdingFilter} onChange={(event) => setHoldingFilter(event.target.value as "all" | "holding" | "watching")}>

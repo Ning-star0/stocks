@@ -375,7 +375,7 @@ export default function SettingsPage() {
           <label className="glow-card glow-click-card flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/20 p-3">
             <span>
               <span className="block text-sm font-medium">启用实时推送</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">仅在 AI 决策形成策略观察计划时推送。</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">仅在 AI 决策形成可执行的买入、增持、减仓或卖出计划时推送。</span>
             </span>
             <input type="checkbox" checked={pushEnabled} onChange={(event) => setPushEnabled(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
           </label>

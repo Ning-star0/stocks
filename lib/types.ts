@@ -2,6 +2,15 @@ export type Trend = "bullish" | "neutral" | "bearish";
 export type NewsSentiment = "positive" | "neutral" | "negative";
 export type StockNewsSentiment = NewsSentiment | "mixed";
 export type ImpactLevel = "low" | "medium" | "high";
+export type DecisionMode = "long_term" | "swing_trade" | "position_management";
+export type DecisionStatus =
+  | "insufficient_data"
+  | "rejected"
+  | "research_candidate"
+  | "setup_wait"
+  | "conditional_entry"
+  | "manage_position"
+  | "exit_risk";
 
 export interface Quote {
   symbol: string;
@@ -57,6 +66,8 @@ export interface NewsAnalysisResult {
   riskNotes: string[];
   whyItMatters: string;
   confidence: number;
+  isFallback: boolean;
+  fallbackReason: string | null;
 }
 
 export interface IndicatorSnapshot {
@@ -118,6 +129,10 @@ export interface AnalysisTradePlanLeg {
   netExpectedProfit?: number | null;
   netMaxLossAmount?: number | null;
   netRiskRewardRatio?: number | null;
+  expectedValueStatus?: "not_calibrated" | "positive" | "non_positive";
+  calibratedWinProbability?: number | null;
+  expectedValue?: number | null;
+  validationSampleSize?: number | null;
   sellRatioPct?: number | null;
   estimatedPnl?: number | null;
   reason: string;
@@ -137,6 +152,9 @@ export interface AnalysisTradePlan {
 }
 
 export interface AiAnalysisResult {
+  evidenceSchemaVersion?: string;
+  decisionMode?: DecisionMode;
+  decisionStatus?: DecisionStatus;
   trend: Trend;
   confidence: number;
   summary: string;
@@ -150,10 +168,48 @@ export interface AiAnalysisResult {
     historyCandles?: number;
     newsWindow?: string;
     newsCount?: number;
+    newsCoverage?: NewsEvidenceCoverageSummary | null;
+    newsRefreshFailures?: string[];
+    fundamentalsStatus?: string;
+    fundamentalsReportPeriod?: string | null;
+    fundamentalsSourceUrl?: string | null;
+    disclosureStatus?: string;
+    disclosureCheckedAt?: string | null;
+    disclosureCount?: number;
+    disclosureCriticalCount?: number;
+    disclosureExtractedCount?: number;
+    disclosureSources?: DisclosureSourceSummary[];
+    companyEvidenceFailures?: string[];
+    portfolioRiskStatus?: string;
+    portfolioAvailableRiskAmount?: number | null;
+    portfolioRiskFailure?: string | null;
     webSearchStatus?: string;
   };
   isFallback?: boolean;
   fallbackReason?: string;
+  dataQuality?: {
+    status: "complete" | "partial" | "insufficient" | "conflicted";
+    quoteFresh: boolean;
+    klineFresh: boolean;
+    latestDisclosureChecked: boolean;
+    disclosuresFresh: boolean;
+    criticalDisclosuresRead: boolean;
+    fundamentalsAvailable: boolean;
+    fundamentalsFresh: boolean;
+    fundamentalsComplete: boolean;
+    portfolioRiskEvaluated: boolean;
+    newsRefreshCompleted: boolean;
+    criticalNewsAnalyzed: boolean;
+    missingFields: string[];
+    staleFields: string[];
+    conflictingFields: string[];
+    fallbacksUsed: string[];
+    entryBlockers: string[];
+    newsCoverage?: NewsEvidenceCoverageSummary;
+  };
+  supportingEvidence?: string[];
+  opposingEvidence?: string[];
+  missingEvidence?: string[];
   keyLevels: {
     support: number[];
     resistance: number[];
@@ -196,4 +252,29 @@ export interface AiAnalysisResult {
     invalidIf: string;
   }>;
   disclaimer: string;
+}
+
+export interface NewsEvidenceCoverageSummary {
+  fetchedCount: number;
+  savedCount: number;
+  filteredOutCount: number;
+  relevantCount: number;
+  highCount: number;
+  mediumCount: number;
+  verifiedAnalyzedCount: number;
+  fallbackAnalysisCount: number;
+  failedAnalysisCount: number;
+  pendingCriticalCount: number;
+  pendingRelevantCount: number;
+  deadlineExceeded: boolean;
+  webSearchUsed: boolean;
+}
+
+export interface DisclosureSourceSummary {
+  id: string;
+  title: string;
+  publishedAt: string;
+  url: string;
+  contentStatus: "metadata_only" | "extracted" | "analyzed";
+  isCritical: boolean;
 }

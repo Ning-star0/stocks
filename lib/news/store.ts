@@ -66,18 +66,24 @@ export async function saveNewsAnalysis(newsItemId: string, analysis: NewsAnalysi
         impactLevel: analysis.impactLevel,
         riskNotes: analysis.riskNotes.map(toSimplifiedChinese),
         whyItMatters: analysis.whyItMatters ? toSimplifiedChinese(analysis.whyItMatters) : null,
-        confidence: analysis.confidence
+        confidence: analysis.confidence,
+        isFallback: analysis.isFallback,
+        fallbackReason: analysis.fallbackReason ? toSimplifiedChinese(analysis.fallbackReason) : null
       }
     });
 
+    const newsItem = await tx.newsItem.findUnique({
+      where: { id: newsItemId },
+      select: { symbols: true, sectors: true, importance: true }
+    });
     await tx.newsItem.update({
       where: { id: newsItemId },
       data: {
-        summary: toSimplifiedChinese(analysis.summary),
-        sentiment: analysis.sentiment,
-        importance: analysis.impactLevel,
-        symbols: uniqueUpper(analysis.affectedSymbols),
-        sectors: uniqueText(analysis.affectedSectors.map(toSimplifiedChinese))
+        summary: analysis.isFallback ? undefined : toSimplifiedChinese(analysis.summary),
+        sentiment: analysis.isFallback ? undefined : analysis.sentiment,
+        importance: analysis.isFallback ? newsItem?.importance : strongerImpact(newsItem?.importance, analysis.impactLevel),
+        symbols: uniqueUpper([...(newsItem?.symbols ?? []), ...analysis.affectedSymbols]),
+        sectors: uniqueText([...(newsItem?.sectors ?? []), ...analysis.affectedSectors.map(toSimplifiedChinese)])
       }
     });
 
@@ -135,4 +141,9 @@ function uniqueUpper(values: string[]) {
 
 function uniqueText(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function strongerImpact(existing: string | null | undefined, analyzed: string) {
+  const rank: Record<string, number> = { low: 1, medium: 2, high: 3 };
+  return (rank[existing ?? ""] ?? 0) >= (rank[analyzed] ?? 0) ? existing ?? analyzed : analyzed;
 }

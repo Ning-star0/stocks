@@ -1,0 +1,171 @@
+import type { Prisma } from "@prisma/client";
+
+import { prisma } from "@/lib/prisma";
+import { getStockDataProvider } from "@/lib/stock-data";
+import { enrichDisclosureContent } from "@/lib/stock-data/disclosureContent";
+import { stockSymbolVariants } from "@/lib/symbols";
+import type { DisclosureEvidence, FundamentalEvidence, Quote } from "@/lib/stock-data/types";
+
+export type StockCompanyEvidenceRefresh = {
+  schemaVersion: "company-evidence-refresh-v1";
+  symbol: string;
+  startedAt: string;
+  completedAt: string;
+  fundamentals: FundamentalEvidence;
+  disclosures: DisclosureEvidence;
+  failures: string[];
+};
+
+export async function prepareStockCompanyEvidence(input: {
+  userId: string;
+  symbol: string;
+  quote: Quote;
+  forceRefresh?: boolean;
+}): Promise<StockCompanyEvidenceRefresh> {
+  const provider = getStockDataProvider();
+  const startedAt = new Date().toISOString();
+  const previous = await getStoredStockCompanyEvidence(input.userId, input.symbol).catch(() => null);
+  const options = {
+    forceRefresh: input.forceRefresh,
+    price: input.quote.price,
+    priceAsOf: input.quote.timestamp
+  };
+  const [fundamentals, rawDisclosures] = await Promise.all([
+    provider.getFundamentals
+      ? provider.getFundamentals(input.symbol, options).catch((error) => unavailableFundamentals(errorMessage(error)))
+      : Promise.resolve(unavailableFundamentals("当前股票数据提供器未实现财务与估值证据接口。")),
+    provider.getDisclosures
+      ? provider.getDisclosures(input.symbol, options).catch((error) => uncheckedDisclosures(errorMessage(error)))
+      : Promise.resolve(uncheckedDisclosures("当前股票数据提供器未实现法定公告证据接口。"))
+  ]);
+  const disclosures = await enrichDisclosureContent(rawDisclosures, previous?.disclosures).catch((error) => ({
+    ...rawDisclosures,
+    failures: uniqueStrings([...rawDisclosures.failures, `公告原文提取流程失败：${errorMessage(error)}`])
+  }));
+  const receipt: StockCompanyEvidenceRefresh = {
+    schemaVersion: "company-evidence-refresh-v1",
+    symbol: input.symbol.toUpperCase(),
+    startedAt,
+    completedAt: new Date().toISOString(),
+    fundamentals,
+    disclosures,
+    failures: uniqueStrings([...fundamentals.failures, ...disclosures.failures])
+  };
+
+  try {
+    await prisma.stockEvidenceState.upsert({
+      where: { userId_symbol: { userId: input.userId, symbol: receipt.symbol } },
+      update: {
+        fundamentalsRefreshAt: new Date(fundamentals.fetchedAt),
+        fundamentalsJson: toJson(fundamentals),
+        disclosuresRefreshAt: disclosures.checkedAt ? new Date(disclosures.checkedAt) : new Date(receipt.completedAt),
+        disclosuresJson: toJson(disclosures)
+      },
+      create: {
+        userId: input.userId,
+        symbol: receipt.symbol,
+        fundamentalsRefreshAt: new Date(fundamentals.fetchedAt),
+        fundamentalsJson: toJson(fundamentals),
+        disclosuresRefreshAt: disclosures.checkedAt ? new Date(disclosures.checkedAt) : new Date(receipt.completedAt),
+        disclosuresJson: toJson(disclosures)
+      }
+    });
+  } catch (error) {
+    receipt.failures = uniqueStrings([...receipt.failures, `公司证据状态保存失败：${errorMessage(error)}`]);
+  }
+
+  return receipt;
+}
+
+export async function getStoredStockCompanyEvidence(userId: string, symbol: string): Promise<StockCompanyEvidenceRefresh | null> {
+  const row = await prisma.stockEvidenceState.findFirst({
+    where: { userId, symbol: { in: stockSymbolVariants(symbol) } },
+    orderBy: { updatedAt: "desc" }
+  });
+  const fundamentals = parseFundamentals(row?.fundamentalsJson);
+  const disclosures = parseDisclosures(row?.disclosuresJson);
+  if (!fundamentals || !disclosures) return null;
+  const startedAt = [fundamentals.fetchedAt, disclosures.checkedAt].filter((value): value is string => Boolean(value)).sort()[0]
+    ?? row?.updatedAt.toISOString()
+    ?? new Date(0).toISOString();
+  return {
+    schemaVersion: "company-evidence-refresh-v1",
+    symbol: row?.symbol ?? symbol.toUpperCase(),
+    startedAt,
+    completedAt: row?.updatedAt.toISOString() ?? startedAt,
+    fundamentals,
+    disclosures,
+    failures: uniqueStrings([...fundamentals.failures, ...disclosures.failures])
+  };
+}
+
+function parseFundamentals(value: unknown): FundamentalEvidence | null {
+  if (!isRecord(value) || value.schemaVersion !== "fundamental-evidence-v1") return null;
+  if (!Array.isArray(value.annualPeriods) || !Array.isArray(value.quarterlyPeriods) || !isRecord(value.valuation)) return null;
+  return value as unknown as FundamentalEvidence;
+}
+
+function parseDisclosures(value: unknown): DisclosureEvidence | null {
+  if (!isRecord(value) || value.schemaVersion !== "disclosure-evidence-v1" || !Array.isArray(value.items)) return null;
+  return value as unknown as DisclosureEvidence;
+}
+
+function unavailableFundamentals(reason: string): FundamentalEvidence {
+  return {
+    schemaVersion: "fundamental-evidence-v1",
+    status: "unavailable",
+    provider: "not_configured",
+    sourceUrl: "",
+    fetchedAt: new Date().toISOString(),
+    reportPeriod: null,
+    annualPeriods: [],
+    quarterlyPeriods: [],
+    valuation: {
+      asOf: null,
+      price: null,
+      epsTtm: null,
+      peTtm: null,
+      bookValuePerShare: null,
+      pb: null,
+      historicalPercentile: null
+    },
+    metrics: {},
+    missingFields: ["fundamentalSource"],
+    conflictingFields: [],
+    failures: [reason],
+    missingReason: reason
+  };
+}
+
+function uncheckedDisclosures(reason: string): DisclosureEvidence {
+  return {
+    schemaVersion: "disclosure-evidence-v1",
+    status: "unchecked",
+    provider: "not_configured",
+    queryUrl: "",
+    checkedAt: null,
+    windowFrom: null,
+    windowTo: null,
+    latestPublishedAt: null,
+    totalCount: 0,
+    criticalUnreadCount: 0,
+    items: [],
+    failures: [reason]
+  };
+}
+
+function toJson(value: FundamentalEvidence | DisclosureEvidence) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}

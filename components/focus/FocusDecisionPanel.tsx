@@ -160,8 +160,9 @@ export function FocusDecisionPanel({
             <AssetMetric label="计划卖出" value={formatMoney(decision.totalSellAmount ?? 0)} tone={shouldSell ? "warning" : "neutral"} muted={(decision.totalSellAmount ?? 0) === 0} />
             <AssetMetric label="本次下单手续费" value={formatMoney(decision.totalEstimatedFee)} muted={decision.totalEstimatedFee === 0} />
             <AssetMetric label="买入计划双边手续费" value={formatMoney(decision.totalEstimatedRoundTripFee ?? 0)} muted={(decision.totalEstimatedRoundTripFee ?? 0) === 0} />
-            <AssetMetric label="买入计划目标净收益" value={formatMoney(decision.totalExpectedNetProfit ?? 0)} tone={(decision.totalExpectedNetProfit ?? 0) >= 0 ? "danger" : "success"} muted={(decision.totalExpectedNetProfit ?? 0) === 0} />
+            <AssetMetric label="买入计划目标情景净收益" value={formatMoney(decision.totalExpectedNetProfit ?? 0)} tone={(decision.totalExpectedNetProfit ?? 0) >= 0 ? "danger" : "success"} muted={(decision.totalExpectedNetProfit ?? 0) === 0} />
           </div>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">目标情景净收益只表示价格到达止盈目标时的扣费结果，不是统计期望值；当前单笔 AI 计划的胜率与期望值尚未校准。</p>
         </div>
       </div>
       {riskBudget ? (
@@ -216,7 +217,7 @@ export function FocusDecisionPanel({
                 <DecisionNumber label="手续费占比" value={formatPrecisePercent(order.feeDragPct)} />
                 <DecisionNumber label="盈亏平衡价" value={formatMoney(order.breakEvenPrice)} />
                 <DecisionNumber label="盈亏平衡涨幅" value={formatPrecisePercent(order.breakEvenMovePct)} />
-                <DecisionNumber label="目标净收益" value={formatMoney(order.netExpectedProfit)} className={cn((order.netExpectedProfit ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")} />
+                <DecisionNumber label="目标情景净收益" value={formatMoney(order.netExpectedProfit)} className={cn((order.netExpectedProfit ?? 0) >= 0 ? "text-red-500" : "text-emerald-500")} />
                 <DecisionNumber label="最大价格风险" value={formatMoney(order.maxLossAmount)} className="col-span-2" />
                 <DecisionNumber label="扣费最大风险" value={formatMoney(order.netMaxLossAmount)} className="col-span-2" />
                 <DecisionNumber label="单笔风险额度" value={formatMoney(order.riskBudgetAmount)} />
@@ -436,7 +437,7 @@ function notificationReasonLabel(value?: string | null) {
     manual_source: "手动分析不自动推送",
     fallback_decision: "兜底决策不推送",
     no_budget: "没有计划买入金额",
-    no_orders: "没有形成交易计划",
+    no_orders: "没有可执行的买卖建议",
     disabled: "推送未启用或配置不完整",
     deduped: "同一分析时间已推送过",
     send_failed: "发送失败"

@@ -4,7 +4,17 @@ import {
   adjustTencentHistoryForCorporateActions,
   assertNoUnexplainedCorporateActionGap
 } from "@/lib/stock-data/corporateActions";
-import type { Candle, CompanyProfile, HistoryOptions, Quote, StockDataProvider } from "@/lib/stock-data/types";
+import { fetchCninfoDisclosures, fetchCninfoFundamentals } from "@/lib/stock-data/cninfoEvidence";
+import type {
+  Candle,
+  CompanyEvidenceOptions,
+  CompanyProfile,
+  DisclosureEvidence,
+  FundamentalEvidence,
+  HistoryOptions,
+  Quote,
+  StockDataProvider
+} from "@/lib/stock-data/types";
 
 type EastMoneyQuoteResponse = {
   rc?: number;
@@ -268,6 +278,16 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     const adjusted = adjustTencentHistoryForCorporateActions(target.symbol, rawCandles);
     return requestedPeriod === "day" ? adjusted : aggregateDailyCandles(adjusted, requestedPeriod);
   }
+
+  async getFundamentals(symbol: string, options: CompanyEvidenceOptions = {}): Promise<FundamentalEvidence> {
+    const target = normalizeAShareSymbol(symbol);
+    return fetchCninfoFundamentals({ code: target.code, symbol: target.symbol, options });
+  }
+
+  async getDisclosures(symbol: string, options: CompanyEvidenceOptions = {}): Promise<DisclosureEvidence> {
+    const target = normalizeAShareSymbol(symbol);
+    return fetchCninfoDisclosures({ code: target.code, symbol: target.symbol, exchange: target.exchange, options });
+  }
 }
 
 function normalizeAShareSymbol(input: string) {
@@ -287,7 +307,7 @@ function normalizeAShareSymbol(input: string) {
   };
 }
 
-function inferExchange(raw: string, code: string) {
+function inferExchange(raw: string, code: string): "SH" | "SZ" | "BJ" {
   if (raw.startsWith("SH") || raw.endsWith(".SH")) return "SH";
   if (raw.startsWith("SZ") || raw.endsWith(".SZ")) return "SZ";
   if (raw.startsWith("BJ") || raw.endsWith(".BJ")) return "BJ";

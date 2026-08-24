@@ -14,23 +14,29 @@ type DeepSeekErrorPayload = {
 
 export async function createChatCompletion(
   client: OpenAI,
-  request: ChatCompletionCreateParamsNonStreaming
+  request: ChatCompletionCreateParamsNonStreaming,
+  options: { timeoutMs?: number } = {}
 ): Promise<ChatCompletion> {
   const config = await getAiConfig();
   if (!config.baseUrl.includes("deepseek.com")) {
     return client.chat.completions.create(request);
   }
-  return createDeepSeekCompletion(config, request);
+  return createDeepSeekCompletion(config, request, options.timeoutMs);
 }
 
-async function createDeepSeekCompletion(config: { apiKey: string; baseUrl: string }, request: ChatCompletionCreateParamsNonStreaming) {
+async function createDeepSeekCompletion(
+  config: { apiKey: string; baseUrl: string },
+  request: ChatCompletionCreateParamsNonStreaming,
+  timeoutMs?: number
+) {
   const apiKey = config.apiKey;
   if (!apiKey) {
     throw new AppError("DATA_PROVIDER_ERROR", "API key 未配置。请在 AI 设置页面填写 API 密钥。");
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), numberEnv("AI_REQUEST_TIMEOUT_MS", 120000));
+  const effectiveTimeoutMs = positiveTimeout(timeoutMs) ?? numberEnv("AI_REQUEST_TIMEOUT_MS", 120000);
+  const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
   try {
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -70,7 +76,7 @@ async function createDeepSeekCompletion(config: { apiKey: string; baseUrl: strin
   } catch (error) {
     if (error instanceof AppError) throw error;
     const message = error instanceof Error && error.name === "AbortError"
-      ? `请求超过 ${Math.round(numberEnv("AI_REQUEST_TIMEOUT_MS", 120000) / 1000)} 秒未返回，已自动中断`
+      ? `请求超过 ${Math.round(effectiveTimeoutMs / 1000)} 秒未返回，已自动中断`
       : error instanceof Error ? error.message : "未知连接错误";
     throw new AppError("DATA_PROVIDER_ERROR", `DeepSeek API 连接失败：${message}`, {
       baseUrl: config.baseUrl,
@@ -81,6 +87,10 @@ async function createDeepSeekCompletion(config: { apiKey: string; baseUrl: strin
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function positiveTimeout(value: number | undefined) {
+  return Number.isFinite(value) && Number(value) > 0 ? Number(value) : null;
 }
 
 function parsePayload(text: string): ChatCompletion & DeepSeekErrorPayload {

@@ -1,10 +1,11 @@
 import type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
 
 export const STOCK_ANALYSIS_SYSTEM_PROMPT =
-  "你是一个谨慎但不过度保守的股票策略观察助手。你只能基于用户提供的数据给出条件触发型交易情景，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你的核心任务是为用户回答两个问题：1）如果已持仓，现在该怎么办？2）如果尚未持仓，当前是否已经满足小仓试探/分批入场条件，还是必须等待回调？你需要从趋势、动量、成交量、风险、关键价位、用户持仓、相关新闻和宏观/行业风险角度综合判断。若趋势、价位、量能和风险控制同时支持，不要机械写“等待回调”，应给出“条件入场/小仓试探/分批观察”的具体触发条件、价格区间和仓位；若短线超买、价格远离支撑或风险回报不佳，才写等待或回避。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
+  "你是一个谨慎但不过度保守的股票研究与纪律执行助手。你只能基于用户提供的版本化证据包给出条件触发型研究情景，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你的核心任务是为用户回答两个问题：1）如果已持仓，现在该怎么办？2）如果尚未持仓，证据是否足以支持条件入场，还是必须继续研究、等待或回避？你需要从持有周期、趋势、量价、波动、风险、关键价位、用户持仓、新闻预期差、公告、基本面和宏观/行业风险角度综合判断。数据质量、价格、指标、费用、股数和硬门控由服务端确定，不能擅自越过 dataQuality.entryBlockers。若证据和风险控制同时支持，不要机械写“等待回调”；若证据缺失、短线超买、价格远离支撑或风险回报不佳，应明确降级。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export function buildUserPrompt(input: AnalyzeStockInput) {
   const positionStatus = describePositionStatus(input.userContext);
+  const modeInstructions = decisionModeInstructions(input.evidencePackage?.decisionMode);
   return `请分析以下股票数据，并给出投资建议。返回必须能被 JSON.parse 解析的严格 JSON 对象。
 
 重要要求：
@@ -26,6 +27,14 @@ export function buildUserPrompt(input: AnalyzeStockInput) {
 16. 不要因为“谨慎语气”就默认等待。若价格靠近支撑、趋势偏多、MACD/均线/成交量没有明显恶化且风险收益比合理，entryAdvice.action 应表达为“条件入场观察”或“小仓试探条件”，并写清触发条件。只有价格明显追高、短线超买、跌破关键支撑、新闻/基本面不确定性很高时，才使用“等待回调”或“回避”。
 17. entryAdvice 必须详细回答：买入触发价或区间、首次买入股数/仓位、买入后止损价、首个止盈/压力位、最大可承受亏损、风险收益比是否合格、什么情况下放弃买入。若因为手续费效率、现金不足、低于 100 股/份整手、风险收益比不足或行情不新鲜而不能买，要明确写在 reason 或 invalidIf。
 18. holdAdvice 必须详细回答：继续持有、增持、减仓、止盈、止损分别在什么条件触发；如果建议卖出/减仓，要说明卖出是为了止损、止盈、盈利保护还是降低风险，并提醒卖出现金回收需要扣除同样万分之五且最低 5 元的手续费。
+19. decisionStatus 必须使用结构化枚举。证据不足用 insufficient_data；硬风险否决用 rejected；值得继续研究用 research_candidate；逻辑成立但等待价格/事件用 setup_wait；只有证据充分且全部条件满足时才能提议 conditional_entry；已持仓用 manage_position；已触发退出风险用 exit_risk。服务端会根据硬门控覆盖你的候选状态。
+20. supportingEvidence、opposingEvidence、missingEvidence 必须分别列出支持、反对和缺失证据。不得把同一事实重复放入多个数组，也不得把推测写成事实。
+21. recentCandles 和 deterministicFeatures 是服务端计算的近期量价证据。需要结合最近 5/20/60 日收益、波动、ATR、量比、缺口和回撤解释走势，不能只复述 RSI/MACD，也不能自行计算或编造价位。
+22. disclosures.items 中 contentStatus=extracted 的 contentExcerpt 是从法定公告 PDF 原文确定性提取的风险相关片段；必须纳入支持/反对/缺失证据。contentStatus=metadata_only、extractionFailure 或 criticalUnreadCount>0 表示原文证据未闭合，禁止据标题猜测正文。
+23. tradePlan 中的目标情景净收益与风险收益比不是统计期望值。当前 expectedValueStatus=not_calibrated 时，必须明确写“本计划胜率和期望值尚未校准”，不得声称具有正期望，也不得借用另一套规则回测的胜率冒充本计划胜率。
+
+本次决策模式专用约束：
+${modeInstructions}
 
 股票代码：
 ${input.symbol}
@@ -57,8 +66,14 @@ ${input.userMemory || "暂无记录"}
 用户的可用本金：
 ${input.userCapital ? `${input.userCapital} 元。请基于总本金计算 entryAdvice.firstPositionSize 为具体股数或百分比（如"约100股，占总本金8%"），不要写"轻仓"这种模糊表述。` : "用户未填写。仓位建议用百分比表述，不要写模糊词。"}
 
+服务端组合风险预算（模型不得扩大额度）：
+${JSON.stringify(input.portfolioRiskContext ?? null, null, 2)}
+
 交易手续费规则：
 ${input.tradingFeeRule ? JSON.stringify(input.tradingFeeRule, null, 2) : "未提供。"}
+
+版本化分析证据包（数据质量和硬门控不能由模型覆盖）：
+${JSON.stringify(input.evidencePackage ?? {}, null, 2)}
 
 
 
@@ -72,7 +87,20 @@ ${JSON.stringify(input.webSearchResults ?? [], null, 2)}
 ${JSON.stringify(ANALYSIS_RESPONSE_TEMPLATE, null, 2)}`;
 }
 
+export function decisionModeInstructions(mode: "long_term" | "swing_trade" | "position_management" | undefined) {
+  if (mode === "long_term") {
+    return "长期研究：先审查 5 年年度与 8 个独立季度的收入、归母净利润、经营现金流、自由现金流、ROE、负债和估值，再讨论技术位置。缺扣非利润、历史估值分位、同行估值或关键公告原文时，只能列为研究候选，不得形成条件买入。失效条件必须包含基本面条件。";
+  }
+  if (mode === "position_management") {
+    return "持仓管理：主结论必须回答继续持有、减仓、止盈和止损条件，并结合持仓成本、股数、公告风险和当前价位。不得把未持仓的首次买入模板当作主建议；退出风险优先于新增仓位。";
+  }
+  return "波段研究：先用基本面和法定公告排除重大风险，再以近期 5/20/60 日量价、波动、支撑压力和事件催化判断条件入场。不能因为长期估值字段部分缺失而机械否决，但缺有效止损、目标位、公告原文或扣费后净风险收益比时不得买入。";
+}
+
 const ANALYSIS_RESPONSE_TEMPLATE = {
+  evidenceSchemaVersion: "",
+  decisionMode: "swing_trade",
+  decisionStatus: "research_candidate",
   trend: "neutral",
   confidence: 0.5,
   analysisAsOf: "",
@@ -110,6 +138,9 @@ const ANALYSIS_RESPONSE_TEMPLATE = {
     resistance: []
   },
   riskFactors: [],
+  supportingEvidence: [],
+  opposingEvidence: [],
+  missingEvidence: [],
   holdAdvice: {
     action: "继续持有观察",
     reason: "为什么给出这个建议",

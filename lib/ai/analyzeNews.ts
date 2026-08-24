@@ -15,6 +15,7 @@ export type AnalyzeNewsInput = {
   content?: string | null;
   candidateSymbols?: string[];
   candidateSectors?: string[];
+  timeoutMs?: number;
 };
 
 const systemPrompt =
@@ -26,7 +27,8 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
 
   const client = new OpenAI({
     apiKey: config.apiKey,
-    baseURL: config.baseUrl || undefined
+    baseURL: config.baseUrl || undefined,
+    timeout: input.timeoutMs
   });
 
   const prompt = buildPrompt(input);
@@ -49,7 +51,7 @@ export async function analyzeNews(input: AnalyzeNewsInput): Promise<NewsAnalysis
           }
         ]
       };
-      const completion = await createChatCompletion(client, request);
+      const completion = await createChatCompletion(client, request, { timeoutMs: input.timeoutMs });
 
       const text = completion.choices[0]?.message?.content;
       if (!text) throw new Error("AI 返回了空内容。");
@@ -138,7 +140,9 @@ function normalizeNewsAnalysis(value: unknown, input: AnalyzeNewsInput) {
       toNonEmptyString(record.whyItMatters, "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"),
       "该新闻可能影响市场情绪或相关主题关注度，但影响需要结合行情验证。"
     ),
-    confidence: normalizeConfidence(record.confidence)
+    confidence: normalizeConfidence(record.confidence),
+    isFallback: false,
+    fallbackReason: null
   };
 }
 
@@ -201,7 +205,9 @@ function fallbackNewsAnalysis(input: AnalyzeNewsInput, reason: string): NewsAnal
     affectedSectors: input.candidateSectors ?? [],
     riskNotes: [reason],
     whyItMatters: "该消息可能影响市场情绪或短期交易定位，但当前上下文有限。",
-    confidence: 0.35
+    confidence: 0.35,
+    isFallback: true,
+    fallbackReason: reason
   };
 }
 

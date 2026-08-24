@@ -583,7 +583,7 @@ function TradeExecutionHint({ trade }: { trade: TradeOption }) {
       ["双边手续费", formatMoney(trade.roundTripFees)],
       ["手续费占比", formatPrecisePercent(trade.feeDragPct)],
       ["盈亏平衡价", formatPrice(trade.breakEvenPrice)],
-      ["目标净收益", formatMoney(trade.netExpectedProfit)],
+      ["目标情景净收益", formatMoney(trade.netExpectedProfit)],
       ["扣费最大风险", formatMoney(trade.netMaxLossAmount)],
       ["单笔风险额度", formatMoney(trade.riskBudgetAmount)],
       ["额度使用率", formatPrecisePercent(trade.riskUsagePct)],

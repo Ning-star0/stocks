@@ -2,12 +2,24 @@ import type { Prisma } from "@prisma/client";
 
 import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { analyzeStock } from "@/lib/ai/analyzeStock";
-import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
+import { createAnalysisCacheKey, createAnalysisContextHash } from "@/lib/analysis/contextHash";
+import { buildAnalysisEvidencePackage } from "@/lib/analysis/evidence";
+import {
+  getStoredStockCompanyEvidence,
+  prepareStockCompanyEvidence,
+  type StockCompanyEvidenceRefresh
+} from "@/lib/analysis/prepareCompanyEvidence";
+import { loadPortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
 import { getMemoryContent } from "@/lib/memory";
 import { buildSectorNewsKeywords, buildStockNewsKeywords } from "@/lib/news/relevance";
+import {
+  getStoredStockNewsEvidenceRefresh,
+  prepareStockNewsEvidence,
+  type StockNewsEvidenceRefresh
+} from "@/lib/news/prepareStockNewsEvidence";
 import { prisma } from "@/lib/prisma";
 import { serializeWatchlistItem } from "@/lib/serializers";
 import { getQuote } from "@/lib/services/quoteService";
@@ -22,15 +34,31 @@ export type StockAnalysisRunInput = {
   inputHash?: string | null;
   jobId?: string;
   forceRefresh?: boolean;
+  refreshNewsBeforeAnalysis?: boolean;
+  refreshCompanyEvidenceBeforeAnalysis?: boolean;
+  forceQuoteRefresh?: boolean;
+  forceHistoryRefresh?: boolean;
 };
 
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const startedAt = Date.now();
   const symbol = input.symbol.toUpperCase();
-  const context = await buildStockAnalysisContext(input.userId, symbol);
+  const newsRefreshStartedAt = Date.now();
+  const newsEvidenceRefresh = input.refreshNewsBeforeAnalysis
+    ? await prepareStockNewsEvidence({ userId: input.userId, symbol })
+    : undefined;
+  const newsRefreshDurationMs = input.refreshNewsBeforeAnalysis ? Date.now() - newsRefreshStartedAt : 0;
+  const context = await buildStockAnalysisContext(input.userId, symbol, {
+    newsEvidenceRefresh,
+    refreshCompanyEvidenceBeforeAnalysis: input.refreshCompanyEvidenceBeforeAnalysis,
+    forceQuoteRefresh: input.forceQuoteRefresh,
+    forceHistoryRefresh: input.forceHistoryRefresh
+  });
+  context.timings.newsDurationMs += newsRefreshDurationMs;
   const canonicalSymbol = context.quote.symbol;
-  const inputHash = input.inputHash ?? context.contextHash;
-  const cacheKey = `ai_analysis:v6:${canonicalSymbol}:${inputHash}`;
+  // 调用方的 inputHash 只用于任务去重；刷新新闻后必须以最终证据包计算出的哈希为准。
+  const inputHash = context.contextHash;
+  const cacheKey = createAnalysisCacheKey(input.userId, canonicalSymbol, inputHash);
   const cached = input.forceRefresh ? null : await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
 
   if (cached) {
@@ -64,11 +92,6 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   if (!isFallback) {
     await setCache(cacheKey, { analysisId: analysis.id, outputJson }, numberEnv("AI_ANALYSIS_CACHE_TTL_SECONDS", 21600));
   }
-  await setCache(
-    `latest_analysis:${canonicalSymbol}`,
-    { id: analysis.id, createdAt: analysis.createdAt, outputJson },
-    isFallback ? 60 : numberEnv("LATEST_ANALYSIS_CACHE_TTL_SECONDS", 300)
-  );
   await logAiUsage({
     userId: input.userId,
     symbol: canonicalSymbol,
@@ -83,16 +106,26 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt, timings: { ...context.timings, aiDurationMs } };
 }
 
-export async function buildStockAnalysisContext(userId: string, symbol: string) {
+export async function buildStockAnalysisContext(
+  userId: string,
+  symbol: string,
+  options: {
+    newsEvidenceRefresh?: StockNewsEvidenceRefresh | null;
+    companyEvidenceRefresh?: StockCompanyEvidenceRefresh | null;
+    refreshCompanyEvidenceBeforeAnalysis?: boolean;
+    forceQuoteRefresh?: boolean;
+    forceHistoryRefresh?: boolean;
+  } = {}
+) {
   const provider = getStockDataProvider();
-  const timings = { quoteDurationMs: 0, newsDurationMs: 0 };
+  const timings = { quoteDurationMs: 0, newsDurationMs: 0, companyEvidenceDurationMs: 0, portfolioRiskDurationMs: 0 };
   // 先试原始 symbol，失败则尝试去掉 A 股后缀重试
   const quoteStartedAt = Date.now();
-  let quoteStatus = await getQuote(symbol, { allowStale: true });
+  let quoteStatus = await getQuote(symbol, { allowStale: true, forceRefresh: options.forceQuoteRefresh });
   if (!quoteStatus.raw) {
     const stripped = cleanChinaSymbol(symbol);
     if (stripped && stripped !== symbol) {
-      quoteStatus = await getQuote(stripped, { allowStale: true });
+      quoteStatus = await getQuote(stripped, { allowStale: true, forceRefresh: options.forceQuoteRefresh });
     }
   }
   timings.quoteDurationMs = Date.now() - quoteStartedAt;
@@ -101,15 +134,27 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
   const quote = quoteStatus.raw;
   const canonicalSymbol = quote.symbol;
   const symbolVariants = uniqueSymbols([...stockSymbolVariants(symbol), ...stockSymbolVariants(canonicalSymbol)]);
-  const history = await provider.getHistory(canonicalSymbol, "1y", "1d").catch((error) => {
+  const history = await provider.getHistory(canonicalSymbol, "1y", "1d", { forceRefresh: options.forceHistoryRefresh }).catch((error) => {
     throw parseProviderError(error);
   });
-  const [watchlistItem, sectorWatches, memory, focusGroup] = await Promise.all([
+  const companyEvidenceStartedAt = Date.now();
+  const companyEvidencePromise = options.companyEvidenceRefresh
+    ? Promise.resolve(options.companyEvidenceRefresh)
+    : options.refreshCompanyEvidenceBeforeAnalysis
+      ? prepareStockCompanyEvidence({ userId, symbol: canonicalSymbol, quote, forceRefresh: true })
+      : getStoredStockCompanyEvidence(userId, canonicalSymbol).catch(() => null);
+  const [watchlistItem, sectorWatches, memory, focusGroup, storedNewsEvidenceRefresh, companyEvidenceRefresh] = await Promise.all([
     prisma.watchlistItem.findFirst({ where: { symbol: { in: symbolVariants }, watchlist: { userId } } }),
     prisma.sectorWatch.findMany({ where: { userId } }),
     getMemoryContent(userId),
-    prisma.focusGroup.findUnique({ where: { userId } })
+    prisma.focusGroup.findUnique({ where: { userId } }),
+    options.newsEvidenceRefresh
+      ? Promise.resolve(null)
+      : getStoredStockNewsEvidenceRefresh(userId, canonicalSymbol).catch(() => null),
+    companyEvidencePromise
   ]);
+  timings.companyEvidenceDurationMs = Date.now() - companyEvidenceStartedAt;
+  const effectiveNewsEvidenceRefresh = options.newsEvidenceRefresh ?? storedNewsEvidenceRefresh;
 
   const indicators = calculateIndicators(canonicalSymbol, history);
   const historySummary = summarizeHistory(history);
@@ -127,25 +172,8 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
   };
   timings.newsDurationMs = Date.now() - newsStartedAt;
   const highImpactNewsIds = relevantNews.filter((item) => item.importance === "high" || item.analyses[0]?.impactLevel === "high").map((item) => item.id);
-  const contextHash = createAnalysisContextHash({
-    symbol: canonicalSymbol,
-    quote,
-    indicators,
-    importantNewsIds: highImpactNewsIds,
-    userContext: {
-      isHolding: watchlistItem?.isHolding ?? null,
-      holdingPrice: toNumber(watchlistItem?.holdingPrice),
-      holdingShares: toNumber(watchlistItem?.holdingShares),
-      targetPrice: toNumber(watchlistItem?.targetPrice),
-      stopLoss: toNumber(watchlistItem?.stopLoss),
-      positionOpenedAt: watchlistItem?.positionOpenedAt?.toISOString() ?? null,
-      timeHorizon: watchlistItem?.timeHorizon ?? null,
-      riskLevel: watchlistItem?.riskLevel ?? null
-    }
-  });
-
   const aiSummarizedNews = relevantNews
-    .filter((item) => Boolean(item.analyses[0]?.aiSummary))
+    .filter((item) => Boolean(item.analyses[0]?.aiSummary) && !item.analyses[0]?.isFallback)
     .slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
   const newsReferences = aiSummarizedNews.map((item) => ({
     id: item.id,
@@ -171,17 +199,101 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
     historyFrom: firstHistory,
     historyTo: lastHistory,
     historyCandles: history.length,
-    newsWindow: "最近 7 天，已入库 high/medium 行业新闻；传入 AI 的仅为已精读新闻摘要",
+    newsWindow: "最近 7 天，已入库 high/medium 相关新闻；传入 AI 的仅为已验证、非 fallback 精读摘要",
     newsCount: recentNews.length,
+    newsCoverage: effectiveNewsEvidenceRefresh ? {
+      fetchedCount: effectiveNewsEvidenceRefresh.fetch?.fetched ?? 0,
+      savedCount: effectiveNewsEvidenceRefresh.fetch?.saved ?? 0,
+      filteredOutCount: effectiveNewsEvidenceRefresh.fetch?.filteredOut ?? 0,
+      relevantCount: effectiveNewsEvidenceRefresh.coverage.relevantCount,
+      highCount: effectiveNewsEvidenceRefresh.coverage.highCount,
+      mediumCount: effectiveNewsEvidenceRefresh.coverage.mediumCount,
+      verifiedAnalyzedCount: effectiveNewsEvidenceRefresh.coverage.verifiedAnalyzedCount,
+      fallbackAnalysisCount: effectiveNewsEvidenceRefresh.coverage.fallbackAnalysisCount,
+      failedAnalysisCount: effectiveNewsEvidenceRefresh.coverage.failedAnalysisCount,
+      pendingCriticalCount: effectiveNewsEvidenceRefresh.coverage.pendingCriticalCount,
+      pendingRelevantCount: effectiveNewsEvidenceRefresh.coverage.pendingRelevantCount,
+      deadlineExceeded: effectiveNewsEvidenceRefresh.deadlineExceeded,
+      webSearchUsed: effectiveNewsEvidenceRefresh.fetch?.webSearchUsed ?? false
+    } : null,
+    newsRefreshFailures: effectiveNewsEvidenceRefresh?.failures ?? [],
+    fundamentalsStatus: companyEvidenceRefresh?.fundamentals.status ?? "unavailable",
+    fundamentalsReportPeriod: companyEvidenceRefresh?.fundamentals.reportPeriod ?? null,
+    fundamentalsSourceUrl: companyEvidenceRefresh?.fundamentals.sourceUrl || null,
+    disclosureStatus: companyEvidenceRefresh?.disclosures.status ?? "unchecked",
+    disclosureCheckedAt: companyEvidenceRefresh?.disclosures.checkedAt ?? null,
+    disclosureCount: companyEvidenceRefresh?.disclosures.totalCount ?? 0,
+    disclosureCriticalCount: companyEvidenceRefresh?.disclosures.items.filter((item) => item.isCritical).length ?? 0,
+    disclosureExtractedCount: companyEvidenceRefresh?.disclosures.items.filter((item) => item.isCritical && item.contentStatus !== "metadata_only").length ?? 0,
+    disclosureSources: (companyEvidenceRefresh?.disclosures.items ?? []).filter((item) => item.isCritical).slice(0, 8).map((item) => ({
+      id: item.id,
+      title: item.title,
+      publishedAt: item.publishedAt,
+      url: item.sourceUrl,
+      contentStatus: item.contentStatus,
+      isCritical: item.isCritical
+    })),
+    companyEvidenceFailures: companyEvidenceRefresh?.failures ?? [],
     webSearchStatus: supplementalNews.status
   };
+  const userCapital = focusGroup?.capital ? Number(focusGroup.capital) : null;
+  const portfolioRiskStartedAt = Date.now();
+  let portfolioRiskFailure: string | null = null;
+  const portfolioRiskContext = await loadPortfolioRiskContext(userId).catch((error) => {
+    portfolioRiskFailure = error instanceof Error ? error.message : "组合风险预算读取失败";
+    return null;
+  });
+  timings.portfolioRiskDurationMs = Date.now() - portfolioRiskStartedAt;
+  Object.assign(dataScope, {
+    portfolioRiskStatus: portfolioRiskContext?.riskBudget.status ?? "not_evaluated",
+    portfolioAvailableRiskAmount: portfolioRiskContext?.riskBudget.availableRiskAmount ?? null,
+    portfolioRiskFailure
+  });
+  const evidencePackage = buildAnalysisEvidencePackage({
+    symbol: canonicalSymbol,
+    quote,
+    quoteStatus: quoteStatus.status,
+    quoteSource: quoteStatus.source,
+    history,
+    indicators,
+    userContext,
+    userCapital,
+    portfolioRiskContext,
+    relevantNews,
+    analyzedNews: recentNews,
+    lastNewsFetch: effectiveNewsEvidenceRefresh?.completedAt ?? focusGroup?.lastNewsFetch ?? null,
+    newsEvidenceRefresh: effectiveNewsEvidenceRefresh,
+    fundamentals: companyEvidenceRefresh?.fundamentals,
+    disclosures: companyEvidenceRefresh?.disclosures,
+    analysisAsOf
+  });
+  const contextHash = createAnalysisContextHash({
+    symbol: canonicalSymbol,
+    quote,
+    indicators,
+    importantNewsIds: highImpactNewsIds,
+    evidence: evidencePackage,
+    userCapital,
+    userMemory: memory || "",
+    userContext: {
+      isHolding: watchlistItem?.isHolding ?? null,
+      holdingPrice: toNumber(watchlistItem?.holdingPrice),
+      holdingShares: toNumber(watchlistItem?.holdingShares),
+      targetPrice: toNumber(watchlistItem?.targetPrice),
+      stopLoss: toNumber(watchlistItem?.stopLoss),
+      positionOpenedAt: watchlistItem?.positionOpenedAt?.toISOString() ?? null,
+      timeHorizon: watchlistItem?.timeHorizon ?? null,
+      riskLevel: watchlistItem?.riskLevel ?? null
+    }
+  });
   const aiInput = {
     symbol: canonicalSymbol,
     quote,
     indicators,
     historySummary,
     userContext,
-    userCapital: focusGroup?.capital ? Number(focusGroup.capital) : null,
+    userCapital,
+    portfolioRiskContext,
     userMemory: memory || "",
     analysisAsOf,
     dataScope,
@@ -193,7 +305,8 @@ export async function buildStockAnalysisContext(userId: string, symbol: string) 
       description: "买入和卖出手续费均按成交金额的万分之五估算；若成交金额不足 10000 元，按 10000 元计费，即最低手续费 5 元。A 股/ETF 买卖均按 100 股/份整数手执行。"
     },
     recentNews,
-    webSearchResults
+    webSearchResults,
+    evidencePackage
   };
 
   return {
@@ -220,7 +333,7 @@ async function getRelevantNewsForStock(symbol: string, sectors: string[]) {
     },
     include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
     orderBy: [{ publishedAt: "desc" }],
-    take: 10
+    take: 50
   });
 }
 

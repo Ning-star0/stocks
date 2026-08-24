@@ -1,13 +1,18 @@
 import { createHash } from "node:crypto";
 
+import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
-import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
+
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v9";
 
 export type AnalysisContextHashInput = {
   symbol: string;
   quote: Pick<Quote, "price">;
   indicators: Pick<IndicatorSnapshot, "rsi14" | "macd" | "macdSignal" | "sma20" | "sma50" | "sma200">;
   importantNewsIds: string[];
+  evidence: AnalysisEvidencePackage;
+  userCapital?: number | null;
+  userMemory?: string;
   userContext: {
     isHolding?: boolean | null;
     holdingPrice?: number | null;
@@ -22,15 +27,78 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 6,
-    marketDataRevision: MARKET_DATA_REVISION,
+    analysisPromptVersion: 9,
+    evidenceSchemaVersion: input.evidence.schemaVersion,
+    decisionPolicyVersion: input.evidence.decisionPolicyVersion,
+    marketDataRevision: input.evidence.marketDataRevision,
     symbol: input.symbol.toUpperCase(),
+    decisionMode: input.evidence.decisionMode,
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),
     rsiState: rsiState(input.indicators.rsi14),
     macdState: macdState(input.indicators.macd, input.indicators.macdSignal),
     movingAverageState: movingAverageState(input.quote.price, input.indicators),
+    recentHistoryDigest: createHash("sha256").update(JSON.stringify(input.evidence.marketData.recentCandles)).digest("hex"),
+    latestHistoryAt: input.evidence.marketData.historyTo,
+    fundamentalsState: {
+      schemaVersion: input.evidence.fundamentals.schemaVersion,
+      status: input.evidence.fundamentals.status,
+      provider: input.evidence.fundamentals.provider,
+      fetchedAt: input.evidence.fundamentals.fetchedAt,
+      reportPeriod: input.evidence.fundamentals.reportPeriod,
+      periodsDigest: createHash("sha256").update(JSON.stringify({
+        annual: input.evidence.fundamentals.annualPeriods,
+        quarterly: input.evidence.fundamentals.quarterlyPeriods
+      })).digest("hex"),
+      valuation: input.evidence.fundamentals.valuation,
+      missingFields: input.evidence.fundamentals.missingFields,
+      conflictingFields: input.evidence.fundamentals.conflictingFields
+    },
+    disclosureState: {
+      schemaVersion: input.evidence.disclosures.schemaVersion,
+      status: input.evidence.disclosures.status,
+      provider: input.evidence.disclosures.provider,
+      checkedAt: input.evidence.disclosures.checkedAt,
+      latestPublishedAt: input.evidence.disclosures.latestPublishedAt,
+      totalCount: input.evidence.disclosures.totalCount,
+      criticalUnreadCount: input.evidence.disclosures.criticalUnreadCount,
+      itemDigest: createHash("sha256").update(JSON.stringify(input.evidence.disclosures.items.map((item) => ({
+        id: item.id,
+        contentStatus: item.contentStatus,
+        contentHash: item.contentHash,
+        extractionFailure: item.extractionFailure
+      })).sort((a, b) => a.id.localeCompare(b.id)))).digest("hex")
+    },
     importantNewsIds: [...new Set(input.importantNewsIds)].sort(),
+    newsState: {
+      refreshStartedAt: input.evidence.news.refreshStartedAt,
+      refreshAt: input.evidence.news.refreshAt,
+      refreshCompleted: input.evidence.news.refreshCompleted,
+      fetchedCount: input.evidence.news.fetchedCount,
+      savedCount: input.evidence.news.savedCount,
+      relevantCount: input.evidence.news.relevantCount,
+      analyzedCount: input.evidence.news.analyzedCount,
+      fallbackAnalysisCount: input.evidence.news.fallbackAnalysisCount,
+      failedAnalysisCount: input.evidence.news.failedAnalysisCount,
+      pendingCriticalCount: input.evidence.news.pendingCriticalCount,
+      pendingRelevantCount: input.evidence.news.pendingRelevantCount,
+      deadlineExceeded: input.evidence.news.deadlineExceeded,
+      itemsDigest: createHash("sha256").update(JSON.stringify(input.evidence.news.items)).digest("hex")
+    },
+    dataQuality: {
+      status: input.evidence.dataQuality.status,
+      entryBlockers: input.evidence.dataQuality.entryBlockers
+    },
+    portfolioRiskState: input.evidence.portfolioContext.risk ? {
+      schemaVersion: input.evidence.portfolioContext.risk.schemaVersion,
+      capital: input.evidence.portfolioContext.risk.capital,
+      availableCash: input.evidence.portfolioContext.risk.availableCash,
+      totalAssets: input.evidence.portfolioContext.risk.totalAssets,
+      portfolioValuationStatus: input.evidence.portfolioContext.risk.portfolioValuationStatus,
+      riskBudget: input.evidence.portfolioContext.risk.riskBudget
+    } : null,
+    userCapital: input.userCapital ?? null,
+    userMemoryHash: createHash("sha256").update(input.userMemory ?? "").digest("hex"),
     userContext: {
       isHolding: input.userContext.isHolding ?? null,
       holdingPrice: input.userContext.holdingPrice ?? null,
@@ -44,6 +112,10 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   };
 
   return createHash("sha256").update(JSON.stringify(stableContext)).digest("hex");
+}
+
+export function createAnalysisCacheKey(userId: string, symbol: string, contextHash: string) {
+  return `${ANALYSIS_CACHE_NAMESPACE}:${userId}:${symbol.toUpperCase()}:${contextHash}`;
 }
 
 export function priceBucket(price: number) {

@@ -11,7 +11,6 @@ import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { generateAndStoreFocusDecision } from "@/lib/focus/decision";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
-import { fetchNewsForSymbol } from "@/lib/news/fetchNewsForSymbol";
 import { saveNewsAnalysis } from "@/lib/news/store";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -141,7 +140,11 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
           source: "scheduled",
           runId: payload?.runId ?? null,
           runItemId: runItem?.id ?? null,
-          forceRefresh: true
+          forceRefresh: true,
+          refreshNewsBeforeAnalysis: true,
+          refreshCompanyEvidenceBeforeAnalysis: true,
+          forceQuoteRefresh: false,
+          forceHistoryRefresh: true
         });
       } catch (error) {
         await finishAnalysisRunItem({
@@ -162,19 +165,10 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
 
   if (job.jobType === JOB_TYPES.STOCK_ANALYSIS) {
     if (!job.symbol) throw new Error("股票分析任务缺少股票代码。");
-    const payload = job.payload as { reason?: string; refreshNews?: boolean; runId?: string } | null;
+    const payload = job.payload as { reason?: string; forceRefresh?: boolean; refreshNews?: boolean; runId?: string } | null;
     const runItem = payload?.runId
       ? await startAnalysisRunItem({ runId: payload.runId, symbol: job.symbol }).catch(() => null)
       : null;
-
-    // 定时新闻抓取：先实际抓取新闻入库，再运行股票分析
-    if (payload?.refreshNews) {
-      try {
-        await fetchNewsForSymbol(job.symbol, job.userId);
-      } catch {
-        // 新闻抓取失败不应阻断后续股票分析
-      }
-    }
 
     try {
       const result = await analyzeStockAndRecord({
@@ -186,7 +180,11 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         source: payload?.reason?.includes("定时") ? "scheduled" : "manual",
         runId: payload?.runId ?? null,
         runItemId: runItem?.id ?? null,
-        forceRefresh: payload?.reason?.includes("关注板块定时分析") ?? false
+        forceRefresh: Boolean(payload?.forceRefresh) || (payload?.reason?.includes("关注板块定时分析") ?? false),
+        refreshNewsBeforeAnalysis: true,
+        refreshCompanyEvidenceBeforeAnalysis: true,
+        forceQuoteRefresh: true,
+        forceHistoryRefresh: true
       });
       await invalidateDashboardCache(job.userId);
       return { resultId: result.analysisId, skippedCached: result.fromCache };
@@ -342,6 +340,10 @@ async function analyzeStockAndRecord(input: {
   inputHash?: string | null;
   jobId?: string;
   forceRefresh?: boolean;
+  refreshNewsBeforeAnalysis?: boolean;
+  refreshCompanyEvidenceBeforeAnalysis?: boolean;
+  forceQuoteRefresh?: boolean;
+  forceHistoryRefresh?: boolean;
 }) {
   const result = await runStockAnalysis({
     userId: input.userId,
@@ -349,7 +351,11 @@ async function analyzeStockAndRecord(input: {
     inputHash: input.inputHash,
     jobId: input.jobId,
     reason: input.reason,
-    forceRefresh: input.forceRefresh
+    forceRefresh: input.forceRefresh,
+    refreshNewsBeforeAnalysis: input.refreshNewsBeforeAnalysis,
+    refreshCompanyEvidenceBeforeAnalysis: input.refreshCompanyEvidenceBeforeAnalysis,
+    forceQuoteRefresh: input.forceQuoteRefresh,
+    forceHistoryRefresh: input.forceHistoryRefresh
   });
   const watchlistItem = await prisma.watchlistItem.findFirst({
     where: { symbol: { in: stockSymbolVariants(input.symbol) }, watchlist: { userId: input.userId } }

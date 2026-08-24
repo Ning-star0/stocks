@@ -21,12 +21,12 @@ export function buildWatchlistRows(items: WatchlistItem[], data: DashboardRespon
     const primaryAdvice = getPrimaryAdvice(analysis, item);
     const isHolding = hasUserPosition(item);
     const strategy = trendToStrategy(analysis?.trend);
-    const action = normalizeAction(primaryAdvice.action, primaryAdvice.isHolding);
+    const action = normalizeAction(analysis?.decisionStatus, primaryAdvice.action, primaryAdvice.isHolding);
     const hasAnalysis = Boolean(analysis);
-    const actionCategory = classifyAction(action, hasAnalysis);
+    const actionCategory = classifyAction(analysis?.decisionStatus, action, hasAnalysis);
     const riskBucket = classifyRisk(item, analysis, actionCategory);
     const tags = reasonTags(analysis, primaryAdvice.reason);
-    const isFocus = riskBucket === "high" || actionCategory === "wait" || actionCategory === "avoid" || analysis?.trend === "bearish";
+    const isFocus = riskBucket === "high" || actionCategory === "entry" || actionCategory === "wait" || actionCategory === "avoid" || actionCategory === "insufficient" || analysis?.trend === "bearish";
     const isWatch = actionCategory === "watch" && riskBucket !== "high";
     const name = quote?.name ?? item.symbol;
     return {
@@ -107,7 +107,18 @@ export function formatQuoteStatus(status?: string) {
   return status ? map[status] ?? status : "不可用";
 }
 
-function normalizeAction(action?: string, isHolding?: boolean): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {
+function normalizeAction(
+  decisionStatus?: AiAnalysisResult["decisionStatus"],
+  action?: string,
+  isHolding?: boolean
+): { label: string; tone: "watch" | "wait" | "avoid" | "bullish" | "neutral" } {
+  if (decisionStatus === "insufficient_data") return { label: "数据不足", tone: "wait" };
+  if (decisionStatus === "rejected") return { label: "暂不考虑", tone: "avoid" };
+  if (decisionStatus === "research_candidate") return { label: "继续研究", tone: "neutral" };
+  if (decisionStatus === "setup_wait") return { label: "等待条件", tone: "wait" };
+  if (decisionStatus === "conditional_entry") return { label: "条件已满足", tone: "bullish" };
+  if (decisionStatus === "manage_position") return { label: "持仓管理", tone: "watch" };
+  if (decisionStatus === "exit_risk") return { label: "退出风险", tone: "avoid" };
   const text = action || "";
   if (/回避|止损|减仓|离场|不建议/.test(text)) return { label: "风险规避", tone: "avoid" };
   if (/等待|回调|观察|观望/.test(text)) return { label: "等待回调", tone: "wait" };
@@ -116,8 +127,17 @@ function normalizeAction(action?: string, isHolding?: boolean): { label: string;
   return { label: isHolding ? "持仓跟踪" : "继续观察", tone: "neutral" };
 }
 
-function classifyAction(action: ReturnType<typeof normalizeAction>, hasAnalysis: boolean): ActionCategory {
+function classifyAction(
+  decisionStatus: AiAnalysisResult["decisionStatus"] | undefined,
+  action: ReturnType<typeof normalizeAction>,
+  hasAnalysis: boolean
+): ActionCategory {
   if (!hasAnalysis) return "none";
+  if (decisionStatus === "conditional_entry") return "entry";
+  if (decisionStatus === "insufficient_data") return "insufficient";
+  if (decisionStatus === "rejected" || decisionStatus === "exit_risk") return "avoid";
+  if (decisionStatus === "setup_wait") return "wait";
+  if (decisionStatus === "research_candidate" || decisionStatus === "manage_position") return "watch";
   if (action.tone === "avoid") return "avoid";
   if (action.tone === "wait") return "wait";
   return "watch";

@@ -1,9 +1,8 @@
 import { getCache, setCache } from "@/lib/cache";
-import { buildDecisionFeedbackUrl } from "@/lib/decisionFeedback";
 import { readProviderJsonResponse } from "@/lib/httpJson";
 import { getNotificationConfig, type NotificationProvider } from "@/lib/notifications/config";
 
-type DecisionOrder = {
+export type DecisionOrder = {
   symbol?: string | null;
   name?: string | null;
   action?: string | null;
@@ -12,22 +11,6 @@ type DecisionOrder = {
   estimatedPrice?: number | null;
   estimatedFee?: number | null;
   netProceeds?: number | null;
-  estimatedPnl?: number | null;
-  reason?: string | null;
-  riskControl?: string | null;
-  invalidIf?: string | null;
-};
-
-type DecisionNearMiss = {
-  symbol?: string | null;
-  name?: string | null;
-  side?: "buy" | "sell" | null;
-  price?: number | null;
-  score?: number | null;
-  threshold?: number | null;
-  scoreGap?: number | null;
-  entryPermission?: "allow" | "reduce_size" | "pause" | null;
-  blockers?: string[];
 };
 
 export type FocusDecisionNotificationInput = {
@@ -40,24 +23,15 @@ export type FocusDecisionNotificationInput = {
   generatedAt?: string | Date | null;
   orders?: DecisionOrder[];
   sellOrders?: DecisionOrder[];
-  nearMisses?: DecisionNearMiss[];
-  cashReserve?: number | null;
-  totalBudgetToUse?: number | null;
-  totalEstimatedFee?: number | null;
-  totalSellAmount?: number | null;
-  totalSellNetProceeds?: number | null;
 };
 
 export async function notifyFocusDecision(input: FocusDecisionNotificationInput) {
   if (input.source !== "scheduled") return { skipped: true, reason: "manual_source" };
   if (input.fallbackReason) return { skipped: true, reason: "fallback_decision" };
 
-  const orders = Array.isArray(input.orders) ? input.orders.filter((order) => Number(order.amount) > 0 || Number(order.shares) > 0) : [];
-  const sellOrders = Array.isArray(input.sellOrders) ? input.sellOrders.filter((order) => Number(order.amount) > 0 || Number(order.shares) > 0) : [];
-  const nearMisses = nearMissNotificationsEnabled()
-    ? (Array.isArray(input.nearMisses) ? input.nearMisses.filter((item) => item.symbol && Number.isFinite(Number(item.score))).slice(0, 3) : [])
-    : [];
-  if (!orders.length && !sellOrders.length && !nearMisses.length) return { skipped: true, reason: "no_orders" };
+  const orders = Array.isArray(input.orders) ? input.orders.filter(hasExecutableQuantity) : [];
+  const sellOrders = Array.isArray(input.sellOrders) ? input.sellOrders.filter(hasExecutableQuantity) : [];
+  if (!orders.length && !sellOrders.length) return { skipped: true, reason: "no_orders" };
 
   const config = await getNotificationConfig(input.userId);
   if (!config.enabled || !isConfigSendable(config)) return { skipped: true, reason: "disabled" };
@@ -65,10 +39,10 @@ export async function notifyFocusDecision(input: FocusDecisionNotificationInput)
   const dedupeKey = buildFocusDecisionDedupeKey(input, [...orders, ...sellOrders]);
   if (dedupeKey && await getCache(dedupeKey)) return { skipped: true, reason: "deduped" };
 
-  const message = buildFocusDecisionMessage(input, orders, sellOrders, nearMisses);
+  const message = buildFocusDecisionMessage(input, orders, sellOrders);
   await sendMessage(config, message);
   if (dedupeKey) await setCache(dedupeKey, { sentAt: new Date().toISOString() }, numberEnv("NOTIFICATION_DEDUPE_TTL_SECONDS", 12 * 60 * 60));
-  return { skipped: false, sentAt: new Date().toISOString(), provider: config.provider, kind: orders.length || sellOrders.length ? "trade_plan" : "near_miss" };
+  return { skipped: false, sentAt: new Date().toISOString(), provider: config.provider, kind: "trade_plan" };
 }
 
 export async function sendTestNotification(input: { userId: string; title?: string }) {
@@ -76,33 +50,24 @@ export async function sendTestNotification(input: { userId: string; title?: stri
   if (!config.enabled || !isConfigSendable(config)) throw new Error("推送未启用或配置不完整。");
   await sendMessage(config, {
     title: input.title ?? "股票 AI 监控测试",
-    markdown: "股票 AI 监控推送测试成功。\n\n后续形成正式交易计划，或出现接近触发的强候选时会推送；接近触发提醒会明确标注尚未交易。",
+    markdown: "股票 AI 监控推送测试成功。\n\n后续仅在形成可执行的买入、增持、减仓或卖出计划时推送。",
     text: "股票 AI 监控推送测试成功。"
   });
 }
 
-function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders: DecisionOrder[], sellOrders: DecisionOrder[], nearMisses: DecisionNearMiss[]) {
+export function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders: DecisionOrder[], sellOrders: DecisionOrder[]) {
   const hasBuy = orders.length > 0;
   const hasSell = sellOrders.length > 0;
-  const hasTradePlan = hasBuy || hasSell;
-  const title = !hasTradePlan ? "接近触发提醒（尚未交易）" : hasBuy && hasSell ? "调仓提醒：买入 + 卖出" : hasSell ? "卖出提醒：减仓/卖出" : "买入提醒：买入/增持";
+  const title = hasBuy && hasSell ? "交易建议：买入 + 卖出" : hasSell ? "交易建议：卖出" : "交易建议：买入";
   const generatedAt = input.generatedAt ? new Date(input.generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
-  const conclusion = !hasTradePlan ? "接近交易条件，但仍有风控条件未满足；本次没有形成交易计划" : hasBuy && hasSell ? "形成买入与卖出/减仓观察计划" : hasSell ? "形成卖出/减仓观察计划" : "形成观察买入计划";
   const buyLines = compactOrderLines(orders, "buy");
   const sellLines = compactOrderLines(sellOrders, "sell");
-  const nearMissLines = compactNearMissLines(nearMisses);
   const lines = [
     `## ${title}`,
     "",
-    `时间：${generatedAt}｜${input.source === "scheduled" ? "定时分析" : "手动分析"}`,
-    `结论：${conclusion}`,
-    input.summary ? `原因：${truncateText(input.summary, 70)}` : "",
+    `时间：${generatedAt}`,
     ...sellLines,
     ...buyLines,
-    ...nearMissLines,
-    "",
-    hasTradePlan ? `资金：买入 ${formatMoney(input.totalBudgetToUse)}｜卖出 ${formatMoney(input.totalSellAmount)}｜手续费 ${formatMoney(input.totalEstimatedFee)}｜现金 ${formatMoney(input.cashReserve)}` : "操作：继续观察，不要把本提醒当成买卖指令。",
-    ...buildFeedbackLines(input, hasBuy, hasSell),
     "",
     "仅供研究参考。"
   ].filter(Boolean);
@@ -114,38 +79,19 @@ function buildFocusDecisionMessage(input: FocusDecisionNotificationInput, orders
   };
 }
 
-function compactNearMissLines(items: DecisionNearMiss[]) {
-  if (!items.length) return [];
-  return [
-    "",
-    "### 接近触发的候选",
-    ...items.map((item) => {
-      const name = item.name || item.symbol || "标的";
-      const symbol = item.symbol && item.name ? `(${item.symbol})` : "";
-      const score = `${formatScore(item.score)}/${formatScore(item.threshold)}`;
-      const blocker = item.blockers?.slice(0, 2).join("；") || "仍待下一根 K 线确认";
-      const permission = item.entryPermission === "reduce_size" ? "，仅半仓" : item.entryPermission === "pause" ? "，门控暂停" : "";
-      return `- ${name}${symbol}：买入分 ${score}${permission}；未触发：${blocker}`;
-    })
-  ];
-}
-
 function compactOrderLines(orders: DecisionOrder[], side: "buy" | "sell") {
-  const visible = orders.slice(0, 3);
-  const lines = visible.map((order) => {
+  return orders.map((order) => {
     const name = order.name || order.symbol || "标的";
     const symbol = order.symbol ? `(${order.symbol})` : "";
     const action = side === "buy" ? buyActionLabel(order.action) : sellActionLabel(order.action);
     const shares = Number(order.shares ?? 0);
-    const price = formatPrice(order.estimatedPrice);
     if (side === "sell") {
-      const pnl = order.estimatedPnl !== undefined && order.estimatedPnl !== null ? `，盈亏 ${formatMoney(order.estimatedPnl)}` : "";
-      return `- ${action}：${name}${symbol} ${shares}股 @ ${price}，净回收 ${formatMoney(order.netProceeds)}${pnl}`;
+      const proceeds = positiveMoney(order.netProceeds ?? order.amount);
+      return `- ${action} ${name}${symbol}：${formatQuantity(shares)}${proceeds ? `，预计收回 ${formatMoney(proceeds)}` : ""}`;
     }
-    return `- ${action}：${name}${symbol} ${shares}股 @ ${price}，总成本 ${formatMoney(Number(order.amount ?? 0) + Number(order.estimatedFee ?? 0))}`;
+    const cost = positiveMoney(Number(order.amount ?? 0) + Number(order.estimatedFee ?? 0));
+    return `- ${action} ${name}${symbol}：${formatQuantity(shares)}${cost ? `，预计使用 ${formatMoney(cost)}` : ""}`;
   });
-  if (orders.length > visible.length) lines.push(`- 还有 ${orders.length - visible.length} 条，打开网站查看。`);
-  return lines;
 }
 
 function buyActionLabel(action?: string | null) {
@@ -154,27 +100,6 @@ function buyActionLabel(action?: string | null) {
 
 function sellActionLabel(action?: string | null) {
   return action === "sell" ? "卖出" : "减仓";
-}
-
-function truncateText(value: string, maxLength: number) {
-  const text = value.replace(/\s+/g, " ").trim();
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
-}
-
-function buildFeedbackLines(input: FocusDecisionNotificationInput, hasBuy: boolean, hasSell: boolean) {
-  const actions = [
-    hasBuy ? { action: "bought", label: "已买入/增持" } : null,
-    hasSell ? { action: "sold", label: "已卖出/减仓" } : null,
-    { action: "watched", label: "继续观察" },
-    { action: "skipped", label: "未采纳" }
-  ].filter((item): item is { action: string; label: string } => Boolean(item));
-  const links = actions
-    .map((item) => {
-      const url = buildDecisionFeedbackUrl({ userId: input.userId, decisionId: input.decisionId, action: item.action });
-      return url ? `[${item.label}](${url})` : "";
-    })
-    .filter(Boolean);
-  return links.length ? ["", "### 反馈你的最终决策", links.join(" ｜ ")] : [];
 }
 
 function buildFocusDecisionDedupeKey(input: FocusDecisionNotificationInput, orders: DecisionOrder[]) {
@@ -313,19 +238,17 @@ function formatMoney(value?: number | null) {
   return `¥${number.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 }
 
-function formatPrice(value?: number | null) {
+function positiveMoney(value?: number | null) {
   const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) return "--";
-  return `¥${number.toLocaleString("zh-CN", { maximumFractionDigits: 4 })}`;
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function formatScore(value?: number | null) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Number(number.toFixed(1)).toString() : "--";
+function formatQuantity(shares: number) {
+  return `${shares.toLocaleString("zh-CN", { maximumFractionDigits: 4 })} 股/份`;
 }
 
-function nearMissNotificationsEnabled() {
-  return !["0", "false", "off", "no"].includes(String(process.env.NOTIFY_NEAR_MISS_ENABLED ?? "true").trim().toLowerCase());
+function hasExecutableQuantity(order: DecisionOrder) {
+  return Number.isFinite(Number(order.shares)) && Number(order.shares) > 0;
 }
 
 function numberEnv(name: string, fallback: number) {

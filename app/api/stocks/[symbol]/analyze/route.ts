@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { buildStockAnalysisContext } from "@/lib/analysis/stockAnalysisRunner";
+import { createAnalysisCacheKey } from "@/lib/analysis/contextHash";
 import { getAiConfig } from "@/lib/ai/config";
 import { shouldRunStockAnalysis } from "@/lib/analysis/shouldAnalyze";
 import { getCache } from "@/lib/cache";
@@ -14,7 +14,6 @@ import { prisma } from "@/lib/prisma";
 import { readOptionalRequestJson } from "@/lib/serverApi";
 import { symbolSchema } from "@/lib/schemas";
 import { stockSymbolVariants } from "@/lib/symbols";
-import { toNumber } from "@/lib/utils";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ symbol: string }> }) {
   try {
@@ -33,28 +32,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
     const watchlistItem = await prisma.watchlistItem.findFirst({
       where: { symbol: { in: symbolVariants }, watchlist: { userId: user.id } }
     });
-    const contextHash = createAnalysisContextHash({
-      symbol: canonicalSymbol,
-      quote: analysisContext.quote,
-      indicators: analysisContext.indicators,
-      importantNewsIds: analysisContext.highImpactNewsIds,
-      userContext: {
-        isHolding: watchlistItem?.isHolding ?? null,
-        holdingPrice: toNumber(watchlistItem?.holdingPrice),
-        holdingShares: toNumber(watchlistItem?.holdingShares),
-        targetPrice: toNumber(watchlistItem?.targetPrice),
-        stopLoss: toNumber(watchlistItem?.stopLoss),
-        positionOpenedAt: watchlistItem?.positionOpenedAt?.toISOString() ?? null,
-        timeHorizon: watchlistItem?.timeHorizon ?? null,
-        riskLevel: watchlistItem?.riskLevel ?? null
-      }
-    });
+    const contextHash = analysisContext.contextHash;
     const run = await createAnalysisRun({
       userId: user.id,
       runType: "manual",
       totalSymbols: 1
     });
-    const cacheKey = `ai_analysis:v3:${canonicalSymbol}:${contextHash}`;
+    const cacheKey = createAnalysisCacheKey(user.id, canonicalSymbol, contextHash);
     const cached = await getCache<{ analysisId: string; outputJson: unknown }>(cacheKey);
     if (cached && !forceRefresh) {
       await logCacheHit(user.id, canonicalSymbol, contextHash, "stock_analysis_cache_hit");
@@ -165,7 +149,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
       jobType: JOB_TYPES.STOCK_ANALYSIS,
       priority: forceRefresh ? JOB_PRIORITY.USER_MANUAL_ANALYSIS : priorityForReason(gate.reason),
       inputHash: contextHash,
-      payload: { reason: gate.reason, forceRefresh, runId: run.id }
+      payload: { reason: gate.reason, forceRefresh, refreshNews: true, runId: run.id },
+      includeCompletedInDedupe: false
     });
 
     if (forceRefresh) {

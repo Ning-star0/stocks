@@ -8,6 +8,8 @@ This project is for research and analysis purposes only. It does not include rea
 
 Actual executions can be recorded for portfolio reconciliation and strategy review. The trading review tracks realized P&L, win rate, profit factor, payoff ratio, drawdown, and fee drag; weak realized performance reduces new-position risk without lowering entry-quality thresholds.
 
+For A-shares, each manual or scheduled analysis refreshes official CNINFO financial statements and 180-day statutory disclosure metadata. Critical PDFs are downloaded only from the allowlisted CNINFO host, size- and header-checked, text-extracted, hashed, and supplied to the final stock analysis. Missing or unread critical filings block new-entry plans.
+
 Buy plans are revalidated at the trigger price using round-trip fees, break-even movement, and net risk/reward. Plans are removed when fee drag exceeds 2% or net risk/reward falls below 1.25.
 
 Portfolio risk is budgeted from current equity, open-position stops, market regime, and realized performance. Buy quantities are reduced in whole lots until fee-adjusted stop risk fits both per-trade and portfolio limits; missing stops, exhausted capacity, or an already-breached stop prevent additional risk.
@@ -69,6 +71,9 @@ Copy `.env.example` to `.env`. Key variables:
 | `DATABASE_URL` | PostgreSQL connection string | Required |
 | `STOCK_DATA_PROVIDER` | Stock data source | `mock` |
 | `NEWS_PROVIDER` | News data source | `mock` |
+| `DISCLOSURE_MAX_PDF_PER_REFRESH` | Maximum critical filing PDFs extracted per stock and refresh | `6` |
+| `DISCLOSURE_MAX_PDF_BYTES` | Maximum bytes per filing PDF | `16777216` |
+| `DISCLOSURE_PDF_TIMEOUT_MS` | Per-filing PDF download timeout | `25000` |
 | `OPENAI_API_KEY` | AI API key | - |
 | `OPENAI_BASE_URL` | AI API base URL | `https://api.deepseek.com` |
 | `OPENAI_MODEL` | AI model name | `deepseek-v4-pro` |
@@ -129,50 +134,27 @@ Open http://localhost:3000
 
 ## Production Deployment
 
-Build and start:
+The production server uses systemd for the web process and worker. Install and enable the matching `stocks-web.service` and `stocks-worker.service` units before the first deployment, then build:
 
 ```bash
-npm install
+npm ci
 npx prisma generate
 npx prisma migrate deploy
 npm run build
-
-# Copy static assets (required for standalone mode)
-cp -r .next/static .next/standalone/.next/static
 cp .env .next/standalone/.env
 
-# Start web server
-pm2 start npm --name "stocks" -- run start
-
-# Start background worker
-pm2 start npm --name "worker" -- run worker
-pm2 save
+sudo systemctl restart stocks-web.service stocks-worker.service
+curl --fail --silent --show-error http://127.0.0.1:3000/api/health
 ```
 
 ## One-Click Update Script
 
 ```bash
-#!/bin/bash
-set -e
 cd /opt/stocks
-
-echo "=== Pulling code ===" && git pull origin main
-echo "=== Installing dependencies ===" && npm install
-echo "=== Cleaning old build ===" && rm -rf .next
-echo "=== Generating Prisma ===" && npx prisma generate
-echo "=== Running migrations ===" && npx prisma migrate deploy
-echo "=== Building ===" && npm run build
-echo "=== Copying static files ===" && cp -r .next/static .next/standalone/.next/static
-echo "=== Restarting services ==="
-pm2 delete stocks 2>/dev/null || true
-fuser -k 3000/tcp 2>/dev/null || true
-sleep 1
-cp .env .next/standalone/.env
-pm2 start npm --name "stocks" -- run start
-pm2 restart worker 2>/dev/null || pm2 start npm --name "worker" -- run worker
-pm2 save
-echo "=== Done ===" && pm2 list
+sudo bash update.sh
 ```
+
+`update.sh` verifies that its working directory is `/opt/stocks` before removing `.next`. It exits with service logs when the health check fails.
 
 ## Utility Scripts
 
@@ -242,14 +224,13 @@ Error response format:
 | Quote | `quote:{symbol}` | 30 sec |
 | Batch Quote | `quote_batch:{hash}` | - |
 | News | `news:{symbol}:24h` | 900 sec |
-| AI Analysis | `ai_analysis:{symbol}:{inputHash}` | 21600 sec (6 hrs) |
-| Latest Analysis | `latest_analysis:{symbol}` | 300 sec |
+| AI Analysis | `ai_analysis:v9:{userId}:{symbol}:{contextHash}` | 21600 sec (6 hrs) |
 
 AI calls are never triggered by page refreshes:
 
 - Dashboard never triggers AI
 - Stock detail page does not auto-trigger AI on first load
-- Same `symbol + inputHash` won't create duplicate analysis jobs
+- The same active `user + symbol + contextHash` job is deduplicated; completed fallback jobs do not prevent a later retry
 - Regular news does not trigger AI analysis
 - High-impact news enters background queue without blocking the page
 - Manual refresh creates a high-priority job; frontend polls task status
@@ -299,6 +280,8 @@ interface StockDataProvider {
   getQuote(symbol: string): Promise<Quote>;
   getHistory(symbol: string, range: string, interval: string): Promise<Candle[]>;
   getCompanyProfile?(symbol: string): Promise<CompanyProfile>;
+  getFundamentals?(symbol: string, options?: CompanyEvidenceOptions): Promise<FundamentalEvidence>;
+  getDisclosures?(symbol: string, options?: CompanyEvidenceOptions): Promise<DisclosureEvidence>;
   getNews?(symbol: string): Promise<NewsItem[]>;
 }
 ```

@@ -42,6 +42,9 @@ async function main() {
       OR: [
         { key: { startsWith: "strategy_health:" } },
         { key: { startsWith: "ai_analysis:v5:" } },
+        { key: { startsWith: "ai_analysis:v6:" } },
+        { key: { startsWith: "ai_analysis:v7:" } },
+        { key: { startsWith: "ai_analysis:v8:" } },
         { key: { startsWith: "focus_decision:" } }
       ]
     }

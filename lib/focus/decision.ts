@@ -149,13 +149,7 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
     fallbackReason: decision.fallbackReason,
     generatedAt: new Date(),
     orders: decision.orders,
-    cashReserve: decision.cashReserve,
-    totalBudgetToUse: decision.totalBudgetToUse,
-    totalEstimatedFee: decision.totalEstimatedFee,
     sellOrders: decision.sellOrders,
-    nearMisses: decision.nearMisses,
-    totalSellAmount: decision.totalSellAmount,
-    totalSellNetProceeds: decision.totalSellNetProceeds
   }).catch((error) => ({
     skipped: true,
     reason: "send_failed",

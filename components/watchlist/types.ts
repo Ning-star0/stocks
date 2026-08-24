@@ -51,7 +51,7 @@ export type DashboardResponse = {
 };
 
 export type RiskBucket = "high" | "medium" | "low";
-export type ActionCategory = "wait" | "watch" | "avoid" | "none";
+export type ActionCategory = "entry" | "wait" | "watch" | "avoid" | "insufficient" | "none";
 export type SortKey = "default" | "changeDesc" | "changeAsc" | "riskFirst" | "focusFirst";
 
 export type StrategyView = {

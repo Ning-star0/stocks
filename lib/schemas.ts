@@ -104,7 +104,9 @@ export const newsAnalysisSchema = z.object({
   affectedSectors: z.array(z.string().min(1).max(80)),
   riskNotes: z.array(z.string()),
   whyItMatters: z.string().min(1),
-  confidence: z.number().min(0).max(1)
+  confidence: z.number().min(0).max(1),
+  isFallback: z.boolean().default(false),
+  fallbackReason: z.string().nullable().default(null)
 });
 
 const aiActionSchema = z.object({
@@ -181,6 +183,10 @@ const analysisTradePlanLegSchema = z.object({
   netExpectedProfit: z.number().nullable().optional(),
   netMaxLossAmount: z.number().nullable().optional(),
   netRiskRewardRatio: z.number().nullable().optional(),
+  expectedValueStatus: z.enum(["not_calibrated", "positive", "non_positive"]).optional(),
+  calibratedWinProbability: z.number().min(0).max(1).nullable().optional(),
+  expectedValue: z.number().nullable().optional(),
+  validationSampleSize: z.number().int().nonnegative().nullable().optional(),
   sellRatioPct: z.number().nullable().optional(),
   estimatedPnl: z.number().nullable().optional(),
   reason: z.string().min(1),
@@ -199,7 +205,49 @@ const analysisTradePlanSchema = z.object({
   })
 });
 
+const newsEvidenceCoverageSummarySchema = z.object({
+  fetchedCount: z.number().int().nonnegative(),
+  savedCount: z.number().int().nonnegative(),
+  filteredOutCount: z.number().int().nonnegative(),
+  relevantCount: z.number().int().nonnegative(),
+  highCount: z.number().int().nonnegative(),
+  mediumCount: z.number().int().nonnegative(),
+  verifiedAnalyzedCount: z.number().int().nonnegative(),
+  fallbackAnalysisCount: z.number().int().nonnegative(),
+  failedAnalysisCount: z.number().int().nonnegative(),
+  pendingCriticalCount: z.number().int().nonnegative(),
+  pendingRelevantCount: z.number().int().nonnegative(),
+  deadlineExceeded: z.boolean(),
+  webSearchUsed: z.boolean()
+});
+
+const dataQualityReportSchema = z.object({
+  status: z.enum(["complete", "partial", "insufficient", "conflicted"]),
+  quoteFresh: z.boolean(),
+  klineFresh: z.boolean(),
+  latestDisclosureChecked: z.boolean(),
+  disclosuresFresh: z.boolean(),
+  criticalDisclosuresRead: z.boolean(),
+  fundamentalsAvailable: z.boolean(),
+  fundamentalsFresh: z.boolean(),
+  fundamentalsComplete: z.boolean(),
+  portfolioRiskEvaluated: z.boolean(),
+  newsRefreshCompleted: z.boolean(),
+  criticalNewsAnalyzed: z.boolean(),
+  missingFields: z.array(z.string()),
+  staleFields: z.array(z.string()),
+  conflictingFields: z.array(z.string()),
+  fallbacksUsed: z.array(z.string()),
+  entryBlockers: z.array(z.string()),
+  newsCoverage: newsEvidenceCoverageSummarySchema.optional()
+});
+
 export const aiAnalysisSchema = z.object({
+  evidenceSchemaVersion: z.string().optional(),
+  decisionMode: z.enum(["long_term", "swing_trade", "position_management"]).optional(),
+  decisionStatus: z
+    .enum(["insufficient_data", "rejected", "research_candidate", "setup_wait", "conditional_entry", "manage_position", "exit_risk"])
+    .optional(),
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
   summary: z.string().min(1),
@@ -214,11 +262,37 @@ export const aiAnalysisSchema = z.object({
       historyCandles: z.number().int().nonnegative().optional(),
       newsWindow: z.string().optional(),
       newsCount: z.number().int().nonnegative().optional(),
+      newsCoverage: newsEvidenceCoverageSummarySchema.nullable().optional(),
+      newsRefreshFailures: z.array(z.string()).optional(),
+      fundamentalsStatus: z.string().optional(),
+      fundamentalsReportPeriod: z.string().nullable().optional(),
+      fundamentalsSourceUrl: z.string().nullable().optional(),
+      disclosureStatus: z.string().optional(),
+      disclosureCheckedAt: z.string().nullable().optional(),
+      disclosureCount: z.number().int().nonnegative().optional(),
+      disclosureCriticalCount: z.number().int().nonnegative().optional(),
+      disclosureExtractedCount: z.number().int().nonnegative().optional(),
+      disclosureSources: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        publishedAt: z.string(),
+        url: z.string(),
+        contentStatus: z.enum(["metadata_only", "extracted", "analyzed"]),
+        isCritical: z.boolean()
+      })).optional(),
+      companyEvidenceFailures: z.array(z.string()).optional(),
+      portfolioRiskStatus: z.string().optional(),
+      portfolioAvailableRiskAmount: z.number().nullable().optional(),
+      portfolioRiskFailure: z.string().nullable().optional(),
       webSearchStatus: z.string().optional()
     })
     .optional(),
   isFallback: z.boolean().optional(),
   fallbackReason: z.string().optional(),
+  dataQuality: dataQualityReportSchema.optional(),
+  supportingEvidence: z.array(z.string()).optional().default([]),
+  opposingEvidence: z.array(z.string()).optional().default([]),
+  missingEvidence: z.array(z.string()).optional().default([]),
   keyLevels: z.object({
     support: z.array(z.number()),
     resistance: z.array(z.number())

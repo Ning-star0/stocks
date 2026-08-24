@@ -1,3 +1,7 @@
+import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
+import type { DisclosureSourceSummary, NewsEvidenceCoverageSummary } from "@/lib/types";
+import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
+
 export type AnalyzeStockInput = {
   symbol: string;
   quote: unknown;
@@ -8,6 +12,7 @@ export type AnalyzeStockInput = {
   userMemory?: string;
   // 用户在 /focus 填的总本金，用于计算具体买入股数和仓位
   userCapital?: number | null;
+  portfolioRiskContext?: PortfolioRiskContext | null;
   analysisAsOf?: string;
   dataScope?: {
     quoteTime?: string | null;
@@ -18,6 +23,21 @@ export type AnalyzeStockInput = {
     historyCandles?: number;
     newsWindow?: string;
     newsCount?: number;
+    newsCoverage?: NewsEvidenceCoverageSummary | null;
+    newsRefreshFailures?: string[];
+    fundamentalsStatus?: string;
+    fundamentalsReportPeriod?: string | null;
+    fundamentalsSourceUrl?: string | null;
+    disclosureStatus?: string;
+    disclosureCheckedAt?: string | null;
+    disclosureCount?: number;
+    disclosureCriticalCount?: number;
+    disclosureExtractedCount?: number;
+    disclosureSources?: DisclosureSourceSummary[];
+    companyEvidenceFailures?: string[];
+    portfolioRiskStatus?: string;
+    portfolioAvailableRiskAmount?: number | null;
+    portfolioRiskFailure?: string | null;
     webSearchStatus?: string;
   };
   tradingFeeRule?: {
@@ -29,4 +49,5 @@ export type AnalyzeStockInput = {
   };
   recentNews?: unknown;
   webSearchResults?: unknown;
+  evidencePackage?: AnalysisEvidencePackage;
 };

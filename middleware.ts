@@ -7,8 +7,9 @@ const PUBLIC_FILE_PATTERN = /\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanif
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname === "/login" || pathname.startsWith("/api/auth/");
+  const isHealthRoute = pathname === "/api/health";
   const isPublicAsset = pathname.startsWith("/_next/") || PUBLIC_FILE_PATTERN.test(pathname);
-  if (isAuthRoute || isPublicAsset) return NextResponse.next();
+  if (isAuthRoute || isHealthRoute || isPublicAsset) return NextResponse.next();
 
   const hasSessionCookie = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   if (hasSessionCookie) return NextResponse.next();

@@ -16,6 +16,7 @@ import {
   TRADE_LOT_SIZE
 } from "@/lib/trading/rules";
 import { calculateTradeEconomics, tradeEconomicsBlockReason } from "@/lib/trading/economics";
+import { fitTradeToRiskBudget, type PortfolioRiskBudget } from "@/lib/trading/riskBudget";
 import type { AiAnalysisResult } from "@/lib/types";
 
 export type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
@@ -121,8 +122,11 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
   const dataScope = normalizeDataScope(record.dataScope, input);
   const newsReferences = normalizeNewsReferences(record.newsReferences, input.recentNews);
   const webSearchResults = normalizeWebSearchResults(record.webSearchResults, input.webSearchResults);
+  const evidencePackage = input.evidencePackage;
 
   const normalized = {
+    evidenceSchemaVersion: evidencePackage?.schemaVersion,
+    decisionMode: evidencePackage?.decisionMode,
     trend: normalizeTrend(record.trend),
     confidence: normalizeConfidence(record.confidence),
     analysisAsOf: toNonEmptyString(record.analysisAsOf, input.analysisAsOf ?? new Date().toISOString()),
@@ -141,6 +145,13 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
       resistance: toNumberArray(keyLevels.resistance ?? record.resistance)
     },
     riskFactors: riskFactors.length && riskFactors.every(containsCjk) ? riskFactors.map(toSimplifiedChinese) : ["AI 未提供明确风险因素，请结合行情、新闻和自身风险承受能力复核。"],
+    dataQuality: buildOutputDataQuality(evidencePackage),
+    supportingEvidence: toChineseStringArray(record.supportingEvidence),
+    opposingEvidence: toChineseStringArray(record.opposingEvidence),
+    missingEvidence: uniqueStrings([
+      ...toChineseStringArray(record.missingEvidence),
+      ...(evidencePackage?.dataQuality.missingFields ?? [])
+    ]),
     possibleActions: actions.length
       ? actions.map(normalizeAction).filter(Boolean)
       : [
@@ -161,11 +172,56 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
     entryAdvice: normalizeEntryAdvice(record.entryAdvice, actions),
     disclaimer: toNonEmptyString(record.disclaimer, "本内容由 AI 生成，仅供研究参考，不构成投资建议。")
   };
+  const tradePlan = buildAnalysisTradePlan(normalized, input);
 
   return {
     ...normalized,
-    tradePlan: buildAnalysisTradePlan(normalized, input)
+    decisionStatus: resolveDecisionStatus({
+      candidate: normalizeDecisionStatusCandidate(record.decisionStatus),
+      input,
+      analysis: normalized,
+      tradePlan
+    }),
+    tradePlan
   };
+}
+
+function normalizeDecisionStatusCandidate(value: unknown): AiAnalysisResult["decisionStatus"] {
+  const text = String(value ?? "").trim();
+  if (
+    text === "insufficient_data" ||
+    text === "rejected" ||
+    text === "research_candidate" ||
+    text === "setup_wait" ||
+    text === "conditional_entry" ||
+    text === "manage_position" ||
+    text === "exit_risk"
+  ) return text;
+  return "research_candidate";
+}
+
+function resolveDecisionStatus(input: {
+  candidate: AiAnalysisResult["decisionStatus"];
+  input: AnalyzeStockInput;
+  analysis: Pick<AiAnalysisResult, "trend">;
+  tradePlan: NonNullable<AiAnalysisResult["tradePlan"]>;
+}): NonNullable<AiAnalysisResult["decisionStatus"]> {
+  const evidence = input.input.evidencePackage;
+  const mode = evidence?.decisionMode;
+  const quality = evidence?.dataQuality;
+
+  if (mode === "position_management") {
+    return input.tradePlan.exit.status === "conditional" && (input.tradePlan.exit.action === "sell" || input.tradePlan.exit.action === "reduce")
+      ? "exit_risk"
+      : "manage_position";
+  }
+  if (!quality || quality.status === "insufficient" || quality.status === "conflicted" || quality.entryBlockers.length) {
+    return "insufficient_data";
+  }
+  if (input.tradePlan.entry.status === "blocked" || input.analysis.trend === "bearish" || input.candidate === "rejected") return "rejected";
+  if (input.candidate === "conditional_entry" && input.tradePlan.entry.status === "conditional") return "conditional_entry";
+  if (input.candidate === "setup_wait") return "setup_wait";
+  return "research_candidate";
 }
 
 function normalizeHoldAdvice(value: unknown, actions: unknown[]) {
@@ -212,7 +268,45 @@ function normalizeDataScope(value: unknown, input: AnalyzeStockInput) {
     historyCandles: toInteger(record.historyCandles, fallback.historyCandles ?? 0),
     newsWindow: toNonEmptyString(record.newsWindow, fallback.newsWindow ?? "最近 7 天，高重要性新闻优先"),
     newsCount: toInteger(record.newsCount, fallback.newsCount ?? countArray(input.recentNews)),
+    newsCoverage: fallback.newsCoverage ?? null,
+    newsRefreshFailures: fallback.newsRefreshFailures ?? [],
+    fundamentalsStatus: fallback.fundamentalsStatus ?? "unavailable",
+    fundamentalsReportPeriod: fallback.fundamentalsReportPeriod ?? null,
+    fundamentalsSourceUrl: fallback.fundamentalsSourceUrl ?? null,
+    disclosureStatus: fallback.disclosureStatus ?? "unchecked",
+    disclosureCheckedAt: fallback.disclosureCheckedAt ?? null,
+    disclosureCount: toInteger(record.disclosureCount, fallback.disclosureCount ?? 0),
+    disclosureCriticalCount: fallback.disclosureCriticalCount ?? 0,
+    disclosureExtractedCount: fallback.disclosureExtractedCount ?? 0,
+    disclosureSources: fallback.disclosureSources ?? [],
+    companyEvidenceFailures: fallback.companyEvidenceFailures ?? [],
+    portfolioRiskStatus: fallback.portfolioRiskStatus ?? "not_evaluated",
+    portfolioAvailableRiskAmount: fallback.portfolioAvailableRiskAmount ?? null,
+    portfolioRiskFailure: fallback.portfolioRiskFailure ?? null,
     webSearchStatus: toNonEmptyString(record.webSearchStatus, fallback.webSearchStatus ?? "未执行联网新闻检索")
+  };
+}
+
+function buildOutputDataQuality(evidencePackage: AnalyzeStockInput["evidencePackage"]): AiAnalysisResult["dataQuality"] {
+  if (!evidencePackage) return undefined;
+  const news = evidencePackage.news;
+  return {
+    ...evidencePackage.dataQuality,
+    newsCoverage: {
+      fetchedCount: news.fetchedCount,
+      savedCount: news.savedCount,
+      filteredOutCount: news.filteredOutCount,
+      relevantCount: news.relevantCount,
+      highCount: news.highCount,
+      mediumCount: news.mediumCount,
+      verifiedAnalyzedCount: news.analyzedCount,
+      fallbackAnalysisCount: news.fallbackAnalysisCount,
+      failedAnalysisCount: news.failedAnalysisCount,
+      pendingCriticalCount: news.pendingCriticalCount,
+      pendingRelevantCount: news.pendingRelevantCount,
+      deadlineExceeded: news.deadlineExceeded,
+      webSearchUsed: news.webSearchUsed
+    }
   };
 }
 
@@ -345,6 +439,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
 function getQuoteTime(quote: unknown) {
   const record = isRecord(quote) ? quote : {};
   return typeof record.timestamp === "string" ? record.timestamp : null;
@@ -393,7 +491,7 @@ function ensureChineseOptionalText(value: unknown) {
 export function buildAnalysisTradePlan(
   analysis: Pick<AiAnalysisResult, "trend" | "confidence" | "keyLevels" | "holdAdvice" | "entryAdvice">,
   input: AnalyzeStockInput
-): AiAnalysisResult["tradePlan"] {
+): NonNullable<AiAnalysisResult["tradePlan"]> {
   const quote = isRecord(input.quote) ? input.quote : {};
   const userContext = isRecord(input.userContext) ? input.userContext : {};
   const price = toFiniteNumber(quote.price);
@@ -406,8 +504,8 @@ export function buildAnalysisTradePlan(
   const resistance = price ? nearestAboveLevel(price, analysis.keyLevels.resistance) : null;
   const configuredStop = toFiniteNumber(userContext.stopLoss);
   const configuredTarget = toFiniteNumber(userContext.targetPrice);
-  const stopLossPrice = price ? roundPriceValue(configuredStop ?? support ?? price * 0.96) : null;
-  const takeProfitPrice = price ? roundPriceValue(configuredTarget ?? resistance ?? price * 1.06) : null;
+  const stopLossPrice = configuredStop ?? support;
+  const takeProfitPrice = configuredTarget ?? resistance;
   const triggerPrice = price ? roundPriceValue(selectEntryTriggerPrice(price, support)) : null;
 
   return {
@@ -418,7 +516,10 @@ export function buildAnalysisTradePlan(
       stopLossPrice,
       takeProfitPrice,
       userCapital,
-      isHolding
+      isHolding,
+      riskBudget: input.portfolioRiskContext?.riskBudget ?? null,
+      availableCash: input.portfolioRiskContext?.availableCash ?? null,
+      evidenceBlockers: input.evidencePackage?.dataQuality.entryBlockers ?? []
     }),
     exit: buildExitTradePlan({
       analysis,
@@ -441,24 +542,50 @@ function buildEntryTradePlan(input: {
   takeProfitPrice: number | null;
   userCapital: number | null;
   isHolding: boolean;
+  riskBudget: PortfolioRiskBudget | null;
+  availableCash: number | null;
+  evidenceBlockers: string[];
 }): NonNullable<AiAnalysisResult["tradePlan"]>["entry"] {
   const constraints: string[] = [];
+  constraints.push(...input.evidenceBlockers.map((item) => `证据硬门控：${item}。`));
   if (!input.price || input.price <= 0) constraints.push("行情价格不可用，不能测算买入股数。");
   if (!input.userCapital || input.userCapital <= 0) constraints.push("未填写总本金，无法把首次仓位换算为具体股数。");
+  if (!input.riskBudget) constraints.push("尚未完成组合风险预算，不能生成执行仓位。");
+  if (input.riskBudget?.status === "blocked" || input.riskBudget?.status === "breached_stop") constraints.push(input.riskBudget.reason);
+  if (!input.stopLossPrice || !input.triggerPrice || input.stopLossPrice >= input.triggerPrice) {
+    constraints.push("缺少低于触发价的有效止损或技术失效位，不能新增风险。");
+  }
+  if (!input.takeProfitPrice || !input.triggerPrice || input.takeProfitPrice <= input.triggerPrice) {
+    constraints.push("缺少高于触发价的首个止盈或压力目标，不能完成收益测算。");
+  }
   if (input.analysis.trend === "bearish") constraints.push("当前趋势偏空，买入计划需降级为观察。");
   if (adviceBlocksEntry(input.analysis.entryAdvice)) constraints.push("AI 入场建议明确偏等待或回避，不能直接形成买入计划。");
 
   const suggestedAmount = input.userCapital ? suggestedEntryAmount(input.userCapital, input.analysis.confidence, input.analysis.trend) : null;
   const executionPrice = input.triggerPrice ?? input.price;
-  const shares = executionPrice && suggestedAmount ? roundLotShares(suggestedAmount / executionPrice) : 0;
-  const economics = executionPrice && shares > 0
+  const requestedShares = executionPrice && suggestedAmount ? roundLotShares(suggestedAmount / executionPrice) : 0;
+  const riskCapacity = input.riskBudget
+    ? Math.min(input.riskBudget.singleTradeRiskLimitAmount, input.riskBudget.availableRiskAmount)
+    : 0;
+  const fitted = input.riskBudget && executionPrice
+    ? fitTradeToRiskBudget({
+        requestedShares,
+        entryPrice: executionPrice,
+        stopLossPrice: input.stopLossPrice,
+        takeProfitPrice: input.takeProfitPrice,
+        maxRiskAmount: riskCapacity
+      })
+    : null;
+  if (fitted?.reason) constraints.push(fitted.reason);
+  const shares = fitted ? fitted.shares : requestedShares;
+  const economics = fitted?.economics ?? (executionPrice && shares > 0
     ? calculateTradeEconomics({
         entryPrice: executionPrice,
         shares,
         stopLossPrice: input.stopLossPrice,
         takeProfitPrice: input.takeProfitPrice
       })
-    : null;
+    : null);
   const amount = economics?.entryAmount ?? null;
   const estimatedFee = economics?.entryFee ?? null;
   const totalCost = economics?.totalEntryCost ?? null;
@@ -472,12 +599,16 @@ function buildEntryTradePlan(input: {
   if (riskRewardRatio !== null && riskRewardRatio < 1.25) constraints.push("按当前止损/止盈估算，风险收益比不足 1.25:1。");
   const economicsBlock = tradeEconomicsBlockReason(economics);
   if (economicsBlock) constraints.push(`${economicsBlock} 暂不可做。`);
+  if (!economics || economics.netRiskRewardRatio === null) {
+    constraints.push("缺少完整止损/目标数据，无法计算扣除双边手续费后的净风险收益比，不能买入。");
+  }
   if (economics?.feeDragPct !== null && economics?.feeDragPct !== undefined && economics.feeDragPct > 1) {
     constraints.push(`预计双边手续费占成交额 ${economics.feeDragPct.toFixed(2)}%，盈亏平衡至少需要上涨 ${economics.breakEvenMovePct.toFixed(2)}%。`);
   }
   if (input.userCapital && totalCost && totalCost > input.userCapital) constraints.push("计划总成本超过用户填写的总本金。");
+  if (input.availableCash !== null && totalCost && totalCost > input.availableCash) constraints.push("计划总成本超过组合当前可用现金。");
 
-  const hasHardBlock = constraints.some((item) => /不可用|不能|无效|超过/.test(item));
+  const hasHardBlock = input.evidenceBlockers.length > 0 || constraints.some((item) => /不可用|不能|无效|超过/.test(item));
   const status = hasHardBlock ? "blocked" : shares > 0 && amount ? "conditional" : "watch";
 
   return {
@@ -501,6 +632,10 @@ function buildEntryTradePlan(input: {
     netExpectedProfit: economics?.netExpectedProfit ?? null,
     netMaxLossAmount: economics?.netRiskAmount ?? null,
     netRiskRewardRatio: economics?.netRiskRewardRatio ?? null,
+    expectedValueStatus: "not_calibrated",
+    calibratedWinProbability: null,
+    expectedValue: null,
+    validationSampleSize: null,
     reason: buildEntryTradeReason(input.analysis.entryAdvice?.reason, status, input.isHolding),
     constraints
   };
@@ -657,14 +792,31 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
   const dataScope = normalizeDataScope(null, input);
   const newsReferences = normalizeNewsReferences(null, input.recentNews);
   const webSearchResults = normalizeWebSearchResults(null, input.webSearchResults);
+  const evidencePackage = input.evidencePackage;
+  const outputDataQuality = buildOutputDataQuality(evidencePackage);
+  const fallbackDataQuality = outputDataQuality
+    ? {
+        ...outputDataQuality,
+        status: "insufficient" as const,
+        fallbacksUsed: uniqueStrings([...outputDataQuality.fallbacksUsed, reason]),
+        entryBlockers: uniqueStrings([...outputDataQuality.entryBlockers, "AI 分析使用了本地兜底结果"])
+      }
+    : undefined;
 
   return {
+    evidenceSchemaVersion: evidencePackage?.schemaVersion,
+    decisionMode: evidencePackage?.decisionMode,
+    decisionStatus: evidencePackage?.decisionMode === "position_management" ? "manage_position" : "insufficient_data",
     trend,
     confidence: 0.42,
     analysisAsOf: input.analysisAsOf ?? new Date().toISOString(),
     dataScope,
     isFallback: true,
     fallbackReason: reason,
+    dataQuality: fallbackDataQuality,
+    supportingEvidence: [],
+    opposingEvidence: ["AI 服务未返回通过校验的研究结论。"],
+    missingEvidence: uniqueStrings([...(fallbackDataQuality?.missingFields ?? []), "validatedAiAnalysis"]),
     summary: `${reason} 本分析截至 ${input.analysisAsOf ?? new Date().toISOString()}，报价时间 ${dataScope.quoteTime ?? "未知"}，历史数据范围 ${dataScope.historyRange}/${dataScope.historyInterval}。`,
     newsSummary: buildFallbackNewsSummary(input.recentNews, input.webSearchResults),
     newsSentiment: "neutral",

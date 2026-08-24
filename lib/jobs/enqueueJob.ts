@@ -11,6 +11,7 @@ export type EnqueueJobInput = {
   inputHash?: string | null;
   maxAttempts?: number;
   payload?: Prisma.InputJsonValue;
+  includeCompletedInDedupe?: boolean;
 };
 
 export async function enqueueJob(input: EnqueueJobInput) {
@@ -21,7 +22,11 @@ export async function enqueueJob(input: EnqueueJobInput) {
         symbol: input.symbol ?? null,
         jobType: input.jobType,
         inputHash: input.inputHash,
-        status: { in: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING, JOB_STATUS.COMPLETED, JOB_STATUS.SKIPPED_CACHED] }
+        status: {
+          in: input.includeCompletedInDedupe === false
+            ? [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING]
+            : [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING, JOB_STATUS.COMPLETED, JOB_STATUS.SKIPPED_CACHED]
+        }
       },
       orderBy: { createdAt: "desc" }
     });

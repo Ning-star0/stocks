@@ -50,6 +50,7 @@ export function AiAnalysisPanel({
   const newsReferences = Array.isArray(analysis.newsReferences) ? analysis.newsReferences : [];
   const webSearchResults = Array.isArray(analysis.webSearchResults) ? analysis.webSearchResults : [];
   const primaryAdvice = getPrimaryAdvice(analysis, position);
+  const dataQuality = analysis.dataQuality;
 
   return (
     <Card className="performance-card overflow-hidden">
@@ -61,6 +62,7 @@ export function AiAnalysisPanel({
             <Badge variant="secondary">置信度 {formatConfidence(confidence)}</Badge>
             {fromCache ? <Badge variant="secondary">缓存结果</Badge> : null}
             {analysis.isFallback ? <Badge variant="danger">本地兜底</Badge> : null}
+            {analysis.decisionStatus ? <Badge variant={decisionStatusVariant(analysis.decisionStatus)}>{decisionStatusLabel(analysis.decisionStatus)}</Badge> : null}
           </div>
         </div>
         <TrendBadge trend={analysis.trend} />
@@ -78,6 +80,7 @@ export function AiAnalysisPanel({
           <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <StrategyBadge tone={trendToStrategy(analysis.trend).tone}>策略方向：{trendToStrategy(analysis.trend).label}</StrategyBadge>
+              {analysis.decisionStatus ? <StrategyBadge tone={decisionStatusTone(analysis.decisionStatus)}>决策状态：{decisionStatusLabel(analysis.decisionStatus)}</StrategyBadge> : null}
               <StrategyBadge tone={actionTone(primaryAdvice.action)}>当前动作：{primaryAdvice.action || "继续观察"}</StrategyBadge>
               <Badge variant="secondary">风险等级：{riskLevelText(riskFactors)}</Badge>
             </div>
@@ -91,6 +94,10 @@ export function AiAnalysisPanel({
             <ScopeLine label="截至" value={formatTime(analysis.analysisAsOf)} />
           </div>
         </div>
+
+        {dataQuality || analysis.supportingEvidence?.length || analysis.opposingEvidence?.length || analysis.missingEvidence?.length ? (
+          <EvidenceQualityPanel analysis={analysis} />
+        ) : null}
 
         {analysis.holdAdvice || analysis.entryAdvice ? (
           <PrimaryAdviceCard analysis={analysis} primaryAdvice={primaryAdvice} />
@@ -148,6 +155,9 @@ export function AiAnalysisPanel({
                 <ScopeLine label="新闻范围" value={dataScope.newsWindow ?? "--"} />
                 <ScopeLine label="新闻数量" value={`${dataScope.newsCount ?? 0} 条传入 AI`} />
                 <ScopeLine label="联网检索" value={dataScope.webSearchStatus ?? "--"} />
+                <ScopeLine label="证据版本" value={analysis.evidenceSchemaVersion ?? "旧版分析"} />
+                <ScopeLine label="决策模式" value={decisionModeLabel(analysis.decisionMode)} />
+                <ScopeLine label="数据质量" value={dataQuality ? dataQualityStatusLabel(dataQuality.status) : "旧版未记录"} />
               </div>
             ) : null}
             {analysis.webSearchSummary ? <p className="text-sm leading-6 text-muted-foreground">{analysis.webSearchSummary}</p> : null}
@@ -158,6 +168,100 @@ export function AiAnalysisPanel({
         <p className="border-t pt-4 text-xs text-muted-foreground">{analysis.disclaimer || "本内容由 AI 生成，仅供研究参考，不构成投资建议。"}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
+  const quality = analysis.dataQuality;
+  const newsCoverage = quality?.newsCoverage;
+  const supporting = analysis.supportingEvidence ?? [];
+  const opposing = analysis.opposingEvidence ?? [];
+  const missing = analysis.missingEvidence ?? [];
+  const blockers = quality?.entryBlockers ?? [];
+
+  return (
+    <Block title="证据覆盖与反方检查">
+      <div className="flex flex-wrap gap-2">
+        {quality ? <Badge variant={dataQualityVariant(quality.status)}>数据质量：{dataQualityStatusLabel(quality.status)}</Badge> : null}
+        {quality ? <Badge variant={quality.quoteFresh ? "success" : "danger"}>报价{quality.quoteFresh ? "新鲜" : "过期"}</Badge> : null}
+        {quality ? <Badge variant={quality.klineFresh ? "success" : "danger"}>K 线{quality.klineFresh ? "新鲜" : "过期"}</Badge> : null}
+        {quality ? <Badge variant={quality.newsRefreshCompleted ? "success" : "warning"}>新闻{quality.newsRefreshCompleted ? "已刷新" : "待刷新"}</Badge> : null}
+        {quality ? <Badge variant={quality.criticalNewsAnalyzed ? "success" : "danger"}>关键新闻{quality.criticalNewsAnalyzed ? "已精读" : "未闭合"}</Badge> : null}
+        {quality ? <Badge variant={quality.disclosuresFresh && quality.criticalDisclosuresRead ? "success" : "danger"}>公告{quality.disclosuresFresh ? (quality.criticalDisclosuresRead ? "已核对" : "待读原文") : "已过期"}</Badge> : null}
+        {quality ? <Badge variant={quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "success" : "warning") : "danger"}>基本面{quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "完整" : "部分") : "不可用"}</Badge> : null}
+        {quality ? <Badge variant={quality.portfolioRiskEvaluated ? "success" : "danger"}>组合风险{quality.portfolioRiskEvaluated ? "已核算" : "未核算"}</Badge> : null}
+      </div>
+      {newsCoverage ? (
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <ScopeLine label="抓取 / 保存" value={`${newsCoverage.fetchedCount} / ${newsCoverage.savedCount}`} />
+          <ScopeLine label="相关 / 精读" value={`${newsCoverage.relevantCount} / ${newsCoverage.verifiedAnalyzedCount}`} />
+          <ScopeLine label="高 / 中影响" value={`${newsCoverage.highCount} / ${newsCoverage.mediumCount}`} />
+          <ScopeLine label="待补 / 失败" value={`${newsCoverage.pendingRelevantCount} / ${newsCoverage.failedAnalysisCount + newsCoverage.fallbackAnalysisCount}`} />
+        </div>
+      ) : null}
+      {analysis.dataScope ? (
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <ScopeLine label="财务状态" value={analysis.dataScope.fundamentalsStatus ?? "旧版未记录"} />
+          <ScopeLine label="财务期" value={analysis.dataScope.fundamentalsReportPeriod ?? "--"} />
+          <ScopeLine label="公告状态" value={analysis.dataScope.disclosureStatus ?? "旧版未记录"} />
+          <ScopeLine label="关键公告原文" value={`${analysis.dataScope.disclosureExtractedCount ?? 0} / ${analysis.dataScope.disclosureCriticalCount ?? 0}`} />
+          <ScopeLine label="组合风险状态" value={analysis.dataScope.portfolioRiskStatus ?? "未核算"} />
+          <ScopeLine label="剩余风险额度" value={analysis.dataScope.portfolioAvailableRiskAmount === null || analysis.dataScope.portfolioAvailableRiskAmount === undefined ? "--" : `¥${analysis.dataScope.portfolioAvailableRiskAmount.toFixed(2)}`} />
+        </div>
+      ) : null}
+      {analysis.dataScope?.disclosureSources?.length ? (
+        <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-2">
+          <div className="text-xs font-medium text-foreground">法定公告原文</div>
+          <ul className="mt-2 space-y-1 text-xs leading-5">
+            {analysis.dataScope.disclosureSources.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-2">
+                <a className="text-primary underline-offset-2 hover:underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+                <Badge variant={item.contentStatus === "metadata_only" ? "danger" : "success"}>{item.contentStatus === "metadata_only" ? "未提取" : "已提取"}</Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {analysis.dataScope?.newsRefreshFailures?.length ? (
+        <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {analysis.dataScope.newsRefreshFailures.map((item) => <li key={item}>• {item}</li>)}
+        </ul>
+      ) : null}
+      {analysis.dataScope?.companyEvidenceFailures?.length ? (
+        <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {analysis.dataScope.companyEvidenceFailures.map((item) => <li key={item}>• {item}</li>)}
+        </ul>
+      ) : null}
+      {analysis.dataScope?.portfolioRiskFailure ? (
+        <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-5 text-muted-foreground">组合风险预算失败：{analysis.dataScope.portfolioRiskFailure}</p>
+      ) : null}
+      {blockers.length ? (
+        <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2">
+          <div className="text-sm font-semibold text-red-700 dark:text-red-300">新增买入已被服务端硬门控拦截</div>
+          <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+            {blockers.map((item) => <li key={item}>• {item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <EvidenceColumn title="支持证据" values={supporting} empty="暂无已确认支持证据" />
+        <EvidenceColumn title="反对证据" values={opposing} empty="暂无已确认反对证据" />
+        <EvidenceColumn title="缺失证据" values={missing} empty="未报告缺失证据" />
+      </div>
+    </Block>
+  );
+}
+
+function EvidenceColumn({ title, values, empty }: { title: string; values: string[]; empty: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/40 px-3 py-2">
+      <div className="text-xs font-medium text-foreground">{title}</div>
+      {values.length ? (
+        <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+          {values.slice(0, 6).map((item, index) => <li key={`${item}-${index}`}>• {item}</li>)}
+        </ul>
+      ) : <div className="mt-2 text-xs text-muted-foreground">{empty}</div>}
+    </div>
   );
 }
 
@@ -232,7 +336,8 @@ function TradePlanLegCard({
     rows.push(["盈亏平衡价", formatNullablePrice(leg.breakEvenPrice, currency, symbol, unit)]);
     rows.push(["盈亏平衡涨幅", formatPrecisePercent(leg.breakEvenMovePct)]);
     rows.push(["目标毛收益", formatAmount(leg.grossExpectedProfit)]);
-    rows.push(["目标净收益", formatAmount(leg.netExpectedProfit)]);
+    rows.push(["目标情景净收益", formatAmount(leg.netExpectedProfit)]);
+    rows.push(["期望值校准", leg.expectedValueStatus === "positive" ? "已校准为正" : leg.expectedValueStatus === "non_positive" ? "已校准但非正" : "尚未校准"]);
     rows.push(["最大价格风险", formatAmount(leg.maxLossAmount)]);
     rows.push(["扣费最大风险", formatAmount(leg.netMaxLossAmount)]);
   } else {
@@ -591,7 +696,72 @@ function actionTone(action?: string): "watch" | "wait" | "avoid" | "bullish" | "
   return "watch";
 }
 
+function decisionStatusLabel(status: NonNullable<AiAnalysisResult["decisionStatus"]>) {
+  const labels: Record<NonNullable<AiAnalysisResult["decisionStatus"]>, string> = {
+    insufficient_data: "证据不足",
+    rejected: "暂不考虑",
+    research_candidate: "继续研究",
+    setup_wait: "等待条件",
+    conditional_entry: "条件入场",
+    manage_position: "持仓管理",
+    exit_risk: "退出风险"
+  };
+  return labels[status];
+}
+
+function decisionStatusVariant(
+  status: NonNullable<AiAnalysisResult["decisionStatus"]>
+): "success" | "warning" | "danger" | "secondary" {
+  if (status === "conditional_entry") return "success";
+  if (status === "rejected" || status === "exit_risk") return "danger";
+  if (status === "insufficient_data" || status === "setup_wait") return "warning";
+  return "secondary";
+}
+
+function decisionStatusTone(
+  status: NonNullable<AiAnalysisResult["decisionStatus"]>
+): "watch" | "wait" | "avoid" | "bullish" | "neutral" {
+  if (status === "conditional_entry") return "bullish";
+  if (status === "rejected" || status === "exit_risk") return "avoid";
+  if (status === "insufficient_data" || status === "setup_wait") return "wait";
+  if (status === "manage_position") return "watch";
+  return "neutral";
+}
+
+function decisionModeLabel(mode?: AiAnalysisResult["decisionMode"]) {
+  if (mode === "position_management") return "持仓管理";
+  if (mode === "long_term") return "长期研究";
+  if (mode === "swing_trade") return "波段研究";
+  return "旧版未记录";
+}
+
+function dataQualityStatusLabel(status: NonNullable<AiAnalysisResult["dataQuality"]>["status"]) {
+  const labels: Record<NonNullable<AiAnalysisResult["dataQuality"]>["status"], string> = {
+    complete: "完整",
+    partial: "部分缺失",
+    insufficient: "不足",
+    conflicted: "存在冲突"
+  };
+  return labels[status];
+}
+
+function dataQualityVariant(
+  status: NonNullable<AiAnalysisResult["dataQuality"]>["status"]
+): "success" | "warning" | "danger" {
+  if (status === "complete") return "success";
+  if (status === "partial") return "warning";
+  return "danger";
+}
+
 function strategyHeadline(analysis: AiAnalysisResult, action?: string) {
+  if (analysis.decisionStatus === "insufficient_data") return "证据不足，暂不形成买入计划";
+  if (analysis.decisionStatus === "rejected") return "当前不满足研究或买入标准";
+  if (analysis.decisionStatus === "research_candidate") return "具备研究价值，尚未形成入场计划";
+  if (analysis.decisionStatus === "setup_wait") return "方向可跟踪，等待明确触发条件";
+  if (analysis.decisionStatus === "conditional_entry") return "条件入场，仅按风险计划执行";
+  if (analysis.decisionStatus === "manage_position") return "进入持仓管理，重点跟踪失效条件";
+  if (analysis.decisionStatus === "exit_risk") return "退出风险升高，优先执行保护动作";
+
   const trend = trendToStrategy(analysis.trend).label;
   if (/等待|回调|观察|观望/.test(action ?? "")) return `${trend}，但不宜追高`;
   if (/回避|止损|减仓|离场|不建议/.test(action ?? "")) return `${trend}，优先控制风险`;
