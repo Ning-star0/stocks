@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { NewsItem } from "@/lib/types";
 
 import type { ApiQuotaPriority, ApiQuotaStatus } from "@/lib/apiQuota";
@@ -22,6 +24,7 @@ export type NewsRequestContext = {
 export function createNewsRequestContext(input: Partial<Omit<NewsRequestContext, "budget" | "events">> = {}): NewsRequestContext {
   return {
     ...input,
+    requestBatchId: input.requestBatchId ?? randomUUID(),
     priority: input.priority ?? "routine",
     budget: {
       tianapiRemaining: positiveEnv("NEWS_MAX_TIANAPI_CALLS_PER_REFRESH", 2),
