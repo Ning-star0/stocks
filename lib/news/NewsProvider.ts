@@ -17,6 +17,7 @@ export type NewsRequestContext = {
   symbol?: string;
   requestBatchId?: string;
   priority: ApiQuotaPriority;
+  forceCriticalRefresh: boolean;
   budget: { tianapiRemaining: number; tavilyRemaining: number };
   events: NewsProviderEvent[];
 };
@@ -26,6 +27,7 @@ export function createNewsRequestContext(input: Partial<Omit<NewsRequestContext,
     ...input,
     requestBatchId: input.requestBatchId ?? randomUUID(),
     priority: input.priority ?? "routine",
+    forceCriticalRefresh: input.forceCriticalRefresh ?? false,
     budget: {
       tianapiRemaining: positiveEnv("NEWS_MAX_TIANAPI_CALLS_PER_REFRESH", 2),
       tavilyRemaining: positiveEnv("NEWS_MAX_TAVILY_CALLS_PER_REFRESH", 1)

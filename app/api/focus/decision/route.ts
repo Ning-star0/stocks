@@ -5,6 +5,7 @@ import { runStockAnalysis } from "@/lib/analysis/stockAnalysisRunner";
 import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { apiError, AppError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
+import { createNewsBatchContext, type NewsBatchContext } from "@/lib/news/batchCoordinator";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
@@ -35,7 +36,8 @@ export async function POST() {
       runType: "manual",
       totalSymbols: symbols.length
     });
-    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol));
+    const newsBatch = createNewsBatchContext(run.id);
+    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol, newsBatch));
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
       forceRefresh: true,
@@ -49,7 +51,7 @@ export async function POST() {
   }
 }
 
-async function analyzeFocusSymbol(userId: string, runId: string, symbol: string) {
+async function analyzeFocusSymbol(userId: string, runId: string, symbol: string, newsBatch: NewsBatchContext) {
   const item = await startAnalysisRunItem({ runId, symbol }).catch(() => null);
   try {
     const result = await runStockAnalysis({
@@ -62,7 +64,9 @@ async function analyzeFocusSymbol(userId: string, runId: string, symbol: string)
       refreshCompanyEvidenceBeforeAnalysis: true,
       forceQuoteRefresh: true,
       forceHistoryRefresh: true,
-      newsQuotaPriority: "critical"
+      newsQuotaPriority: "critical",
+      newsRequestBatchId: runId,
+      newsBatchContext: newsBatch
     });
     const watchlistItem = await prisma.watchlistItem.findFirst({
       where: { symbol, watchlist: { userId } }

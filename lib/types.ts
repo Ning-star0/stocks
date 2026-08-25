@@ -273,6 +273,9 @@ export interface NewsEvidenceCoverageSummary {
   cacheHitCount?: number;
   tianapiCalls?: number;
   tavilyCalls?: number;
+  sharedTopicReused?: boolean;
+  skippedQueryCount?: number;
+  sourceProviders?: string[];
 }
 
 export interface DisclosureSourceSummary {

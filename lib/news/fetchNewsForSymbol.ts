@@ -5,6 +5,7 @@ import { deleteCache } from "@/lib/cache";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
+import { searchSharedTopicNews, type NewsBatchContext } from "@/lib/news/batchCoordinator";
 import {
   createNewsRequestContext,
   newsQuotaStatus,
@@ -16,6 +17,7 @@ import {
   buildStockNewsKeywords,
   filterRelevantNewsForStock,
   isLowValueMarketMoveNews,
+  resolveSharedSectorTopic,
   scoreNewsCatalyst
 } from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
@@ -26,7 +28,7 @@ import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
 
 export type FetchNewsForSymbolResult = {
-  schemaVersion: "news-fetch-v2";
+  schemaVersion: "news-fetch-v3";
   symbol: string;
   completed: boolean;
   fetched: number;
@@ -41,20 +43,30 @@ export type FetchNewsForSymbolResult = {
   cacheHitCount: number;
   tianapiCalls: number;
   tavilyCalls: number;
+  sharedTopicKey: string | null;
+  sharedTopicReused: boolean;
+  skippedQueryCount: number;
+  sourceProviders: string[];
   failures: string[];
 };
 
 export async function fetchNewsForSymbol(
   symbol: string,
   userId: string,
-  options: { priority?: ApiQuotaPriority; requestBatchId?: string } = {}
+  options: {
+    priority?: ApiQuotaPriority;
+    requestBatchId?: string;
+    batchContext?: NewsBatchContext;
+    forceCriticalRefresh?: boolean;
+  } = {}
 ): Promise<FetchNewsForSymbolResult> {
   const provider = getNewsProvider();
   const context = createNewsRequestContext({
     userId,
     symbol,
     priority: options.priority ?? "routine",
-    requestBatchId: options.requestBatchId ?? randomUUID()
+    requestBatchId: options.requestBatchId ?? options.batchContext?.id ?? randomUUID(),
+    forceCriticalRefresh: options.forceCriticalRefresh ?? false
   });
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -86,9 +98,17 @@ export async function fetchNewsForSymbol(
 
   // 主题新闻
   const topicKeywords = sectorKeywords.filter((k) => !/^\d+$/.test(k)).slice(0, 5);
+  const sharedTopic = resolveSharedSectorTopic(topicKeywords);
   const topicEventStart = context.events.length;
   try {
-    const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
+    const topicNews = options.batchContext && sharedTopic
+      ? await searchSharedTopicNews({
+          batch: options.batchContext,
+          key: sharedTopic.key,
+          context,
+          load: () => provider.searchTopicNews(sharedTopic.keywords, from.toISOString(), to.toISOString(), context)
+        })
+      : await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
     const relevantTopicNews = rankUsefulNews(
       filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }),
       sectorKeywords
@@ -175,7 +195,7 @@ export async function fetchNewsForSymbol(
   }
 
   return {
-    schemaVersion: "news-fetch-v2",
+    schemaVersion: "news-fetch-v3",
     symbol,
     completed: companySearchCompleted && topicSearchCompleted && quotaStatus !== "quota_exhausted" && failures.length === 0,
     fetched: fetched.length,
@@ -190,6 +210,12 @@ export async function fetchNewsForSymbol(
     cacheHitCount: context.events.filter((event) => event.status === "cache_hit").length,
     tianapiCalls: context.events.filter((event) => event.provider === "tianapi" && (event.status === "success" || event.status === "failed")).length,
     tavilyCalls: context.events.filter((event) => event.provider === "tavily" && (event.status === "success" || event.status === "failed")).length,
+    sharedTopicKey: sharedTopic?.key ?? null,
+    sharedTopicReused: context.events.some((event) => event.provider === "news_batch" && event.apiName === "shared_topic" && event.status === "cache_hit"),
+    skippedQueryCount: context.events.filter((event) => event.status === "quota_exhausted").length,
+    sourceProviders: uniqueText(context.events
+      .filter((event) => (event.provider === "tianapi" || event.provider === "tavily") && (event.status === "success" || event.status === "cache_hit"))
+      .map((event) => event.provider)),
     failures: uniqueText(failures)
   };
 }

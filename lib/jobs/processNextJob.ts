@@ -11,6 +11,7 @@ import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { generateAndStoreFocusDecision } from "@/lib/focus/decision";
 import { JOB_STATUS, JOB_TYPES } from "@/lib/jobs/jobTypes";
+import { createNewsBatchContext, type NewsBatchContext } from "@/lib/news/batchCoordinator";
 import { saveNewsAnalysis } from "@/lib/news/store";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -130,6 +131,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     if (!symbols.length) throw new Error("今日关注批量分析缺少股票代码。");
 
     await getQuotesBatch(symbols, { forceRefresh: true, allowStale: true }).catch(() => null);
+    const newsBatch = createNewsBatchContext(payload?.runId ?? job.id);
     await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), async (symbol) => {
       const runItem = payload?.runId ? await startAnalysisRunItem({ runId: payload.runId, symbol }).catch(() => null) : null;
       try {
@@ -144,7 +146,9 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
           refreshNewsBeforeAnalysis: true,
           refreshCompanyEvidenceBeforeAnalysis: true,
           forceQuoteRefresh: false,
-          forceHistoryRefresh: true
+          forceHistoryRefresh: true,
+          newsRequestBatchId: payload?.runId ?? job.id,
+          newsBatchContext: newsBatch
         });
       } catch (error) {
         await finishAnalysisRunItem({
@@ -184,7 +188,8 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         refreshNewsBeforeAnalysis: true,
         refreshCompanyEvidenceBeforeAnalysis: true,
         forceQuoteRefresh: true,
-        forceHistoryRefresh: true
+        forceHistoryRefresh: true,
+        newsRequestBatchId: payload?.runId ?? job.id
       });
       await invalidateDashboardCache(job.userId);
       return { resultId: result.analysisId, skippedCached: result.fromCache };
@@ -344,6 +349,9 @@ async function analyzeStockAndRecord(input: {
   refreshCompanyEvidenceBeforeAnalysis?: boolean;
   forceQuoteRefresh?: boolean;
   forceHistoryRefresh?: boolean;
+  newsRequestBatchId?: string;
+  newsBatchContext?: NewsBatchContext;
+  forceCriticalNewsRefresh?: boolean;
 }) {
   const result = await runStockAnalysis({
     userId: input.userId,
@@ -356,7 +364,10 @@ async function analyzeStockAndRecord(input: {
     refreshCompanyEvidenceBeforeAnalysis: input.refreshCompanyEvidenceBeforeAnalysis,
     forceQuoteRefresh: input.forceQuoteRefresh,
     forceHistoryRefresh: input.forceHistoryRefresh,
-    newsQuotaPriority: input.source === "manual" ? "critical" : "routine"
+    newsQuotaPriority: input.source === "manual" ? "critical" : "routine",
+    newsRequestBatchId: input.newsRequestBatchId,
+    newsBatchContext: input.newsBatchContext,
+    forceCriticalNewsRefresh: input.forceCriticalNewsRefresh
   });
   const watchlistItem = await prisma.watchlistItem.findFirst({
     where: { symbol: { in: stockSymbolVariants(input.symbol) }, watchlist: { userId: input.userId } }

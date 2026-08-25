@@ -222,7 +222,10 @@ const newsEvidenceCoverageSummarySchema = z.object({
   quotaStatus: z.enum(["available", "quota_low", "quota_exhausted"]).optional(),
   cacheHitCount: z.number().int().nonnegative().optional(),
   tianapiCalls: z.number().int().nonnegative().optional(),
-  tavilyCalls: z.number().int().nonnegative().optional()
+  tavilyCalls: z.number().int().nonnegative().optional(),
+  sharedTopicReused: z.boolean().optional(),
+  skippedQueryCount: z.number().int().nonnegative().optional(),
+  sourceProviders: z.array(z.string()).optional()
 });
 
 const dataQualityReportSchema = z.object({

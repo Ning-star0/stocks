@@ -204,6 +204,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <ScopeLine label="待补 / 失败" value={`${newsCoverage.pendingRelevantCount} / ${newsCoverage.failedAnalysisCount + newsCoverage.fallbackAnalysisCount}`} />
           <ScopeLine label="天行 / Tavily" value={`${newsCoverage.tianapiCalls ?? 0} / ${newsCoverage.tavilyCalls ?? 0}`} />
           <ScopeLine label="缓存命中" value={`${newsCoverage.cacheHitCount ?? 0}`} />
+          <ScopeLine label="共享行业查询" value={newsCoverage.sharedTopicReused ? "已复用" : "未复用"} />
+          <ScopeLine label="额度跳过" value={`${newsCoverage.skippedQueryCount ?? 0}`} />
+          <ScopeLine label="新闻来源" value={(newsCoverage.sourceProviders ?? []).join(" / ") || "未记录"} />
         </div>
       ) : null}
       {analysis.dataScope ? (

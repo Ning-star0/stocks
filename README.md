@@ -104,11 +104,16 @@ npm run dev
 | `NEWS_CRITICAL_QUOTA_RESERVE_PCT` | 为手动关键风险核验保留的额度比例 | `20` |
 | `NEWS_MAX_TIANAPI_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的天行请求 | `2` |
 | `NEWS_MAX_TAVILY_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的 Tavily 请求 | `1` |
+| `NEWS_CRITICAL_CACHE_TTL_SECONDS` | 公司重大风险候选缓存秒数 | `3600` |
+| `NEWS_TOPIC_CACHE_TTL_SECONDS` | 交易时段普通行业新闻缓存秒数 | `14400` |
+| `NEWS_OFF_HOURS_CACHE_TTL_SECONDS` | 非交易时段普通主题缓存秒数 | `21600` |
 | `ALPHA_VANTAGE_API_KEY` | Alpha Vantage（可选） | - |
 | `FINNHUB_API_KEY` | Finnhub（可选） | - |
 | `TIANAPI_KEY` | 天行财经（可选） | - |
 
 完整变量列表见 `.env.example`。不填 AI 密钥时系统返回本地兜底分析，方便调试。
+
+同一批次内已识别为相同行业的股票会共享一次主题新闻查询，再按股票名称、代码和行业关键词分别过滤。`POST /api/news/fetch` 只有在同时指定单只 `symbol` 时才接受 `forceCriticalRefresh: true`；该参数仅用于明确的重大风险核验，禁止批量穿透缓存。
 
 ### 生成管理员密码
 

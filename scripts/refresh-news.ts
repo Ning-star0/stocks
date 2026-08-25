@@ -6,9 +6,11 @@ setDefaultResultOrder("ipv4first");
 loadDotEnv();
 
 async function main() {
-  const [{ getNewsProvider }, { createNewsRequestContext }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
+  const [{ getNewsProvider }, { createNewsRequestContext }, { createNewsBatchContext, searchSharedTopicNews }, { buildSectorNewsKeywords, buildStockNewsKeywords, resolveSharedSectorTopic }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
     import("@/lib/news"),
     import("@/lib/news/NewsProvider"),
+    import("@/lib/news/batchCoordinator"),
+    import("@/lib/news/relevance"),
     import("@/lib/jobs/enqueueJob"),
     import("@/lib/jobs/jobTypes"),
     import("@/lib/news/importance"),
@@ -34,12 +36,23 @@ async function main() {
   const to = new Date().toISOString();
   let fetched = 0;
   let queued = 0;
+  const newsBatch = createNewsBatchContext();
   for (const symbol of symbols) {
-    const context = createNewsRequestContext({ userId: user.id, symbol, priority: "routine" });
+    const context = createNewsRequestContext({ userId: user.id, symbol, priority: "routine", requestBatchId: newsBatch.id });
     const items = await provider.searchCompanyNews(symbol, from, to, context);
     const name = await resolveSymbolName(getQuote, symbol);
     if (name) {
-      const namedItems = await provider.searchTopicNews([name], from, to, context);
+      const keywords = buildStockNewsKeywords({ symbol, name });
+      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
+      const sharedTopic = resolveSharedSectorTopic(sectorKeywords);
+      const namedItems = sharedTopic
+        ? await searchSharedTopicNews({
+            batch: newsBatch,
+            key: sharedTopic.key,
+            context,
+            load: () => provider.searchTopicNews(sharedTopic.keywords, from, to, context)
+          })
+        : await provider.searchTopicNews([name], from, to, context);
       items.push(...namedItems.map((item) => attachSymbol(item, symbol, name)));
     }
 
@@ -65,8 +78,16 @@ async function main() {
   }
 
   for (const watch of sectorWatches) {
-    const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine" });
-    const topicItems = await provider.searchTopicNews(watch.keywords, from, to, context);
+    const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine", requestBatchId: newsBatch.id });
+    const sharedTopic = resolveSharedSectorTopic([watch.sectorName, ...watch.keywords]);
+    const topicItems = sharedTopic
+      ? await searchSharedTopicNews({
+          batch: newsBatch,
+          key: sharedTopic.key,
+          context,
+          load: () => provider.searchTopicNews(sharedTopic.keywords, from, to, context)
+        })
+      : await provider.searchTopicNews(watch.keywords, from, to, context);
     for (const item of topicItems.map((newsItem) => attachSectorWatch(newsItem, watch.sectorName, watch.keywords, watch.symbols))) {
       fetched += 1;
       const row = await upsertNewsItem(item);

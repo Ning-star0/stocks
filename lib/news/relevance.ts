@@ -23,14 +23,14 @@ const fundSuffixTerms = [
   "鹏华"
 ];
 
-const sectorAliases: Array<{ match: string[]; aliases: string[] }> = [
-  { match: ["电网", "电力设备", "电气设备"], aliases: ["电网设备", "智能电网", "特高压", "输变电", "配电网", "电力设备", "国家电网", "南方电网"] },
-  { match: ["芯片", "半导体"], aliases: ["芯片", "半导体", "集成电路", "晶圆", "算力", "AI芯片"] },
-  { match: ["通信", "通信设备", "5G"], aliases: ["通信设备", "5G", "光模块", "光通信", "算力网络", "运营商", "数据中心"] },
-  { match: ["新能源车", "电动车", "汽车"], aliases: ["新能源汽车", "电动车", "动力电池", "智能汽车", "车企"] },
-  { match: ["银行"], aliases: ["银行", "信贷", "息差", "存款", "贷款", "金融监管"] },
-  { match: ["能源", "煤炭", "石油"], aliases: ["能源", "煤炭", "油气", "原油", "电力"] },
-  { match: ["医药", "医疗"], aliases: ["医药", "创新药", "医疗器械", "医保", "药企"] }
+const sectorAliases: Array<{ key: string; match: string[]; aliases: string[] }> = [
+  { key: "power-grid", match: ["电网", "电力设备", "电气设备"], aliases: ["电网设备", "智能电网", "特高压", "输变电", "配电网", "电力设备", "国家电网", "南方电网"] },
+  { key: "semiconductor", match: ["芯片", "半导体"], aliases: ["芯片", "半导体", "集成电路", "晶圆", "算力", "AI芯片"] },
+  { key: "telecom", match: ["通信", "通信设备", "5G"], aliases: ["通信设备", "5G", "光模块", "光通信", "算力网络", "运营商", "数据中心"] },
+  { key: "new-energy-auto", match: ["新能源车", "电动车", "汽车"], aliases: ["新能源汽车", "电动车", "动力电池", "智能汽车", "车企"] },
+  { key: "banking", match: ["银行"], aliases: ["银行", "信贷", "息差", "存款", "贷款", "金融监管"] },
+  { key: "energy", match: ["能源", "煤炭", "石油"], aliases: ["能源", "煤炭", "油气", "原油", "电力"] },
+  { key: "healthcare", match: ["医药", "医疗"], aliases: ["医药", "创新药", "医疗器械", "医保", "药企"] }
 ];
 
 const catalystTerms = [
@@ -135,6 +135,18 @@ export function buildSectorNewsKeywords(input: { symbol: string; name?: string |
   return [...output].map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 16);
 }
 
+export function resolveSharedSectorTopic(keywords: string[]) {
+  const joined = normalizeText(keywords.join(" "));
+  const group = sectorAliases.find((item) =>
+    [...item.match, ...item.aliases].some((keyword) => joined.includes(normalizeText(keyword)))
+  );
+  if (!group) return null;
+  return {
+    key: `sector-topic-v1:${group.key}`,
+    keywords: uniqueText([...group.match, ...group.aliases]).slice(0, 5)
+  };
+}
+
 export function isLowValueMarketMoveNews(
   item: NewsItem | ({ title: string; summary?: string | null; rawContent?: string | null } & Record<string, unknown>)
 ) {
@@ -206,4 +218,8 @@ function compactCode(symbol: string) {
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function uniqueText(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

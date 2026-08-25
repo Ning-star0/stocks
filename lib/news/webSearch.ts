@@ -6,6 +6,7 @@ import { rememberWithStatus } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
 import { getNewsProvider } from "@/lib/news";
+import { resolveNewsCacheTtl } from "@/lib/news/cachePolicy";
 import {
   consumeNewsRequestBudget,
   createNewsRequestContext,
@@ -194,7 +195,7 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
   if (!key) return [];
 
   const cacheKey = `web_news:tavily:v3:${hash(`${topic}:${query}:${input.days ?? 30}`)}`;
-  const result = await rememberWithStatus(cacheKey, numberEnv("WEB_SEARCH_CACHE_TTL_SECONDS", 4 * 3600), async () => {
+  const result = await rememberWithStatus(cacheKey, resolveNewsCacheTtl("web"), async () => {
     consumeNewsRequestBudget(context, "tavily", "web");
     let reservation;
     try {
@@ -266,7 +267,7 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
     context.events.push({ provider: "tavily", apiName: "web_search", status: "success", requestKind: "web" });
 
     return (payload.results ?? []).map((row) => tavilyRowToNewsItem(row, input));
-  });
+  }, { bypassCache: context.forceCriticalRefresh });
   if (result.source !== "fresh") {
     context.events.push({ provider: "tavily", apiName: "web_search", status: "cache_hit", requestKind: "web" });
     await logApiCacheHit({

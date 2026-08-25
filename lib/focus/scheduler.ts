@@ -2,11 +2,12 @@ import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { createAnalysisRun } from "@/lib/analysis/runRecords";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
-import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNews, scoreNewsCatalyst } from "@/lib/news/relevance";
+import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNews, resolveSharedSectorTopic, scoreNewsCatalyst } from "@/lib/news/relevance";
 import { upsertNewsItem } from "@/lib/news/store";
 import type { NewsItem } from "@/lib/types";
 import { getNewsProvider } from "@/lib/news";
 import { createNewsRequestContext } from "@/lib/news/NewsProvider";
+import { createNewsBatchContext, searchSharedTopicNews } from "@/lib/news/batchCoordinator";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import { isMarketTradingDay, nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
@@ -25,19 +26,21 @@ export async function checkFocusSchedules() {
     for (const group of groups) {
       const symbols = normalizeFocusSymbols(group.symbols);
       // 先刷新行情
+      let symbolNames: Record<string, string | null> = {};
       try {
-        await getQuotesBatch(symbols, { cacheOnly: false, forceRefresh: true, allowStale: true });
+        const quotes = await getQuotesBatch(symbols, { cacheOnly: false, forceRefresh: true, allowStale: true });
+        symbolNames = Object.fromEntries(symbols.map((symbol) => [symbol, quotes[symbol]?.name?.trim() || null]));
       } catch { /* 行情刷新失败不阻塞后续 */ }
 
       // 新闻抓取时间：真正抓新闻入库
       const newsDue = isScheduledTimeDue(group.newsFetchTime, group.lastNewsFetch, now);
-      if (newsDue) await refreshFocusNews(group.id, group.userId, symbols, now);
+      if (newsDue) await refreshFocusNews(group.id, group.userId, symbols, symbolNames, now);
 
       // AI 分析时间点：入队分析任务
       const dueAnalysisTime = dueScheduledTime(group.analysisTimes, group.lastAnalysis, now);
       if (dueAnalysisTime) {
         if (!newsDue && shouldRefreshNewsBeforeAnalysis(group.newsFetchTime, group.lastNewsFetch, dueAnalysisTime, now)) {
-          await refreshFocusNews(group.id, group.userId, symbols, now);
+          await refreshFocusNews(group.id, group.userId, symbols, symbolNames, now);
         }
         const run = await createAnalysisRun({
           userId: group.userId,
@@ -79,8 +82,8 @@ export async function checkFocusSchedules() {
   }
 }
 
-async function refreshFocusNews(groupId: string, userId: string, symbols: string[], now: Date) {
-  await fetchAndStoreNewsForSymbols(userId, symbols);
+async function refreshFocusNews(groupId: string, userId: string, symbols: string[], symbolNames: Record<string, string | null>, now: Date) {
+  await fetchAndStoreNewsForSymbols(userId, symbols, symbolNames);
   await prisma.focusGroup.update({
     where: { id: groupId },
     data: { lastNewsFetch: now }
@@ -89,17 +92,19 @@ async function refreshFocusNews(groupId: string, userId: string, symbols: string
 }
 
 // 抓取新闻并存入 DB
-async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
+async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[], symbolNames: Record<string, string | null>) {
   const provider = getNewsProvider();
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const fetched: NewsItem[] = [];
+  const newsBatch = createNewsBatchContext();
 
   for (const symbol of symbols) {
     try {
-      const context = createNewsRequestContext({ userId, symbol, priority: "routine" });
-      const keywords = buildStockNewsKeywords({ symbol, name: null });
-      const sectorKeywords = buildSectorNewsKeywords({ symbol, name: null, extraKeywords: keywords });
+      const name = symbolNames[symbol] ?? null;
+      const context = createNewsRequestContext({ userId, symbol, priority: "routine", requestBatchId: newsBatch.id });
+      const keywords = buildStockNewsKeywords({ symbol, name });
+      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
 
       const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
       const relevantCodeNews = codeNews
@@ -109,7 +114,15 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
 
       const topicKeywords = sectorKeywords.filter((kw) => !/^\d+$/.test(kw)).slice(0, 5);
       if (topicKeywords.length) {
-        const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
+        const sharedTopic = resolveSharedSectorTopic(topicKeywords);
+        const topicNews = sharedTopic
+          ? await searchSharedTopicNews({
+              batch: newsBatch,
+              key: sharedTopic.key,
+              context,
+              load: () => provider.searchTopicNews(sharedTopic.keywords, from.toISOString(), to.toISOString(), context)
+            })
+          : await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
         const relevant = topicNews.filter((item) => !isLowValueMarketMoveNews(item));
         fetched.push(...relevant.map((item) => attachSymbol(item, symbol)));
       }
@@ -118,7 +131,7 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
       if (enableNewsWebSearch() && fetched.filter((item) => item.symbols?.includes(symbol)).length < 3) {
         try {
           const webResults = await searchRelatedNews({
-            symbol, name: null, sectorKeywords, days: 7, maxResults: 5, context
+            symbol, name, sectorKeywords, days: 7, maxResults: 5, context
           });
           fetched.push(...webResults.results.map((item) => attachSymbol(item, symbol)));
         } catch { /* 联网搜索可能不可用 */ }

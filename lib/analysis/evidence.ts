@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.2.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.3.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -107,6 +107,9 @@ export type AnalysisEvidencePackage = {
     cacheHitCount: number;
     tianapiCalls: number;
     tavilyCalls: number;
+    sharedTopicReused: boolean;
+    skippedQueryCount: number;
+    sourceProviders: string[];
     fetchedCount: number;
     savedCount: number;
     filteredOutCount: number;
@@ -303,6 +306,9 @@ export function buildAnalysisEvidencePackage(input: {
       cacheHitCount: refresh?.fetch?.cacheHitCount ?? 0,
       tianapiCalls: refresh?.fetch?.tianapiCalls ?? 0,
       tavilyCalls: refresh?.fetch?.tavilyCalls ?? 0,
+      sharedTopicReused: refresh?.fetch?.sharedTopicReused ?? false,
+      skippedQueryCount: refresh?.fetch?.skippedQueryCount ?? 0,
+      sourceProviders: refresh?.fetch?.sourceProviders ?? [],
       fetchedCount: refresh?.fetch?.fetched ?? 0,
       savedCount: refresh?.fetch?.saved ?? 0,
       filteredOutCount: refresh?.fetch?.filteredOut ?? 0,

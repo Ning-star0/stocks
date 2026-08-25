@@ -75,7 +75,7 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     description: "新闻抓取、AI 精读和行业关注项。",
     endpoints: [
       { method: "GET", path: "/api/news", description: "按 symbol、关键词、重要性查询新闻。", notes: "?symbol=561380.SH&includeLow=1", cost: "只读" },
-      { method: "POST", path: "/api/news/fetch", description: "抓取相关新闻并按重要性入库，高重要新闻会入队精读。", cost: "入队" },
+      { method: "POST", path: "/api/news/fetch", description: "抓取相关新闻并按重要性入库；仅指定单只 symbol 时可用 forceCriticalRefresh 强制重大风险核验。", notes: "会消耗新闻额度，普通批量请求复用有效缓存。", cost: "入队" },
       { method: "POST", path: "/api/news/[id]/analyze", description: "为单条新闻创建 AI 精读任务。", cost: "入队" },
       { method: "GET", path: "/api/sectors/watch", description: "读取行业关注项。", cost: "只读" },
       { method: "POST", path: "/api/sectors/watch", description: "新增行业关注项和关键词。", body: "{ sectorName, keywords }", cost: "写库" }

@@ -12,9 +12,10 @@ import { prisma } from "@/lib/prisma";
 import { stockSymbolVariants } from "@/lib/symbols";
 import type { Prisma } from "@prisma/client";
 import type { ApiQuotaPriority } from "@/lib/apiQuota";
+import type { NewsBatchContext } from "@/lib/news/batchCoordinator";
 
 export type StockNewsEvidenceRefresh = {
-  schemaVersion: "news-evidence-refresh-v2";
+  schemaVersion: "news-evidence-refresh-v3";
   symbol: string;
   startedAt: string;
   completedAt: string;
@@ -37,6 +38,9 @@ export async function prepareStockNewsEvidence(input: {
   maxCritical?: number;
   maxMedium?: number;
   quotaPriority?: ApiQuotaPriority;
+  requestBatchId?: string;
+  batchContext?: NewsBatchContext;
+  forceCriticalRefresh?: boolean;
 }): Promise<StockNewsEvidenceRefresh> {
   const now = input.now ?? new Date();
   const startedAt = now.toISOString();
@@ -47,7 +51,12 @@ export async function prepareStockNewsEvidence(input: {
   let fetch: FetchNewsForSymbolResult | null = null;
 
   try {
-    fetch = await fetchNewsForSymbol(input.symbol, input.userId, { priority: input.quotaPriority ?? "routine" });
+    fetch = await fetchNewsForSymbol(input.symbol, input.userId, {
+      priority: input.quotaPriority ?? "routine",
+      requestBatchId: input.requestBatchId,
+      batchContext: input.batchContext,
+      forceCriticalRefresh: input.forceCriticalRefresh
+    });
     failures.push(...fetch.failures);
   } catch (error) {
     failures.push(`新闻刷新失败：${errorMessage(error)}`);
@@ -105,7 +114,7 @@ export async function prepareStockNewsEvidence(input: {
   if (deadlineExceeded) failures.push(`新闻精读等待超过 ${Math.round(maxWaitMs / 1000)} 秒，已按证据不足继续。`);
 
   const receipt: StockNewsEvidenceRefresh = {
-    schemaVersion: "news-evidence-refresh-v2",
+    schemaVersion: "news-evidence-refresh-v3",
     symbol: input.symbol.toUpperCase(),
     startedAt,
     completedAt: new Date().toISOString(),
@@ -207,9 +216,9 @@ function parseStoredReceipt(value: unknown): StockNewsEvidenceRefresh | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Partial<StockNewsEvidenceRefresh>;
   const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
-  if (schemaVersion !== "news-evidence-refresh-v2" && schemaVersion !== "news-evidence-refresh-v1") return null;
+  if (!["news-evidence-refresh-v1", "news-evidence-refresh-v2", "news-evidence-refresh-v3"].includes(String(schemaVersion))) return null;
   if (typeof record.symbol !== "string") return null;
   if (typeof record.startedAt !== "string" || typeof record.completedAt !== "string") return null;
   if (!record.coverage || !Array.isArray(record.failures)) return null;
-  return { ...(record as StockNewsEvidenceRefresh), schemaVersion: "news-evidence-refresh-v2" };
+  return { ...(record as StockNewsEvidenceRefresh), schemaVersion: "news-evidence-refresh-v3" };
 }

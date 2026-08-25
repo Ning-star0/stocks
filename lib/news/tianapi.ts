@@ -4,6 +4,7 @@ import { logApiCacheHit, reserveApiQuota, settleApiQuota } from "@/lib/apiQuota"
 import { rememberWithStatus } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
+import { resolveNewsCacheTtl } from "@/lib/news/cachePolicy";
 import {
   consumeNewsRequestBudget,
   createNewsRequestContext,
@@ -45,7 +46,13 @@ export class TianApiNewsProvider implements NewsProvider {
   async searchCompanyNews(symbol: string, from: string, to: string, context = createNewsRequestContext({ symbol })): Promise<NewsItem[]> {
     const normalized = symbol.toUpperCase();
     const compact = normalized.replace(/\.(SH|SZ|BJ|HK)$/i, "");
-    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 10 }, context, "company", numberEnv("NEWS_COMPANY_CACHE_TTL_SECONDS", 3600)));
+    const rows = dedupeRows(await this.search(
+      { word: compact, page: 1, num: 10 },
+      context,
+      "company",
+      resolveNewsCacheTtl("company"),
+      `${from.slice(0, 10)}:${to.slice(0, 10)}`
+    ));
 
     return rows
       .map((row) => normalizeTianApiNews(row, [normalized], []))
@@ -58,7 +65,13 @@ export class TianApiNewsProvider implements NewsProvider {
 
     const rows: TianApiNewsRow[] = [];
     for (const keyword of cleanKeywords) {
-      rows.push(...(await this.search({ word: keyword, page: 1, num: 10 }, context, "topic", numberEnv("NEWS_TOPIC_CACHE_TTL_SECONDS", 4 * 3600))));
+      rows.push(...(await this.search(
+        { word: keyword, page: 1, num: 10 },
+        context,
+        "topic",
+        resolveNewsCacheTtl("topic"),
+        `${from.slice(0, 10)}:${to.slice(0, 10)}`
+      )));
     }
 
     return dedupeRows(rows)
@@ -71,7 +84,8 @@ export class TianApiNewsProvider implements NewsProvider {
     input: { word?: string; page?: number; num?: number },
     context: NewsRequestContext,
     requestKind: NewsProviderEvent["requestKind"],
-    ttlSeconds: number
+    ttlSeconds: number,
+    windowKey: string
   ) {
     const key = requireTianApiKey();
     const url = new URL(this.baseUrl);
@@ -81,10 +95,10 @@ export class TianApiNewsProvider implements NewsProvider {
     url.searchParams.set("form", "1");
     if (input.word) url.searchParams.set("word", input.word);
 
-    const cacheKey = `news:tianapi:v3:${hashUrlWithoutKey(url)}`;
+    const cacheKey = `news:tianapi:v4:${hashText(`${hashUrlWithoutKey(url)}:${windowKey}`)}`;
     const result = await rememberWithStatus(cacheKey, ttlSeconds, async () => {
       return this.fetchWithRetry(url, context, requestKind);
-    });
+    }, { bypassCache: requestKind === "company" && context.forceCriticalRefresh });
     if (result.source !== "fresh") {
       context.events.push({ provider: "tianapi", apiName: "news", status: "cache_hit", requestKind });
       await logApiCacheHit(usageInput(context, requestKind, { cacheSource: result.source }));
@@ -265,6 +279,10 @@ function sleep(ms: number) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function hashText(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
 
 function errorMessage(error: unknown) {

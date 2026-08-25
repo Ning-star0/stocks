@@ -3,11 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { invalidateDashboardCache } from "@/lib/dashboardCache";
-import { apiError } from "@/lib/errors";
+import { apiError, AppError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
 import { createNewsRequestContext } from "@/lib/news/NewsProvider";
+import { createNewsBatchContext, searchSharedTopicNews } from "@/lib/news/batchCoordinator";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import {
   buildSectorNewsKeywords,
@@ -15,6 +16,7 @@ import {
   filterRelevantNewsForStock,
   isLowValueMarketMoveNews,
   isNewsRelevantToStock,
+  resolveSharedSectorTopic,
   scoreNewsCatalyst
 } from "@/lib/news/relevance";
 import { searchRelatedNews } from "@/lib/news/webSearch";
@@ -31,6 +33,10 @@ export async function POST(request: NextRequest) {
     const body = await readOptionalRequestJson<Record<string, unknown>>(request);
     const requestedSymbol = typeof body.symbol === "string" ? body.symbol.trim().toUpperCase() : null;
     const scope = typeof body.scope === "string" ? body.scope : "all";
+    const forceCriticalRefresh = body.forceCriticalRefresh === true;
+    if (forceCriticalRefresh && !requestedSymbol) {
+      throw new AppError("BAD_REQUEST", "强制关键新闻核验只能针对一只明确股票，不能批量穿透缓存。");
+    }
     const provider = getNewsProvider();
     const to = new Date();
     const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -48,6 +54,7 @@ export async function POST(request: NextRequest) {
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
     if (requestedSymbol && !symbols.length) symbols.push(requestedSymbol);
+    const newsBatch = createNewsBatchContext();
     const fetched: NewsItem[] = [];
     let filteredOut = 0;
     let webSearchFallback = 0;
@@ -61,7 +68,13 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     for (const symbol of symbols) {
-      const context = createNewsRequestContext({ userId: user.id, symbol, priority: "critical" });
+      const context = createNewsRequestContext({
+        userId: user.id,
+        symbol,
+        priority: "critical",
+        forceCriticalRefresh,
+        requestBatchId: newsBatch.id
+      });
       const name = await resolveSymbolName(symbol);
       const keywords = buildStockNewsKeywords({ symbol, name });
       const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
@@ -73,7 +86,15 @@ export async function POST(request: NextRequest) {
       fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
       const topicKeywords = sectorKeywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 5);
-      const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
+      const sharedTopic = resolveSharedSectorTopic(topicKeywords);
+      const topicNews = sharedTopic
+        ? await searchSharedTopicNews({
+            batch: newsBatch,
+            key: sharedTopic.key,
+            context,
+            load: () => provider.searchTopicNews(sharedTopic.keywords, from.toISOString(), to.toISOString(), context)
+          })
+        : await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
       const relevantTopicNews = rankUsefulNews(filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += topicNews.length - relevantTopicNews.length;
       fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
@@ -101,8 +122,16 @@ export async function POST(request: NextRequest) {
     }
 
     for (const watch of sectorWatches) {
-      const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine" });
-      const topicNews = await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString(), context);
+      const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine", requestBatchId: newsBatch.id });
+      const sharedTopic = resolveSharedSectorTopic([watch.sectorName, ...watch.keywords]);
+      const topicNews = sharedTopic
+        ? await searchSharedTopicNews({
+            batch: newsBatch,
+            key: sharedTopic.key,
+            context,
+            load: () => provider.searchTopicNews(sharedTopic.keywords, from.toISOString(), to.toISOString(), context)
+          })
+        : await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString(), context);
       const relevantTopicNews = topicNews.filter((item) =>
         watch.keywords.some((keyword) => isNewsRelevantToStock(item, { symbol: watch.symbols[0] ?? keyword, name: watch.sectorName, keywords: [keyword, watch.sectorName] }))
       );
@@ -161,6 +190,8 @@ export async function POST(request: NextRequest) {
       filteredOut,
       webSearchFallback,
       webSearchReports,
+      forceCriticalRefresh,
+      requestBatchId: newsBatch.id,
       queued: queued.length,
       news: saved.map(serializeNewsItem)
     });

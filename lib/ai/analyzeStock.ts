@@ -309,7 +309,10 @@ function buildOutputDataQuality(evidencePackage: AnalyzeStockInput["evidencePack
       quotaStatus: news.quotaStatus,
       cacheHitCount: news.cacheHitCount,
       tianapiCalls: news.tianapiCalls,
-      tavilyCalls: news.tavilyCalls
+      tavilyCalls: news.tavilyCalls,
+      sharedTopicReused: news.sharedTopicReused,
+      skippedQueryCount: news.skippedQueryCount,
+      sourceProviders: news.sourceProviders
     }
   };
 }

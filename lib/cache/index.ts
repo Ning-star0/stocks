@@ -78,10 +78,13 @@ export async function remember<T>(key: string, ttlSeconds: number, fn: () => Pro
 export async function rememberWithStatus<T>(
   key: string,
   ttlSeconds: number,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  options: { bypassCache?: boolean } = {}
 ): Promise<{ value: T; source: "cache" | "fresh" | "in_flight" }> {
-  const cached = await getCache<T>(key);
-  if (cached !== null) return { value: cached, source: "cache" };
+  if (!options.bypassCache) {
+    const cached = await getCache<T>(key);
+    if (cached !== null) return { value: cached, source: "cache" };
+  }
 
   return coalesceInFlight(key, async () => {
     const value = await fn();

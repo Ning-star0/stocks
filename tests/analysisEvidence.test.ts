@@ -410,14 +410,14 @@ function analyzeInput(evidence: ReturnType<typeof completeEvidence>): AnalyzeSto
 
 function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNewsEvidenceRefresh {
   return {
-    schemaVersion: "news-evidence-refresh-v2",
+    schemaVersion: "news-evidence-refresh-v3",
     symbol: quote.symbol,
     startedAt: "2026-08-24T23:20:00+08:00",
     completedAt: "2026-08-24T23:30:00+08:00",
     refreshCompleted: true,
     deadlineExceeded: false,
     fetch: {
-      schemaVersion: "news-fetch-v2",
+      schemaVersion: "news-fetch-v3",
       symbol: quote.symbol,
       completed: true,
       fetched: 1,
@@ -432,6 +432,10 @@ function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNe
       cacheHitCount: 0,
       tianapiCalls: 2,
       tavilyCalls: 0,
+      sharedTopicKey: "sector-topic-v1:banking",
+      sharedTopicReused: false,
+      skippedQueryCount: 0,
+      sourceProviders: ["tianapi"],
       failures: []
     },
     coverage: {

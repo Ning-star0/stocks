@@ -4,6 +4,7 @@ import { logApiCacheHit, reserveApiQuota, settleApiQuota } from "@/lib/apiQuota"
 import { rememberWithStatus } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
+import { resolveNewsCacheTtl } from "@/lib/news/cachePolicy";
 import {
   consumeNewsRequestBudget,
   createNewsRequestContext,
@@ -37,7 +38,7 @@ export class TavilyNewsProvider implements NewsProvider {
     const toDate = to.slice(0, 10);
 
     const query = `${compact} 股票 公告 业绩 新闻 ${fromDate} ${toDate}`;
-    const rows = await this.search(key, query, "news", context, "company", numberEnv("NEWS_COMPANY_CACHE_TTL_SECONDS", 3600));
+    const rows = await this.search(key, query, "news", context, "company", resolveNewsCacheTtl("company"));
 
     return rows.map((row) => ({
       title: row.title ?? "未命名新闻",
@@ -66,7 +67,7 @@ export class TavilyNewsProvider implements NewsProvider {
       "news",
       context,
       "topic",
-      numberEnv("NEWS_TOPIC_CACHE_TTL_SECONDS", 4 * 3600)
+      resolveNewsCacheTtl("topic")
     );
 
     return rows
@@ -159,7 +160,7 @@ export class TavilyNewsProvider implements NewsProvider {
       }
       context.events.push({ provider: "tavily", apiName: "web_search", status: "success", requestKind });
       return payload.results ?? [];
-    });
+    }, { bypassCache: requestKind === "company" && context.forceCriticalRefresh });
     if (result.source !== "fresh") {
       context.events.push({ provider: "tavily", apiName: "web_search", status: "cache_hit", requestKind });
       await logApiCacheHit(usageInput(context, requestKind, { cacheSource: result.source }));
@@ -193,11 +194,6 @@ function parseDate(value?: string): Date {
   if (!value) return new Date();
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? new Date() : d;
-}
-
-function numberEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function normalizeProjectId(value?: string) {
