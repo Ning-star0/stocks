@@ -23,10 +23,29 @@ export type FundamentalCoverageSummary = {
     contentHash: string;
   }>;
   historicalValuationAvailable: boolean;
+  historicalValuationStatus: "available" | "partial" | "unavailable";
   peerValuationAvailable: boolean;
   peTtm: number | null;
   pb: number | null;
   historicalPercentile: number | null;
+  historicalPePercentile: number | null;
+  historicalPbPercentile: number | null;
+  historicalPeSampleSize: number;
+  historicalPbSampleSize: number;
+  historicalValuationWindowStart: string | null;
+  historicalValuationWindowEnd: string | null;
+  historicalValuationPriceProvider: string | null;
+  historicalValuationPriceSourceUrl: string | null;
+  historicalValuationPriceSeriesHash: string | null;
+  historicalValuationPriceSeriesFresh: boolean;
+  historicalValuationMissingReason: string | null;
+  historicalValuationReportSources: Array<{
+    periodEnd: string;
+    publishedAt: string;
+    effectiveFrom: string;
+    title: string;
+    url: string;
+  }>;
   missingFields: string[];
 };
 
@@ -59,6 +78,9 @@ export function summarizeFundamentalCoverage(evidence?: FundamentalEvidence | nu
     : adjustedAnnualPeriodCount || adjustedStandaloneQuarterCount || adjustedNetIncomeTtmCny10k !== null
       ? "partial"
       : "unavailable";
+  const historicalEvidence = evidence?.valuation.historicalEvidence ?? null;
+  const historicalValuationStatus = historicalEvidence?.status
+    ?? (finiteNumber(evidence?.valuation.historicalPercentile) !== null ? "available" : "unavailable");
   return {
     annualPeriodCount: evidence?.annualPeriods.length ?? 0,
     standaloneQuarterCount: evidence?.quarterlyPeriods.length ?? 0,
@@ -79,11 +101,30 @@ export function summarizeFundamentalCoverage(evidence?: FundamentalEvidence | nu
       publishedAt: source.publishedAt,
       contentHash: source.contentHash
     })),
-    historicalValuationAvailable: finiteNumber(evidence?.valuation.historicalPercentile) !== null,
+    historicalValuationAvailable: historicalValuationStatus === "available",
+    historicalValuationStatus,
     peerValuationAvailable: peerSampleSize !== null && peerSampleSize > 0,
     peTtm: finiteNumber(evidence?.valuation.peTtm),
     pb: finiteNumber(evidence?.valuation.pb),
     historicalPercentile: finiteNumber(evidence?.valuation.historicalPercentile),
+    historicalPePercentile: finiteNumber(historicalEvidence?.pePercentile),
+    historicalPbPercentile: finiteNumber(historicalEvidence?.pbPercentile),
+    historicalPeSampleSize: historicalEvidence?.peSampleSize ?? 0,
+    historicalPbSampleSize: historicalEvidence?.pbSampleSize ?? 0,
+    historicalValuationWindowStart: historicalEvidence?.windowStart ?? null,
+    historicalValuationWindowEnd: historicalEvidence?.windowEnd ?? null,
+    historicalValuationPriceProvider: historicalEvidence?.priceProvider ?? null,
+    historicalValuationPriceSourceUrl: historicalEvidence?.priceSourceUrl ?? null,
+    historicalValuationPriceSeriesHash: historicalEvidence?.priceSeriesHash ?? null,
+    historicalValuationPriceSeriesFresh: historicalEvidence?.priceSeriesFresh ?? false,
+    historicalValuationMissingReason: historicalEvidence?.missingReason ?? null,
+    historicalValuationReportSources: (historicalEvidence?.reportSources ?? []).map((source) => ({
+      periodEnd: source.periodEnd,
+      publishedAt: source.publishedAt,
+      effectiveFrom: source.effectiveFrom,
+      title: source.title,
+      url: source.url
+    })),
     missingFields: [...new Set(evidence?.missingFields ?? ["fundamentalSource"])]
   };
 }

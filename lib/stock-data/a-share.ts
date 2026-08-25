@@ -13,7 +13,8 @@ import type {
   FundamentalEvidence,
   HistoryOptions,
   Quote,
-  StockDataProvider
+  StockDataProvider,
+  ValuationPriceHistoryEvidence
 } from "@/lib/stock-data/types";
 
 type EastMoneyQuoteResponse = {
@@ -162,52 +163,11 @@ export class AShareEastMoneyProvider implements StockDataProvider {
   async getHistory(symbol: string, range = "1y", interval = "1d", options: HistoryOptions = {}): Promise<Candle[]> {
     const target = normalizeAShareSymbol(symbol);
     const normalizedInterval = normalizeInterval(interval);
-    const url = new URL(this.klineBaseUrl);
-    url.searchParams.set("secid", target.secid);
-    url.searchParams.set("ut", "fa5fd1943c7b386f172d6893dbfba10b");
-    url.searchParams.set("fields1", "f1,f2,f3,f4,f5,f6");
-    url.searchParams.set("fields2", "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61");
-    url.searchParams.set("klt", intervalToKlt(normalizedInterval));
-    url.searchParams.set("fqt", "1");
-    url.searchParams.set("end", "20500101");
-    url.searchParams.set("lmt", String(rangeToLimit(range, normalizedInterval)));
-
-    const shouldBypassCache = options.forceRefresh || isIntraday(normalizedInterval);
     try {
-      const response = await fetch(url, shouldBypassCache
-        ? {
-            headers: requestHeaders(),
-            cache: "no-store"
-          }
-        : {
-            headers: requestHeaders(),
-            next: { revalidate: 300 }
-          });
-      if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
-
-      const payload = await readProviderJsonResponse<EastMoneyKlineResponse>(response, "东方财富 K 线");
-      const rows = payload.data?.klines;
-      if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol });
-
-      const candles = rows.map((row) => {
-        const [date, open, close, high, low, volume] = row.split(",");
-        return {
-          symbol: target.symbol,
-          open: Number(open),
-          high: Number(high),
-          low: Number(low),
-          close: Number(close),
-          volume: Math.round(Number(volume) * 100),
-          timestamp: parseKlineTimestamp(date, normalizedInterval)
-        };
-      });
-      if (!isIntraday(normalizedInterval) && normalizedInterval === "1d") {
-        assertNoUnexplainedCorporateActionGap(target.symbol, candles);
-      }
-      return candles;
+      return await this.getEastMoneyHistory(target, range, normalizedInterval, options);
     } catch (error) {
       try {
-        return await this.getTencentFallbackHistory(target, range, normalizedInterval);
+        return await this.getTencentFallbackHistory(target, range, normalizedInterval, options.adjustment ?? "forward");
       } catch (fallbackError) {
         // Data-integrity errors from the fallback are more useful than a
         // connectivity error from the preferred provider.
@@ -215,6 +175,111 @@ export class AShareEastMoneyProvider implements StockDataProvider {
         throw error;
       }
     }
+  }
+
+  async getValuationPriceHistory(symbol: string, options: HistoryOptions = {}): Promise<ValuationPriceHistoryEvidence> {
+    const target = normalizeAShareSymbol(symbol);
+    const fetchedAt = new Date().toISOString();
+    const historyOptions = { ...options, adjustment: "none" as const };
+    try {
+      const candles = await this.getEastMoneyHistory(target, "5y", "1d", historyOptions);
+      return {
+        schemaVersion: "valuation-price-history-v1",
+        status: "available",
+        provider: "EASTMONEY",
+        sourceUrl: this.eastMoneyHistoryUrl(target, "5y", "1d", "none").toString(),
+        fetchedAt,
+        adjustment: "none",
+        candles,
+        failure: null
+      };
+    } catch (preferredError) {
+      try {
+        const candles = await this.getTencentDailyHistory(target, "5y", "1d", "none");
+        return {
+          schemaVersion: "valuation-price-history-v1",
+          status: "available",
+          provider: "TENCENT",
+          sourceUrl: this.tencentDailyHistoryUrl(target, "5y").toString(),
+          fetchedAt,
+          adjustment: "none",
+          candles,
+          failure: null
+        };
+      } catch (fallbackError) {
+        return {
+          schemaVersion: "valuation-price-history-v1",
+          status: "unavailable",
+          provider: "EASTMONEY_TENCENT",
+          sourceUrl: "",
+          fetchedAt,
+          adjustment: "none",
+          candles: [],
+          failure: `未取得未复权历史价格：${errorMessage(preferredError)}；备用源：${errorMessage(fallbackError)}`
+        };
+      }
+    }
+  }
+
+  private async getEastMoneyHistory(
+    target: ReturnType<typeof normalizeAShareSymbol>,
+    range: string,
+    normalizedInterval: string,
+    options: HistoryOptions
+  ) {
+    const adjustment = options.adjustment ?? "forward";
+    const url = this.eastMoneyHistoryUrl(target, range, normalizedInterval, adjustment);
+
+    const shouldBypassCache = options.forceRefresh || isIntraday(normalizedInterval);
+    const response = await fetch(url, shouldBypassCache
+      ? {
+          headers: requestHeaders(),
+          cache: "no-store"
+        }
+      : {
+          headers: requestHeaders(),
+          next: { revalidate: 300 }
+        });
+    if (!response.ok) throw new AppError("DATA_PROVIDER_ERROR", `东方财富 K 线请求失败：${response.status}`);
+
+    const payload = await readProviderJsonResponse<EastMoneyKlineResponse>(response, "东方财富 K 线");
+    const rows = payload.data?.klines;
+    if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的历史行情。`, { symbol: target.symbol });
+
+    const candles = rows.map((row) => {
+      const [date, open, close, high, low, volume] = row.split(",");
+      return {
+        symbol: target.symbol,
+        open: Number(open),
+        high: Number(high),
+        low: Number(low),
+        close: Number(close),
+        volume: Math.round(Number(volume) * 100),
+        timestamp: parseKlineTimestamp(date, normalizedInterval)
+      };
+    });
+    if (adjustment === "forward" && !isIntraday(normalizedInterval) && normalizedInterval === "1d") {
+      assertNoUnexplainedCorporateActionGap(target.symbol, candles);
+    }
+    return candles;
+  }
+
+  private eastMoneyHistoryUrl(
+    target: ReturnType<typeof normalizeAShareSymbol>,
+    range: string,
+    normalizedInterval: string,
+    adjustment: "forward" | "none"
+  ) {
+    const url = new URL(this.klineBaseUrl);
+    url.searchParams.set("secid", target.secid);
+    url.searchParams.set("ut", "fa5fd1943c7b386f172d6893dbfba10b");
+    url.searchParams.set("fields1", "f1,f2,f3,f4,f5,f6");
+    url.searchParams.set("fields2", "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61");
+    url.searchParams.set("klt", intervalToKlt(normalizedInterval));
+    url.searchParams.set("fqt", adjustment === "forward" ? "1" : "0");
+    url.searchParams.set("end", "20500101");
+    url.searchParams.set("lmt", String(rangeToLimit(range, normalizedInterval)));
+    return url;
   }
 
   async getCompanyProfile(symbol: string): Promise<CompanyProfile> {
@@ -230,13 +295,14 @@ export class AShareEastMoneyProvider implements StockDataProvider {
   private async getTencentFallbackHistory(
     target: ReturnType<typeof normalizeAShareSymbol>,
     range: string,
-    interval: string
+    interval: string,
+    adjustment: "forward" | "none"
   ): Promise<Candle[]> {
     if (isIntraday(interval)) {
       const candles = await this.getTencentIntradayHistory(target, range);
       return aggregateIntradayCandles(candles, interval);
     }
-    return this.getTencentDailyHistory(target, range, interval);
+    return this.getTencentDailyHistory(target, range, interval, adjustment);
   }
 
   private async getTencentIntradayHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string) {
@@ -257,14 +323,18 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     return filterIntradayCandlesByRange(candles, range);
   }
 
-  private async getTencentDailyHistory(target: ReturnType<typeof normalizeAShareSymbol>, range: string, interval: string) {
+  private async getTencentDailyHistory(
+    target: ReturnType<typeof normalizeAShareSymbol>,
+    range: string,
+    interval: string,
+    adjustment: "forward" | "none" = "forward"
+  ) {
     const marketSymbol = tencentMarketSymbol(target);
-    // Always adjust daily bars first. A raw weekly/monthly candle can straddle
-    // a split date and cannot be repaired reliably after aggregation.
+    // When an adjusted series is requested, adjust daily bars before weekly/monthly
+    // aggregation. Historical valuation deliberately requests the untouched raw series.
     const requestedPeriod = interval === "1wk" || interval === "1w" ? "week" : interval === "1mo" ? "month" : "day";
     const period = "day";
-    const url = new URL(`${this.tencentKlineBaseUrl}/kline`);
-    url.searchParams.set("param", `${marketSymbol},${period},,,${rangeToLimit(range, "1d")}`);
+    const url = this.tencentDailyHistoryUrl(target, range);
 
     const response = await fetch(url, {
       headers: requestHeaders(),
@@ -275,8 +345,15 @@ export class AShareEastMoneyProvider implements StockDataProvider {
     const rows = payload.data?.[marketSymbol]?.[period];
     if (!rows?.length) throw new AppError("SYMBOL_NOT_FOUND", `未返回 ${target.symbol} 的腾讯历史行情。`);
     const rawCandles = rows.map((row) => tencentRowToCandle(target.symbol, row, false)).filter(isValidCandle);
-    const adjusted = adjustTencentHistoryForCorporateActions(target.symbol, rawCandles);
-    return requestedPeriod === "day" ? adjusted : aggregateDailyCandles(adjusted, requestedPeriod);
+    const normalized = adjustment === "forward" ? adjustTencentHistoryForCorporateActions(target.symbol, rawCandles) : rawCandles;
+    return requestedPeriod === "day" ? normalized : aggregateDailyCandles(normalized, requestedPeriod);
+  }
+
+  private tencentDailyHistoryUrl(target: ReturnType<typeof normalizeAShareSymbol>, range: string) {
+    const marketSymbol = tencentMarketSymbol(target);
+    const url = new URL(`${this.tencentKlineBaseUrl}/kline`);
+    url.searchParams.set("param", `${marketSymbol},day,,,${rangeToLimit(range, "1d")}`);
+    return url;
   }
 
   async getFundamentals(symbol: string, options: CompanyEvidenceOptions = {}): Promise<FundamentalEvidence> {
@@ -460,6 +537,10 @@ function aggregateIntradayCandles(candles: Candle[], interval: string) {
     volume: rows.reduce((sum, row) => sum + row.volume, 0),
     timestamp: new Date(timestamp).toISOString()
   }));
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
 }
 
 function aggregateDailyCandles(candles: Candle[], period: "week" | "month") {

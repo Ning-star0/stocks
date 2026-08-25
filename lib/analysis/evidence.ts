@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.5.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.6.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -132,7 +132,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "quote" | "kline" | "news" | "fundamentals" | "disclosure";
+    kind: "quote" | "kline" | "news" | "fundamentals" | "valuation" | "disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -355,6 +355,13 @@ export function buildAnalysisEvidencePackage(input: {
         provider: fundamentals.provider,
         asOf: fundamentals.reportPeriod,
         status: fundamentals.status
+      },
+      {
+        kind: "valuation" as const,
+        provider: fundamentals.valuation.historicalEvidence?.priceProvider ?? fundamentals.provider,
+        asOf: fundamentals.valuation.historicalEvidence?.windowEnd ?? fundamentals.valuation.asOf,
+        status: fundamentals.valuation.historicalEvidence?.status
+          ?? (fundamentals.valuation.historicalPercentile !== null ? "available" as const : "unavailable" as const)
       },
       {
         kind: "disclosure" as const,

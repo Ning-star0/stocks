@@ -2,6 +2,53 @@ import type { Candle, CompanyProfile, NewsItem, Quote } from "@/lib/types";
 
 export type HistoryOptions = {
   forceRefresh?: boolean;
+  adjustment?: "forward" | "none";
+};
+
+export type ValuationPriceHistoryEvidence = {
+  schemaVersion: "valuation-price-history-v1";
+  status: "available" | "unavailable";
+  provider: string;
+  sourceUrl: string;
+  fetchedAt: string;
+  adjustment: "none";
+  candles: Candle[];
+  failure: string | null;
+};
+
+export type HistoricalValuationReportSource = {
+  periodEnd: string;
+  publishedAt: string;
+  effectiveFrom: string;
+  epsTtm: number | null;
+  bookValuePerShare: number | null;
+  disclosureId: string;
+  title: string;
+  url: string;
+};
+
+export type HistoricalValuationEvidence = {
+  schemaVersion: "historical-valuation-v1";
+  algorithmVersion: "publication-gated-current-series-v1";
+  status: "available" | "partial" | "unavailable";
+  asOf: string | null;
+  windowStart: string | null;
+  windowEnd: string | null;
+  priceProvider: string;
+  priceSourceUrl: string;
+  priceAdjustment: "none";
+  priceSeriesHash: string | null;
+  priceSeriesFresh: boolean;
+  priceStalenessDays: number | null;
+  reportSourceCount: number;
+  minimumTradingDays: number;
+  peSampleSize: number;
+  pbSampleSize: number;
+  pePercentile: number | null;
+  pbPercentile: number | null;
+  compositePercentile: number | null;
+  reportSources: HistoricalValuationReportSource[];
+  missingReason: string | null;
 };
 
 export type FinancialPeriodEvidence = {
@@ -65,6 +112,7 @@ export type FundamentalEvidence = {
     bookValuePerShare: number | null;
     pb: number | null;
     historicalPercentile: number | null;
+    historicalEvidence?: HistoricalValuationEvidence | null;
   };
   metrics: Record<string, number | string | null>;
   missingFields: string[];
@@ -116,6 +164,7 @@ export type CompanyEvidenceOptions = {
 export interface StockDataProvider {
   getQuote(symbol: string): Promise<Quote>;
   getHistory(symbol: string, range: string, interval: string, options?: HistoryOptions): Promise<Candle[]>;
+  getValuationPriceHistory?(symbol: string, options?: HistoryOptions): Promise<ValuationPriceHistoryEvidence>;
   getCompanyProfile?(symbol: string): Promise<CompanyProfile>;
   getFundamentals?(symbol: string, options?: CompanyEvidenceOptions): Promise<FundamentalEvidence>;
   getDisclosures?(symbol: string, options?: CompanyEvidenceOptions): Promise<DisclosureEvidence>;

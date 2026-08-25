@@ -67,6 +67,7 @@ test("evidence package carries 60 recent candles and deterministic market featur
   assert.equal(evidence.dataQuality.entryBlockers.length, 0);
   assert.ok(evidence.deterministicFeatures.market.return20dPct !== null);
   assert.ok(evidence.deterministicFeatures.market.averageTrueRange14 !== null);
+  assert.equal(evidence.sourceManifest.find((source) => source.kind === "valuation")?.status, "available");
   assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
 });
 
@@ -156,6 +157,32 @@ test("context hash changes when derived fundamental metrics change", () => {
   });
 
   assert.notEqual(contextHash(base, 100_000, "偏好低回撤"), contextHash(changedMetrics, 100_000, "偏好低回撤"));
+});
+
+test("context hash changes when the historical valuation price series changes", () => {
+  const input = completeEvidenceInput();
+  const first = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: {
+      ...input.fundamentals,
+      valuation: {
+        ...input.fundamentals.valuation,
+        historicalEvidence: historicalValuationFixture("price-series-a")
+      }
+    }
+  });
+  const second = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: {
+      ...input.fundamentals,
+      valuation: {
+        ...input.fundamentals.valuation,
+        historicalEvidence: historicalValuationFixture("price-series-b")
+      }
+    }
+  });
+
+  assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
 });
 
 test("context hash changes when an adjusted-profit source document changes", () => {
@@ -385,6 +412,32 @@ function contextHash(evidence: ReturnType<typeof completeEvidence>, capital: num
       riskLevel: "medium"
     }
   });
+}
+
+function historicalValuationFixture(priceSeriesHash: string) {
+  return {
+    schemaVersion: "historical-valuation-v1" as const,
+    algorithmVersion: "publication-gated-current-series-v1" as const,
+    status: "available" as const,
+    asOf: "2026-08-24T15:00:00+08:00",
+    windowStart: "2021-08-24",
+    windowEnd: "2026-08-24",
+    priceProvider: "fixture",
+    priceSourceUrl: "https://example.test/raw-history",
+    priceAdjustment: "none" as const,
+    priceSeriesHash,
+    priceSeriesFresh: true,
+    priceStalenessDays: 0,
+    reportSourceCount: 8,
+    minimumTradingDays: 252,
+    peSampleSize: 800,
+    pbSampleSize: 800,
+    pePercentile: 35,
+    pbPercentile: 40,
+    compositePercentile: 37.5,
+    reportSources: [],
+    missingReason: null
+  };
 }
 
 test("metadata-only critical disclosures block entry until original content is read", () => {

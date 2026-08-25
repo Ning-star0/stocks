@@ -183,6 +183,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
   const adjustedNetIncomeStatus = fundamentalCoverage?.adjustedNetIncomeStatus
     ?? (fundamentalCoverage?.adjustedNetIncomeAvailable ? "complete" : "unavailable");
   const adjustedNetIncomeSources = fundamentalCoverage?.adjustedNetIncomeSources ?? [];
+  const historicalValuationStatus = fundamentalCoverage?.historicalValuationStatus
+    ?? (fundamentalCoverage?.historicalValuationAvailable ? "available" : "unavailable");
+  const historicalValuationReportSources = fundamentalCoverage?.historicalValuationReportSources ?? [];
 
   return (
     <Block title="证据覆盖与反方检查">
@@ -229,7 +232,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <div className="flex flex-wrap items-center gap-2">
             <div className="mr-1 text-xs font-medium text-foreground">基本面覆盖与现金流质量</div>
             <Badge variant={adjustedNetIncomeStatus === "complete" ? "success" : adjustedNetIncomeStatus === "partial" ? "warning" : "danger"}>扣非净利润{adjustedNetIncomeStatusLabel(adjustedNetIncomeStatus)}</Badge>
-            <Badge variant={fundamentalCoverage.historicalValuationAvailable ? "success" : "danger"}>历史估值{fundamentalCoverage.historicalValuationAvailable ? "已覆盖" : "缺失"}</Badge>
+            <Badge variant={historicalValuationStatus === "available" ? "success" : historicalValuationStatus === "partial" ? "warning" : "danger"}>历史估值{historicalValuationStatusLabel(historicalValuationStatus)}</Badge>
             <Badge variant={fundamentalCoverage.peerValuationAvailable ? "success" : "danger"}>同行估值{fundamentalCoverage.peerValuationAvailable ? "已覆盖" : "缺失"}</Badge>
           </div>
           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -243,9 +246,17 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
             <ScopeLine label="扣非利润样本" value={`${fundamentalCoverage.adjustedAnnualPeriodCount ?? 0} / 5 年，${fundamentalCoverage.adjustedStandaloneQuarterCount ?? 0} / 8 单季`} />
             <ScopeLine label="PE(TTM) / PB" value={`${formatMetricNumber(fundamentalCoverage.peTtm)} / ${formatMetricNumber(fundamentalCoverage.pb)}`} />
             <ScopeLine label="历史估值分位" value={formatMetricPercent(fundamentalCoverage.historicalPercentile)} />
+            <ScopeLine label="PE / PB 历史分位" value={`${formatMetricPercent(fundamentalCoverage.historicalPePercentile)} / ${formatMetricPercent(fundamentalCoverage.historicalPbPercentile)}`} />
+            <ScopeLine label="PE / PB 样本" value={`${fundamentalCoverage.historicalPeSampleSize ?? 0} / ${fundamentalCoverage.historicalPbSampleSize ?? 0} 个交易日`} />
+            <ScopeLine label="估值窗口" value={fundamentalCoverage.historicalValuationWindowStart && fundamentalCoverage.historicalValuationWindowEnd ? `${fundamentalCoverage.historicalValuationWindowStart} — ${fundamentalCoverage.historicalValuationWindowEnd}` : "--"} />
+            <ScopeLine label="估值价格口径" value={fundamentalCoverage.historicalValuationPriceProvider ? `${fundamentalCoverage.historicalValuationPriceProvider} · 未复权` : "--"} />
+            <ScopeLine label="估值价格新鲜度" value={fundamentalCoverage.historicalValuationPriceSeriesFresh ? "合格" : "不合格 / 未记录"} />
           </div>
           {fundamentalCoverage.missingFields.length ? (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">明确缺失：{fundamentalCoverage.missingFields.map(fundamentalFieldLabel).join("、")}</p>
+          ) : null}
+          {fundamentalCoverage.historicalValuationMissingReason ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">历史估值未闭合：{fundamentalCoverage.historicalValuationMissingReason}</p>
           ) : null}
           {adjustedNetIncomeSources.length ? (
             <ul className="mt-3 space-y-1 border-t border-border/70 pt-2 text-xs leading-5">
@@ -256,6 +267,27 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
                 </li>
               ))}
             </ul>
+          ) : null}
+          {fundamentalCoverage.historicalValuationPriceSourceUrl || historicalValuationReportSources.length ? (
+            <div className="mt-3 border-t border-border/70 pt-2 text-xs leading-5">
+              <div className="font-medium text-foreground">历史估值可追溯来源</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground">
+                {fundamentalCoverage.historicalValuationPriceSourceUrl ? (
+                  <a className="text-primary underline-offset-2 hover:underline" href={fundamentalCoverage.historicalValuationPriceSourceUrl} target="_blank" rel="noreferrer">未复权价格序列</a>
+                ) : null}
+                {fundamentalCoverage.historicalValuationPriceSeriesHash ? <span>价格哈希 {fundamentalCoverage.historicalValuationPriceSeriesHash.slice(0, 10)}</span> : null}
+              </div>
+              {historicalValuationReportSources.length ? (
+                <ul className="mt-1 space-y-1">
+                  {historicalValuationReportSources.slice(-8).reverse().map((source) => (
+                    <li key={`${source.periodEnd}-${source.publishedAt}`} className="flex flex-wrap items-center gap-2">
+                      <a className="text-primary underline-offset-2 hover:underline" href={source.url} target="_blank" rel="noreferrer">{source.periodEnd} · {source.title}</a>
+                      <span className="text-muted-foreground">披露后 {source.effectiveFrom} 起生效</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -774,6 +806,12 @@ function cashFlowQualityLabel(status: FundamentalCashFlowQualityStatus) {
 function adjustedNetIncomeStatusLabel(status: "complete" | "partial" | "unavailable") {
   if (status === "complete") return "已覆盖";
   if (status === "partial") return "部分覆盖";
+  return "缺失";
+}
+
+function historicalValuationStatusLabel(status: "available" | "partial" | "unavailable") {
+  if (status === "available") return "已覆盖";
+  if (status === "partial") return "样本不足";
   return "缺失";
 }
 

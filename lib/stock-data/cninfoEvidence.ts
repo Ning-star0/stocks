@@ -243,7 +243,8 @@ export function buildCninfoFundamentalEvidence(input: {
       peTtm,
       bookValuePerShare: latestBookValue,
       pb,
-      historicalPercentile: null
+      historicalPercentile: null,
+      historicalEvidence: null
     },
     metrics: {
       latestAnnualRevenueCny10k: latestAnnual?.revenue ?? null,
@@ -600,7 +601,8 @@ function unavailableFundamentals(fetchedAt: string, sourceUrl: string, reason: s
       peTtm: null,
       bookValuePerShare: null,
       pb: null,
-      historicalPercentile: null
+      historicalPercentile: null,
+      historicalEvidence: null
     },
     metrics: {},
     missingFields: ["fundamentalSource"],

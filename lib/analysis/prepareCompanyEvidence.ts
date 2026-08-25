@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { getStockDataProvider } from "@/lib/stock-data";
 import { mergeAdjustedNetIncomeEvidence } from "@/lib/stock-data/adjustedNetIncomeEvidence";
 import { enrichDisclosureContent } from "@/lib/stock-data/disclosureContent";
+import { mergeHistoricalValuationEvidence } from "@/lib/stock-data/historicalValuationEvidence";
 import { stockSymbolVariants } from "@/lib/symbols";
-import type { DisclosureEvidence, FundamentalEvidence, Quote } from "@/lib/stock-data/types";
+import type { DisclosureEvidence, FundamentalEvidence, Quote, ValuationPriceHistoryEvidence } from "@/lib/stock-data/types";
 
 export type StockCompanyEvidenceRefresh = {
   schemaVersion: "company-evidence-refresh-v2";
@@ -31,19 +32,27 @@ export async function prepareStockCompanyEvidence(input: {
     price: input.quote.price,
     priceAsOf: input.quote.timestamp
   };
-  const [rawFundamentals, rawDisclosures] = await Promise.all([
+  const [rawFundamentals, rawDisclosures, valuationPriceHistory] = await Promise.all([
     provider.getFundamentals
       ? provider.getFundamentals(input.symbol, options).catch((error) => unavailableFundamentals(errorMessage(error)))
       : Promise.resolve(unavailableFundamentals("当前股票数据提供器未实现财务与估值证据接口。")),
     provider.getDisclosures
       ? provider.getDisclosures(input.symbol, options).catch((error) => uncheckedDisclosures(errorMessage(error)))
-      : Promise.resolve(uncheckedDisclosures("当前股票数据提供器未实现法定公告证据接口。"))
+      : Promise.resolve(uncheckedDisclosures("当前股票数据提供器未实现法定公告证据接口。")),
+    provider.getValuationPriceHistory
+      ? provider.getValuationPriceHistory(input.symbol, { forceRefresh: input.forceRefresh, adjustment: "none" })
+          .catch((error) => unavailableValuationPriceHistory(errorMessage(error)))
+      : Promise.resolve(unavailableValuationPriceHistory("当前股票数据提供器未实现未复权历史估值价格接口。"))
   ]);
   const disclosures = await enrichDisclosureContent(rawDisclosures, previous?.disclosures).catch((error) => ({
     ...rawDisclosures,
     failures: uniqueStrings([...rawDisclosures.failures, `公告原文提取流程失败：${errorMessage(error)}`])
   }));
-  const fundamentals = mergeAdjustedNetIncomeEvidence(rawFundamentals, disclosures);
+  const fundamentals = mergeHistoricalValuationEvidence(
+    mergeAdjustedNetIncomeEvidence(rawFundamentals, disclosures),
+    disclosures,
+    valuationPriceHistory
+  );
   const receipt: StockCompanyEvidenceRefresh = {
     schemaVersion: "company-evidence-refresh-v2",
     symbol: input.symbol.toUpperCase(),
@@ -110,7 +119,11 @@ function parseFundamentals(value: unknown): FundamentalEvidence | null {
     schemaVersion: "fundamental-evidence-v2",
     annualPeriods: parsed.annualPeriods.map((period) => ({ ...period, adjustedParentNetIncome: period.adjustedParentNetIncome ?? null })),
     quarterlyPeriods: parsed.quarterlyPeriods.map((period) => ({ ...period, adjustedParentNetIncome: period.adjustedParentNetIncome ?? null })),
-    adjustedNetIncomeSources: Array.isArray(parsed.adjustedNetIncomeSources) ? parsed.adjustedNetIncomeSources : []
+    adjustedNetIncomeSources: Array.isArray(parsed.adjustedNetIncomeSources) ? parsed.adjustedNetIncomeSources : [],
+    valuation: {
+      ...parsed.valuation,
+      historicalEvidence: parsed.valuation.historicalEvidence ?? null
+    }
   };
 }
 
@@ -146,13 +159,27 @@ function unavailableFundamentals(reason: string): FundamentalEvidence {
       peTtm: null,
       bookValuePerShare: null,
       pb: null,
-      historicalPercentile: null
+      historicalPercentile: null,
+      historicalEvidence: null
     },
     metrics: {},
     missingFields: ["fundamentalSource"],
     conflictingFields: [],
     failures: [reason],
     missingReason: reason
+  };
+}
+
+function unavailableValuationPriceHistory(reason: string): ValuationPriceHistoryEvidence {
+  return {
+    schemaVersion: "valuation-price-history-v1",
+    status: "unavailable",
+    provider: "not_configured",
+    sourceUrl: "",
+    fetchedAt: new Date().toISOString(),
+    adjustment: "none",
+    candles: [],
+    failure: reason
   };
 }
 
