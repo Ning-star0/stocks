@@ -76,7 +76,7 @@ npm run dev
 | 认证 | 单管理员 Session，scrypt 密码哈希，HttpOnly Cookie |
 | 股票数据 | `StockDataProvider` 接口（mock / Alpha Vantage / 自定义） |
 | 新闻数据 | `NewsProvider` 接口（mock / Finnhub / 天行数据 / 自定义） |
-| 部署 | standalone 模式 + pm2，适合单机 VPS |
+| 部署 | standalone 模式 + systemd，适合单机 VPS |
 
 ## 环境变量
 
@@ -98,6 +98,14 @@ npm run dev
 | `DISCLOSURE_MIN_FUNDAMENTAL_PDF_PER_REFRESH` | 上述 PDF 预算中至少保留给法定定期报告的数量，用于逐轮补齐扣非利润历史 | `3` |
 | `DISCLOSURE_MAX_PDF_BYTES` | 单份公告 PDF 最大字节数 | `16777216` |
 | `DISCLOSURE_PDF_TIMEOUT_MS` | 单份公告 PDF 下载超时 | `25000` |
+| `DISCLOSURE_OCR_ENABLED` | 嵌入文本不足时是否启用扫描件 OCR；关闭后原文保持未闭合 | `true` |
+| `DISCLOSURE_OCR_MAX_PAGES` | 单份公告最多允许 OCR 的页数；超限时禁止部分提取冒充全文 | `24` |
+| `DISCLOSURE_OCR_RENDER_WIDTH` | OCR 单页渲染宽度，程序限制在 1000–2400 像素 | `1800` |
+| `DISCLOSURE_OCR_MAX_RENDERED_BYTES` | 单份公告 OCR 渲染图像累计字节上限 | `67108864` |
+| `DISCLOSURE_OCR_MAX_TOTAL_PIXELS` | 单份公告 OCR 渲染累计像素上限 | `120000000` |
+| `DISCLOSURE_OCR_PAGE_TIMEOUT_MS` | 单页 Tesseract 识别超时 | `15000` |
+| `DISCLOSURE_OCR_TOTAL_TIMEOUT_MS` | 单份公告 OCR 总时限 | `90000` |
+| `DISCLOSURE_TESSERACT_BIN` | Tesseract 可执行文件名或绝对路径 | `tesseract` |
 | `TAVILY_API_KEY` | 联网搜索（可选） | - |
 | `TAVILY_PROJECT_ID` | Tavily 用量归因项目 ID | `stocks` |
 | `NEWS_DAILY_CALL_LIMIT` | 天行成功请求日硬上限；`0` 表示不设本地上限 | `100` |
@@ -128,7 +136,15 @@ npm run auth:hash -- "你的强密码，至少16位"
 
 ## 生产部署
 
-服务器使用 systemd 托管 Web 与 worker。首次部署前先安装并启用仓库对应的 `stocks-web.service`、`stocks-worker.service`，随后构建：
+服务器使用 systemd 托管 Web 与 worker。扫描公告全文识别依赖 Tesseract 简体中文与英文语言包；Ubuntu/Debian 首次部署先安装依赖，并确认 `chi_sim`、`eng` 均可用：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim
+tesseract --list-langs
+```
+
+然后安装并启用仓库对应的 `stocks-web.service`、`stocks-worker.service`，随后构建：
 
 ```bash
 npm ci
@@ -148,7 +164,7 @@ cd /opt/stocks
 sudo bash update.sh
 ```
 
-`update.sh` 仅在确认工作目录为 `/opt/stocks` 后清理 `.next`；健康检查失败时会输出两个服务的最近日志并以失败状态退出。
+`update.sh` 仅在确认工作目录为 `/opt/stocks` 后清理 `.next`；拉取代码前会检查 Tesseract 及 `chi_sim`、`eng` 语言包，缺失时停止部署，避免扫描公告静默不可读。健康检查失败时会输出两个服务的最近日志并以失败状态退出。
 
 部署后可在已配置且允许写入临时固定样本的数据库运行可选端到端验收；测试使用唯一邮箱和缓存键，并在结束时级联清理临时用户、分析、证据与用量记录：
 
@@ -183,11 +199,11 @@ RUN_DB_E2E_TESTS=true npx tsx --test tests/apiQuotaDb.test.ts tests/analysisPers
 
 分析输入统一封装为版本化 `AnalysisEvidencePackage`，并生成 `DataQualityReport`。输出除 `holdAdvice` 和 `entryAdvice` 外，还包含结构化 `decisionStatus`、支持证据、反对证据和缺失证据；首页与详情页优先展示这一状态，旧文本推断只作为历史数据兼容。JSON 输出经 Zod 校验，失败自动重试。
 
-AI 分析缓存统一使用 `ai_analysis:v13:{userId}:{symbol}:{contextHash}`，按用户隔离。上下文哈希忽略单纯的快照生成时间，但包含财务期、财务内容与派生现金流质量指标、扣非利润法定报告 ID/原文哈希/解析器版本、历史估值价格序列哈希与算法版本、同行行业/样本/分位/跨源核对/证据哈希、公告原文哈希、新闻精读内容、近期 K 线、行情修订、组合风险预算、资金和交易记忆；任何实质证据变化都会失效。历史已完成任务不会阻止失败兜底后的再次分析，强制刷新也不会被旧任务吞掉。
+AI 分析缓存统一使用 `ai_analysis:v14:{userId}:{symbol}:{contextHash}`，按用户隔离。上下文哈希忽略单纯的快照生成时间，但包含财务期、财务内容与派生现金流质量指标、扣非利润法定报告 ID/原文哈希/解析器版本、历史估值价格序列哈希与算法版本、同行行业/样本/分位/跨源核对/证据哈希、公告原文哈希与提取回执、新闻精读内容、近期 K 线、行情修订、组合风险预算、资金和交易记忆；任何实质证据变化都会失效。历史已完成任务不会阻止失败兜底后的再次分析，强制刷新也不会被旧任务吞掉。
 
 页面中的“目标情景净收益”只表示价格到达止盈目标时的扣费结果，不等于统计期望值。当前单笔 AI 条件计划尚未建立独立的样本外概率校准，因此输出会显示 `expectedValueStatus=not_calibrated`、校准胜率为空和期望值为空；现有规则策略回测只用于风险收缩，不会被冒充为本单胜率。
 
-当前阶段已为 A 股 `a_share` 数据源接入巨潮资讯财务趋势、5 年年度/8 个独立季度、资本开支、自由现金流、TTM 现金利润匹配指标、基础 PE(TTM)/PB 估值、历史 PE/PB 分位、法定公告目录及关键公告 PDF 原文提取，并按“用户 + 股票”保存刷新快照。扣非归母净利润不猜测巨潮字段，而是从近 6 年中文法定定期报告“主要会计数据”表确定性解析；程序同时核验报告期、人民币单位和同表归母净利润，再转换为独立季度与 TTM。每轮 PDF 总预算中默认保留 3 份给尚未解析的定期报告，已提取原文会按公告 ID 和 URL 复用，因此多轮刷新会继续向历史补齐而不重复下载。
+当前阶段已为 A 股 `a_share` 数据源接入巨潮资讯财务趋势、5 年年度/8 个独立季度、资本开支、自由现金流、TTM 现金利润匹配指标、基础 PE(TTM)/PB 估值、历史 PE/PB 分位、法定公告目录及关键公告 PDF 原文提取，并按“用户 + 股票”保存刷新快照。公告优先提取嵌入文本；缺字页面逐页渲染并由 Tesseract `chi_sim+eng` 补齐，纯扫描件必须识别全部页面。只有全文件覆盖闭合才标记为 `extracted`，超页数、超时、渲染超限、语言包缺失或识别结果不足时继续保持 `metadata_only` 并阻断新增买入；页面会显示嵌入文本/OCR/混合提取方式、页数、失败原因和提取器版本。OCR 只是可审计的原文读取 fallback，关键财务数字仍由程序交叉核对。扣非归母净利润不猜测巨潮字段，而是从近 6 年中文法定定期报告“主要会计数据”表确定性解析；程序同时核验报告期、人民币单位和同表归母净利润，再转换为独立季度与 TTM。每轮 PDF 总预算中默认保留 3 份给尚未解析的定期报告，已提取原文会按公告 ID、URL、原文哈希和提取器版本复用，因此多轮刷新会继续向历史补齐而不重复下载。
 
 历史估值使用最多 5 年未复权日线，避免把复权价格与历史每股财务值混用；财务期只能在对应正式报告披露后的下一交易日起进入样本，盘中未完成日线不进入分布。巨潮结构化财务序列若存在完整报告修订，只从当前可见的最后一版完整报告发布后开始使用，避免把修订值回填到更早日期。至少覆盖 365 个自然日、252 个有效交易日和 4 份已生效正式报告，且价格截止日距估值截止日不超过 7 天，才标记为 `available`。同行估值使用东方财富 EM2016 行业分类、PE(TTM) 与 PB(MRQ) 提供方可比排名，剔除非正倍数；目标公司倍数需与巨潮确定性口径差异不超过 15%，存在的 PE/PB 指标各需至少 5 家有效同行，缓存 1 小时、24 小时失效。页面显示历史估值及同行行业、样本中值、分位、溢折价、同行明细、来源、抓取时间和哈希；短样本、过期、上游失败、跨源冲突或报告日期无法匹配时保持 `partial/unavailable/conflicted` 并继续阻断长期买入。提供方同行排序是显式限制，低于同行不能单独推出买入结论；历史分位和同行估值都只服务当前研究，不能直接充当历史回测信号。
 

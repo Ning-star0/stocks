@@ -253,6 +253,12 @@ export async function buildStockAnalysisContext(
       publishedAt: item.publishedAt,
       url: item.sourceUrl,
       contentStatus: item.contentStatus,
+      extractionMethod: item.contentExtraction?.method ?? null,
+      extractionCoverage: item.contentExtraction?.coverage ?? null,
+      totalPages: item.contentExtraction?.totalPages ?? null,
+      ocrPages: item.contentExtraction?.ocrPages ?? 0,
+      extractorVersion: item.contentExtraction?.extractorVersion ?? null,
+      extractionFailure: item.extractionFailure,
       isCritical: item.isCritical
     })),
     companyEvidenceFailures: companyEvidenceRefresh?.failures ?? [],

@@ -156,10 +156,3 @@ function fundamentals(peTtm: number, pb: number): FundamentalEvidence {
     missingReason: "尚缺关键估值证据"
   };
 }
-
-function jsonResponse(value: unknown) {
-  return new Response(JSON.stringify(value), {
-    status: 200,
-    headers: { "Content-Type": "application/json; charset=utf-8" }
-  });
-}

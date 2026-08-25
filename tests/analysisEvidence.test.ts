@@ -237,6 +237,33 @@ test("context hash changes when an adjusted-profit source document changes", () 
   assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(revised, 100_000, "偏好低回撤"));
 });
 
+test("OCR disclosure fallback is visible and changes the context hash even when text hash is unchanged", () => {
+  const input = completeEvidenceInput();
+  const embedded = buildAnalysisEvidencePackage({
+    ...input,
+    disclosures: {
+      ...input.disclosures,
+      items: input.disclosures.items.map((item) => ({
+        ...item,
+        contentExtraction: disclosureExtractionFixture("embedded_text")
+      }))
+    }
+  });
+  const ocr = buildAnalysisEvidencePackage({
+    ...input,
+    disclosures: {
+      ...input.disclosures,
+      items: input.disclosures.items.map((item) => ({
+        ...item,
+        contentExtraction: disclosureExtractionFixture("ocr")
+      }))
+    }
+  });
+
+  assert.ok(ocr.dataQuality.fallbacksUsed.includes("disclosureOCR:1"));
+  assert.notEqual(contextHash(embedded, 100_000, "偏好低回撤"), contextHash(ocr, 100_000, "偏好低回撤"));
+});
+
 test("analysis cache keys are isolated by user", () => {
   const hash = "a".repeat(64);
   assert.notEqual(
@@ -487,6 +514,20 @@ function peerValuationFixture(contentHash: string) {
     crossCheck: { maximumDifferencePct: 15, peDifferencePct: 1, pbDifferencePct: 1, peMatched: true, pbMatched: true },
     contentHash,
     missingReason: null
+  };
+}
+
+function disclosureExtractionFixture(method: "embedded_text" | "ocr") {
+  return {
+    schemaVersion: "disclosure-content-extraction-v1" as const,
+    extractorVersion: "pdfparse-tesseract-v1",
+    method,
+    coverage: "full_document" as const,
+    totalPages: 2,
+    extractedPages: 2,
+    ocrPages: method === "ocr" ? 2 : 0,
+    ocrEngine: method === "ocr" ? "fixture-tesseract" : null,
+    ocrLanguages: method === "ocr" ? ["chi_sim", "eng"] : []
   };
 }
 

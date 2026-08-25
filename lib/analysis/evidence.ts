@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.7.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.8.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -201,6 +201,7 @@ export function buildAnalysisEvidencePackage(input: {
   const klineFresh = isRecentTimestamp(historyTo, now, 7 * 24 * 60 * 60 * 1000);
   const fundamentals = input.fundamentals ?? unavailableFundamentals();
   const disclosures = input.disclosures ?? uncheckedDisclosures();
+  const disclosureOcrCount = disclosures.items.filter((item) => item.contentExtraction?.method === "ocr" || item.contentExtraction?.method === "hybrid_ocr").length;
   const fundamentalsAvailable = fundamentals.status !== "unavailable";
   const fundamentalsComplete = fundamentals.status === "available";
   const fundamentalsFresh = fundamentalsAvailable && isRecentTimestamp(fundamentals.fetchedAt, now, 7 * 24 * 60 * 60 * 1000);
@@ -271,7 +272,10 @@ export function buildAnalysisEvidencePackage(input: {
     missingFields,
     staleFields,
     conflictingFields,
-    fallbacksUsed: fallbackAnalysisCount > 0 ? [`newsAnalysisFallback:${fallbackAnalysisCount}`] : [],
+    fallbacksUsed: [
+      ...(fallbackAnalysisCount > 0 ? [`newsAnalysisFallback:${fallbackAnalysisCount}`] : []),
+      ...(disclosureOcrCount > 0 ? [`disclosureOCR:${disclosureOcrCount}`] : [])
+    ],
     entryBlockers
   };
   const analysisDisclosures = compactDisclosureEvidence(disclosures);

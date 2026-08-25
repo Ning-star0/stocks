@@ -287,5 +287,11 @@ export interface DisclosureSourceSummary {
   publishedAt: string;
   url: string;
   contentStatus: "metadata_only" | "extracted" | "analyzed";
+  extractionMethod?: "embedded_text" | "ocr" | "hybrid_ocr" | null;
+  extractionCoverage?: "full_document" | null;
+  totalPages?: number | null;
+  ocrPages?: number;
+  extractorVersion?: string | null;
+  extractionFailure?: string | null;
   isCritical: boolean;
 }

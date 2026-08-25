@@ -145,7 +145,8 @@ function parseDisclosures(value: unknown): DisclosureEvidence | null {
     items: parsed.items.map((item) => ({
       ...item,
       isFundamentalSource: item.isFundamentalSource ?? false,
-      adjustedNetIncomeFact: item.adjustedNetIncomeFact ?? null
+      adjustedNetIncomeFact: item.adjustedNetIncomeFact ?? null,
+      contentExtraction: item.contentExtraction ?? null
     }))
   };
 }

@@ -188,6 +188,17 @@ export type DisclosureEvidenceItem = {
   contentExcerpt: string | null;
   extractedCharacters: number;
   extractionFailure: string | null;
+  contentExtraction?: {
+    schemaVersion: "disclosure-content-extraction-v1";
+    extractorVersion: string;
+    method: "embedded_text" | "ocr" | "hybrid_ocr";
+    coverage: "full_document";
+    totalPages: number | null;
+    extractedPages: number | null;
+    ocrPages: number;
+    ocrEngine: string | null;
+    ocrLanguages: string[];
+  } | null;
   isCritical: boolean;
   isFundamentalSource: boolean;
   adjustedNetIncomeFact: AdjustedNetIncomeDisclosureFact | null;

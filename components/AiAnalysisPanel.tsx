@@ -335,7 +335,11 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
             {analysis.dataScope.disclosureSources.map((item) => (
               <li key={item.id} className="flex flex-wrap items-center gap-2">
                 <a className="text-primary underline-offset-2 hover:underline" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
-                <Badge variant={item.contentStatus === "metadata_only" ? "danger" : "success"}>{item.contentStatus === "metadata_only" ? "未提取" : "已提取"}</Badge>
+                <Badge variant={item.contentStatus === "metadata_only" ? "danger" : item.extractionMethod === "ocr" || item.extractionMethod === "hybrid_ocr" ? "warning" : "success"}>
+                  {disclosureExtractionLabel(item.contentStatus, item.extractionMethod)}
+                </Badge>
+                {item.totalPages ? <span className="text-muted-foreground">全文 {item.totalPages} 页{item.ocrPages ? `，OCR ${item.ocrPages} 页` : ""}</span> : null}
+                {item.extractionFailure ? <span className="text-red-600 dark:text-red-300">{item.extractionFailure}</span> : null}
               </li>
             ))}
           </ul>
@@ -860,6 +864,16 @@ function peerValuationStatusLabel(
   if (status === "conflicted") return "跨源冲突";
   if (status === "partial") return "样本不足";
   return "缺失";
+}
+
+function disclosureExtractionLabel(
+  status: "metadata_only" | "extracted" | "analyzed",
+  method?: "embedded_text" | "ocr" | "hybrid_ocr" | null
+) {
+  if (status === "metadata_only") return "原文未闭合";
+  if (method === "ocr") return "OCR 全文";
+  if (method === "hybrid_ocr") return "文本 + OCR 全文";
+  return "文本全文";
 }
 
 function fundamentalFieldLabel(field: string) {

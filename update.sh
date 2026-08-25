@@ -2,6 +2,18 @@
 set -euo pipefail
 cd /opt/stocks
 test "$(pwd)" = "/opt/stocks"
+echo "=== 检查公告 OCR 运行时 ==="
+if ! command -v tesseract >/dev/null 2>&1; then
+  echo "缺少 tesseract；请先安装 tesseract-ocr 和 tesseract-ocr-chi-sim。" >&2
+  exit 1
+fi
+ocr_languages="$(tesseract --list-langs 2>/dev/null)"
+for required_language in chi_sim eng; do
+  if ! grep -qx "$required_language" <<<"$ocr_languages"; then
+    echo "Tesseract 缺少 $required_language 语言包；部署已停止，避免扫描公告静默不可读。" >&2
+    exit 1
+  fi
+done
 echo "=== 拉取代码 ===" && git pull origin main
 echo "=== 安装依赖 ===" && npm ci
 echo "=== 清理旧构建 ===" && rm -rf .next

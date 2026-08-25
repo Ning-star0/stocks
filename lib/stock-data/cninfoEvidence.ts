@@ -468,6 +468,7 @@ function normalizeDisclosure(row: CninfoAnnouncement, symbol: string): Disclosur
     contentExcerpt: null,
     extractedCharacters: 0,
     extractionFailure: null,
+    contentExtraction: null,
     isCritical: isCriticalCninfoDisclosure(category, title),
     isFundamentalSource: false,
     adjustedNetIncomeFact: null

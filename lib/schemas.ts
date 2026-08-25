@@ -355,6 +355,12 @@ export const aiAnalysisSchema = z.object({
         publishedAt: z.string(),
         url: z.string(),
         contentStatus: z.enum(["metadata_only", "extracted", "analyzed"]),
+        extractionMethod: z.enum(["embedded_text", "ocr", "hybrid_ocr"]).nullable().optional(),
+        extractionCoverage: z.enum(["full_document"]).nullable().optional(),
+        totalPages: z.number().int().positive().nullable().optional(),
+        ocrPages: z.number().int().nonnegative().optional(),
+        extractorVersion: z.string().nullable().optional(),
+        extractionFailure: z.string().nullable().optional(),
         isCritical: z.boolean()
       })).optional(),
       companyEvidenceFailures: z.array(z.string()).optional(),
