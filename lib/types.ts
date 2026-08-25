@@ -4,6 +4,10 @@ export type Trend = "bullish" | "neutral" | "bearish";
 export type NewsSentiment = "positive" | "neutral" | "negative";
 export type StockNewsSentiment = NewsSentiment | "mixed";
 export type ImpactLevel = "low" | "medium" | "high";
+export type NewsInformationStage = "first_report" | "follow_up" | "reprint" | "unclear";
+export type NewsExpectationStatus = "explicit" | "inferred" | "unavailable";
+export type NewsExpectationGapDirection = "positive" | "negative" | "neutral" | "unclear";
+export type NewsImpactHorizon = "days" | "quarters" | "long_term" | "unclear";
 export type DecisionMode = "long_term" | "swing_trade" | "position_management";
 export type DecisionStatus =
   | "insufficient_data"
@@ -68,8 +72,29 @@ export interface NewsAnalysisResult {
   riskNotes: string[];
   whyItMatters: string;
   confidence: number;
+  eventContext: NewsEventContext;
   isFallback: boolean;
   fallbackReason: string | null;
+}
+
+export interface NewsEventContext {
+  schemaVersion: "news-event-context-v1";
+  eventOccurredAt: string | null;
+  informationStage: NewsInformationStage;
+  originalSource: {
+    status: "current_source" | "referenced_without_url" | "unavailable";
+    name: string | null;
+    url: string | null;
+  };
+  expectation: {
+    status: NewsExpectationStatus;
+    baseline: string | null;
+    actual: string | null;
+    gapDirection: NewsExpectationGapDirection;
+    evidence: string | null;
+  };
+  expectedImpactHorizon: NewsImpactHorizon;
+  falsifiers: string[];
 }
 
 export interface IndicatorSnapshot {
@@ -171,6 +196,7 @@ export interface AiAnalysisResult {
     newsWindow?: string;
     newsCount?: number;
     newsCoverage?: NewsEvidenceCoverageSummary | null;
+    newsTimeline?: NewsEventTimelineSummary | null;
     newsRefreshFailures?: string[];
     fundamentalsStatus?: string;
     fundamentalsReportPeriod?: string | null;
@@ -279,6 +305,53 @@ export interface NewsEvidenceCoverageSummary {
   sharedTopicReused?: boolean;
   skippedQueryCount?: number;
   sourceProviders?: string[];
+  eventClusterCount?: number;
+  duplicateArticleCount?: number;
+  futureDatedArticleCount?: number;
+  explicitExpectationCount?: number;
+  inferredExpectationCount?: number;
+  unavailableExpectationCount?: number;
+  priceReactionAvailableCount?: number;
+}
+
+export interface NewsEventTimelineSummary {
+  schemaVersion: "news-event-timeline-v1";
+  algorithmVersion: string;
+  status: "complete" | "partial" | "insufficient";
+  windowDescription: string;
+  futureDatedArticleCount: number;
+  events: Array<{
+    eventId: string;
+    title: string;
+    firstSeenAt: string;
+    latestSeenAt: string;
+    novelty: "single_report" | "reprint_cluster";
+    articleCount: number;
+    importance: "high" | "medium" | "low" | "unknown";
+    canonicalSource: {
+      name: string | null;
+      url: string | null;
+      tier: "primary_official" | "secondary_media" | "unknown";
+    };
+    expectation: NewsEventContext["expectation"];
+    eventContextSource: {
+      name: string | null;
+      url: string | null;
+      publishedAt: string;
+    } | null;
+    expectedImpactHorizon: NewsImpactHorizon;
+    priceReaction: {
+      status: "available" | "unavailable";
+      reactionSessionDate: string | null;
+      close1dPct: number | null;
+      close3dPct: number | null;
+      close5dPct: number | null;
+      volumeRatio20: number | null;
+      observedSessions: number;
+      missingReason: string | null;
+    };
+    limitations: string[];
+  }>;
 }
 
 export interface DisclosureSourceSummary {

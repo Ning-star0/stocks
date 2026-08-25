@@ -10,10 +10,12 @@ import { getStoredStockCompanyEvidence } from "@/lib/analysis/prepareCompanyEvid
 import { findReusableAnalysisByContextHash } from "@/lib/analysis/reusableAnalysis";
 import { disconnectRedisClient } from "@/lib/cache/redis";
 import { getMemoryContent, updateMemory } from "@/lib/memory";
+import { parseNewsEventContext } from "@/lib/news/eventTimeline";
 import { getStoredStockNewsEvidenceRefresh, type StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEvidence";
+import { saveNewsAnalysis } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
-import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
+import type { Candle, IndicatorSnapshot, NewsAnalysisResult, Quote } from "@/lib/types";
 import { buildPortfolioRiskBudget } from "@/lib/trading/riskBudget";
 
 const runDbTests = process.env.RUN_DB_E2E_TESTS === "true";
@@ -170,6 +172,62 @@ test("persisted incomplete evidence stays user-scoped and blocks conditional ent
     assert.ok(candles.every((item) => Date.parse(item.timestamp) <= now.getTime()));
   } finally {
     await cleanupUsers(users.ids);
+  }
+});
+
+test("structured news expectation evidence persists through the database migration", {
+  skip: !runDbTests
+}, async () => {
+  const unique = randomUUID();
+  const item = await prisma.newsItem.create({
+    data: {
+      title: `数据库新闻事件固定样本 ${unique}`,
+      titleHash: unique.replaceAll("-", ""),
+      url: `https://example.test/news/${unique}`,
+      source: "数据库固定样本",
+      publishedAt: new Date("2026-08-20T08:00:00.000Z"),
+      rawContent: "市场此前一致预期收入增长10%，公司公告实际收入增长20%。",
+      summary: null,
+      symbols: [symbol],
+      sectors: ["银行"],
+      sentiment: null,
+      importance: "high"
+    }
+  });
+  const analysis: NewsAnalysisResult = {
+    summary: "公司实际收入增长高于原文给出的事前预期。",
+    sentiment: "positive",
+    impactLevel: "high",
+    affectedSymbols: [symbol],
+    affectedSectors: ["银行"],
+    riskNotes: ["仍需正式财报验证"],
+    whyItMatters: "该事件具备可追溯的事前预期和实际结果。",
+    confidence: 0.8,
+    eventContext: {
+      schemaVersion: "news-event-context-v1",
+      eventOccurredAt: "2026-08-20T07:30:00.000Z",
+      informationStage: "first_report",
+      originalSource: { status: "current_source", name: "数据库固定样本", url: item.url },
+      expectation: {
+        status: "explicit",
+        baseline: "市场一致预期收入增长10%",
+        actual: "实际收入增长20%",
+        gapDirection: "positive",
+        evidence: "市场此前一致预期收入增长10%，公司公告实际收入增长20%。"
+      },
+      expectedImpactHorizon: "quarters",
+      falsifiers: ["正式财报不支持当前数据"]
+    },
+    isFallback: false,
+    fallbackReason: null
+  };
+
+  try {
+    const saved = await saveNewsAnalysis(item.id, analysis);
+    const reloaded = await prisma.newsAnalysis.findUnique({ where: { id: saved.id } });
+    assert.deepEqual(parseNewsEventContext(reloaded?.eventContextJson), analysis.eventContext);
+  } finally {
+    await prisma.newsItem.delete({ where: { id: item.id } });
   }
 });
 
@@ -353,7 +411,7 @@ function unreadCriticalDisclosure(): DisclosureEvidence {
 
 function exhaustedNewsReceipt(): StockNewsEvidenceRefresh {
   return {
-    schemaVersion: "news-evidence-refresh-v3",
+    schemaVersion: "news-evidence-refresh-v4",
     symbol,
     startedAt: "2026-08-24T23:20:00+08:00",
     completedAt: "2026-08-24T23:30:00+08:00",

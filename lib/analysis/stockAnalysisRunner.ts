@@ -18,6 +18,7 @@ import { AppError, parseProviderError } from "@/lib/errors";
 import { calculateIndicators, summarizeHistory } from "@/lib/indicators";
 import { getMemoryContent } from "@/lib/memory";
 import { buildSectorNewsKeywords, buildStockNewsKeywords } from "@/lib/news/relevance";
+import { buildNewsEventTimeline } from "@/lib/news/eventTimeline";
 import {
   getStoredStockNewsEvidenceRefresh,
   prepareStockNewsEvidence,
@@ -204,6 +205,7 @@ export async function buildStockAnalysisContext(
   const webSearchResults = normalizeWebSearchResults(supplementalNews.results).slice(0, numberEnv("AI_WEB_SEARCH_RESULT_LIMIT", 3));
   const recentNews = dedupeAnalysisNews(newsReferences).slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
   const analysisAsOf = new Date().toISOString();
+  const newsEventTimeline = buildNewsEventTimeline({ articles: relevantNews, candles: history, analysisAsOf });
   const firstHistory = history[0]?.timestamp ?? null;
   const lastHistory = history[history.length - 1]?.timestamp ?? null;
   const dataScope = {
@@ -235,8 +237,45 @@ export async function buildStockAnalysisContext(
       tavilyCalls: effectiveNewsEvidenceRefresh.fetch?.tavilyCalls ?? 0,
       sharedTopicReused: effectiveNewsEvidenceRefresh.fetch?.sharedTopicReused ?? false,
       skippedQueryCount: effectiveNewsEvidenceRefresh.fetch?.skippedQueryCount ?? 0,
-      sourceProviders: effectiveNewsEvidenceRefresh.fetch?.sourceProviders ?? []
+      sourceProviders: effectiveNewsEvidenceRefresh.fetch?.sourceProviders ?? [],
+      eventClusterCount: newsEventTimeline.clusterCount,
+      duplicateArticleCount: newsEventTimeline.duplicateArticleCount,
+      futureDatedArticleCount: newsEventTimeline.futureDatedArticleCount,
+      explicitExpectationCount: newsEventTimeline.explicitExpectationCount,
+      inferredExpectationCount: newsEventTimeline.inferredExpectationCount,
+      unavailableExpectationCount: newsEventTimeline.unavailableExpectationCount,
+      priceReactionAvailableCount: newsEventTimeline.priceReactionAvailableCount
     } : null,
+    newsTimeline: {
+      schemaVersion: newsEventTimeline.schemaVersion,
+      algorithmVersion: newsEventTimeline.algorithmVersion,
+      status: newsEventTimeline.status,
+      windowDescription: newsEventTimeline.windowDescription,
+      futureDatedArticleCount: newsEventTimeline.futureDatedArticleCount,
+      events: newsEventTimeline.events.slice(0, 8).map((event) => ({
+        eventId: event.eventId,
+        title: event.title,
+        firstSeenAt: event.firstSeenAt,
+        latestSeenAt: event.latestSeenAt,
+        novelty: event.novelty,
+        articleCount: event.articleCount,
+        importance: event.importance,
+        canonicalSource: {
+          name: event.canonicalSource.name,
+          url: event.canonicalSource.url,
+          tier: event.canonicalSource.tier
+        },
+        expectation: event.eventContext.expectation,
+        eventContextSource: event.eventContextSource ? {
+          name: event.eventContextSource.name,
+          url: event.eventContextSource.url,
+          publishedAt: event.eventContextSource.publishedAt
+        } : null,
+        expectedImpactHorizon: event.eventContext.expectedImpactHorizon,
+        priceReaction: event.priceReaction,
+        limitations: event.limitations
+      }))
+    },
     newsRefreshFailures: effectiveNewsEvidenceRefresh?.failures ?? [],
     fundamentalsStatus: companyEvidenceRefresh?.fundamentals.status ?? "unavailable",
     fundamentalsReportPeriod: companyEvidenceRefresh?.fundamentals.reportPeriod ?? null,
@@ -291,6 +330,7 @@ export async function buildStockAnalysisContext(
     analyzedNews: recentNews,
     lastNewsFetch: effectiveNewsEvidenceRefresh?.completedAt ?? focusGroup?.lastNewsFetch ?? null,
     newsEvidenceRefresh: effectiveNewsEvidenceRefresh,
+    newsEventTimeline,
     fundamentals: companyEvidenceRefresh?.fundamentals,
     disclosures: companyEvidenceRefresh?.disclosures,
     analysisAsOf

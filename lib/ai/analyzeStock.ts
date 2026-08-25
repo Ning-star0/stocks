@@ -269,6 +269,7 @@ function normalizeDataScope(value: unknown, input: AnalyzeStockInput) {
     newsWindow: toNonEmptyString(record.newsWindow, fallback.newsWindow ?? "最近 7 天，高重要性新闻优先"),
     newsCount: toInteger(record.newsCount, fallback.newsCount ?? countArray(input.recentNews)),
     newsCoverage: fallback.newsCoverage ?? null,
+    newsTimeline: fallback.newsTimeline ?? null,
     newsRefreshFailures: fallback.newsRefreshFailures ?? [],
     fundamentalsStatus: fallback.fundamentalsStatus ?? "unavailable",
     fundamentalsReportPeriod: fallback.fundamentalsReportPeriod ?? null,
@@ -313,7 +314,14 @@ function buildOutputDataQuality(evidencePackage: AnalyzeStockInput["evidencePack
       tavilyCalls: news.tavilyCalls,
       sharedTopicReused: news.sharedTopicReused,
       skippedQueryCount: news.skippedQueryCount,
-      sourceProviders: news.sourceProviders
+      sourceProviders: news.sourceProviders,
+      eventClusterCount: news.timeline.clusterCount,
+      duplicateArticleCount: news.timeline.duplicateArticleCount,
+      futureDatedArticleCount: news.timeline.futureDatedArticleCount,
+      explicitExpectationCount: news.timeline.explicitExpectationCount,
+      inferredExpectationCount: news.timeline.inferredExpectationCount,
+      unavailableExpectationCount: news.timeline.unavailableExpectationCount,
+      priceReactionAvailableCount: news.timeline.priceReactionAvailableCount
     }
   };
 }

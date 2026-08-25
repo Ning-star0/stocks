@@ -264,6 +264,58 @@ test("OCR disclosure fallback is visible and changes the context hash even when 
   assert.notEqual(contextHash(embedded, 100_000, "偏好低回撤"), contextHash(ocr, 100_000, "偏好低回撤"));
 });
 
+test("swing entry is blocked when a high-impact event lacks an explicit expectation baseline", () => {
+  const input = completeEvidenceInput();
+  const unavailable = buildAnalysisEvidencePackage({
+    ...input,
+    relevantNews: [{
+      id: "high-event",
+      title: "公司发布重大经营进展",
+      url: "https://example.test/news/high-event",
+      source: "测试媒体",
+      publishedAt: "2026-08-20T08:00:00.000Z",
+      importance: "high",
+      analyses: [{ aiSummary: "新闻已经完成精读", isFallback: false, eventContextJson: newsEventContextFixture("unavailable") }]
+    }]
+  });
+  assert.ok(unavailable.dataQuality.entryBlockers.some((item) => item.includes("缺少原文明示的事前预期基线")));
+  assert.ok(unavailable.dataQuality.missingFields.includes("newsExpectationBaseline"));
+
+  const explicit = buildAnalysisEvidencePackage({
+    ...input,
+    relevantNews: [{
+      id: "high-event",
+      title: "公司发布重大经营进展",
+      url: "https://example.test/news/high-event",
+      source: "测试媒体",
+      publishedAt: "2026-08-20T08:00:00.000Z",
+      importance: "high",
+      analyses: [{ aiSummary: "新闻已经完成精读", isFallback: false, eventContextJson: newsEventContextFixture("explicit") }]
+    }]
+  });
+  assert.equal(explicit.dataQuality.entryBlockers.some((item) => item.includes("缺少原文明示的事前预期基线")), false);
+  assert.notEqual(contextHash(unavailable, 100_000, "偏好低回撤"), contextHash(explicit, 100_000, "偏好低回撤"));
+});
+
+test("future-dated news is excluded and blocks new risk", () => {
+  const evidence = buildAnalysisEvidencePackage({
+    ...completeEvidenceInput(),
+    relevantNews: [{
+      id: "future-event",
+      title: "发布时间异常的公司新闻",
+      url: "https://example.test/news/future-event",
+      source: "测试媒体",
+      publishedAt: "2026-08-26T08:00:00.000Z",
+      importance: "high",
+      analyses: [{ aiSummary: "新闻已经完成精读", isFallback: false, eventContextJson: newsEventContextFixture("explicit") }]
+    }]
+  });
+
+  assert.equal(evidence.news.timeline.futureDatedArticleCount, 1);
+  assert.ok(evidence.dataQuality.missingFields.includes("futureDatedNews"));
+  assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("发布时间晚于分析截止时间")));
+});
+
 test("analysis cache keys are isolated by user", () => {
   const hash = "a".repeat(64);
   assert.notEqual(
@@ -531,6 +583,30 @@ function disclosureExtractionFixture(method: "embedded_text" | "ocr") {
   };
 }
 
+function newsEventContextFixture(status: "explicit" | "unavailable") {
+  return {
+    schemaVersion: "news-event-context-v1" as const,
+    eventOccurredAt: "2026-08-20T07:30:00.000Z",
+    informationStage: "first_report" as const,
+    originalSource: { status: "current_source" as const, name: "测试来源", url: "https://example.test/news/high-event" },
+    expectation: status === "explicit" ? {
+      status,
+      baseline: "市场原预期增长10%",
+      actual: "实际增长20%",
+      gapDirection: "positive" as const,
+      evidence: "原文同时给出预期和实际数据"
+    } : {
+      status,
+      baseline: null,
+      actual: null,
+      gapDirection: "unclear" as const,
+      evidence: null
+    },
+    expectedImpactHorizon: "quarters" as const,
+    falsifiers: ["正式报告不支持当前数据"]
+  };
+}
+
 test("metadata-only critical disclosures block entry until original content is read", () => {
   const input = completeEvidenceInput();
   const evidence = buildAnalysisEvidencePackage({
@@ -654,7 +730,7 @@ function analyzeInput(evidence: ReturnType<typeof completeEvidence>): AnalyzeSto
 
 function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNewsEvidenceRefresh {
   return {
-    schemaVersion: "news-evidence-refresh-v3",
+    schemaVersion: "news-evidence-refresh-v4",
     symbol: quote.symbol,
     startedAt: "2026-08-24T23:20:00+08:00",
     completedAt: "2026-08-24T23:30:00+08:00",

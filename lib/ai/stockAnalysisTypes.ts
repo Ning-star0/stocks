@@ -1,5 +1,5 @@
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
-import type { DisclosureSourceSummary, NewsEvidenceCoverageSummary } from "@/lib/types";
+import type { DisclosureSourceSummary, NewsEventTimelineSummary, NewsEvidenceCoverageSummary } from "@/lib/types";
 import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
 import type { FundamentalCoverageSummary } from "@/lib/analysis/fundamentalCoverage";
 
@@ -25,6 +25,7 @@ export type AnalyzeStockInput = {
     newsWindow?: string;
     newsCount?: number;
     newsCoverage?: NewsEvidenceCoverageSummary | null;
+    newsTimeline?: NewsEventTimelineSummary | null;
     newsRefreshFailures?: string[];
     fundamentalsStatus?: string;
     fundamentalsReportPeriod?: string | null;

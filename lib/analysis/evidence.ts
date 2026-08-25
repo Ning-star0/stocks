@@ -5,10 +5,11 @@ import type { QuoteStatus } from "@/lib/services/quoteService";
 import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
 import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
 import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEvidence";
+import { buildNewsEventTimeline, type NewsEventTimeline, type NewsTimelineArticle } from "@/lib/news/eventTimeline";
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.8.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.9.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -125,6 +126,7 @@ export type AnalysisEvidencePackage = {
     webSearchUsed: boolean;
     failures: string[];
     items: unknown[];
+    timeline: NewsEventTimeline;
   };
   deterministicFeatures: {
     indicators: IndicatorSnapshot;
@@ -141,8 +143,13 @@ export type AnalysisEvidencePackage = {
 };
 
 type EvidenceNewsItem = {
+  id?: string;
+  title?: string;
+  url?: string | null;
+  source?: string | null;
+  publishedAt?: string | Date;
   importance?: string | null;
-  analyses?: Array<{ aiSummary?: string | null; isFallback?: boolean }>;
+  analyses?: Array<{ aiSummary?: string | null; isFallback?: boolean; eventContextJson?: unknown; createdAt?: string | Date | null }>;
 };
 
 export function resolveDecisionMode(userContext: unknown): DecisionMode {
@@ -168,6 +175,7 @@ export function buildAnalysisEvidencePackage(input: {
   lastNewsFetch: Date | string | null;
   newsRefreshCompleted?: boolean;
   newsEvidenceRefresh?: StockNewsEvidenceRefresh | null;
+  newsEventTimeline?: NewsEventTimeline;
   fundamentals?: AnalysisEvidencePackage["fundamentals"];
   disclosures?: AnalysisEvidencePackage["disclosures"];
   analysisAsOf?: string;
@@ -178,6 +186,11 @@ export function buildAnalysisEvidencePackage(input: {
   const decisionMode = resolveDecisionMode(input.userContext);
   const history = [...input.history].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const recentCandles = buildRecentCandleEvidence(history);
+  const newsTimeline = input.newsEventTimeline ?? buildNewsEventTimeline({
+    articles: input.relevantNews.filter(isTimelineNewsItem),
+    candles: history,
+    analysisAsOf
+  });
   const refresh = input.newsEvidenceRefresh ?? null;
   const databaseAnalyzedCount = input.relevantNews.filter(
     (item) => Boolean(item.analyses?.[0]?.aiSummary) && !item.analyses?.[0]?.isFallback
@@ -222,6 +235,8 @@ export function buildAnalysisEvidencePackage(input: {
     ...(!newsRefreshCompleted ? ["currentNewsRefresh"] : []),
     ...(newsQuotaStatus === "quota_exhausted" ? ["newsApiQuota"] : []),
     ...(pendingRelevantCount > 0 ? ["relevantNewsAnalysisCoverage"] : []),
+    ...(newsTimeline.futureDatedArticleCount > 0 ? ["futureDatedNews"] : []),
+    ...(newsTimeline.events.length > 0 && newsTimeline.explicitExpectationCount < newsTimeline.events.length ? ["newsExpectationBaseline"] : []),
     ...(history.length < MIN_DAILY_HISTORY_CANDLES ? ["minimum120DailyCandles"] : [])
   ];
   const staleFields = [
@@ -232,6 +247,9 @@ export function buildAnalysisEvidencePackage(input: {
   ];
   const conflictingFields: string[] = [...fundamentals.conflictingFields];
   const criticalNewsAnalyzed = pendingCriticalCount === 0;
+  const highExpectationUnclosedCount = newsTimeline.events.filter(
+    (event) => event.importance === "high" && event.eventContext.expectation.status !== "explicit"
+  ).length;
   const entryBlockers = uniqueStrings([
     ...(!quoteFresh ? ["行情不是最新可交易状态"] : []),
     ...(!klineFresh ? ["日 K 线未更新到最近交易阶段"] : []),
@@ -246,6 +264,12 @@ export function buildAnalysisEvidencePackage(input: {
     ...(!newsRefreshCompleted ? ["本轮分析前未确认完成最新新闻刷新"] : []),
     ...(newsQuotaStatus === "quota_exhausted" ? ["新闻检索额度已用尽，当前新闻证据不完整，禁止新增仓位"] : []),
     ...(!criticalNewsAnalyzed ? ["仍有高影响新闻尚未完成可信 AI 精读"] : []),
+    ...(newsTimeline.futureDatedArticleCount > 0
+      ? [`有 ${newsTimeline.futureDatedArticleCount} 条新闻的发布时间晚于分析截止时间，已排除且禁止新增仓位`]
+      : []),
+    ...(decisionMode === "swing_trade" && highExpectationUnclosedCount > 0
+      ? [`仍有 ${highExpectationUnclosedCount} 个高影响新闻事件缺少原文明示的事前预期基线，不能把普通利好或利空当作可交易预期差`]
+      : []),
     ...(fallbackAnalysisCount > 0 ? ["相关新闻存在本地兜底精读，不能作为买入证据"] : [])
   ]);
   const status: DataQualityStatus = conflictingFields.length
@@ -328,7 +352,8 @@ export function buildAnalysisEvidencePackage(input: {
       deadlineExceeded: refresh?.deadlineExceeded ?? false,
       webSearchUsed: refresh?.fetch?.webSearchUsed ?? false,
       failures: refresh?.failures ?? [],
-      items: input.analyzedNews
+      items: input.analyzedNews,
+      timeline: newsTimeline
     },
     deterministicFeatures: {
       indicators: input.indicators,
@@ -516,6 +541,12 @@ function positiveNumber(value: unknown) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values)];
+}
+
+function isTimelineNewsItem(item: EvidenceNewsItem): item is EvidenceNewsItem & NewsTimelineArticle {
+  return typeof item.id === "string"
+    && typeof item.title === "string"
+    && (typeof item.publishedAt === "string" || item.publishedAt instanceof Date);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

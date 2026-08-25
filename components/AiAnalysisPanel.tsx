@@ -175,6 +175,7 @@ export function AiAnalysisPanel({
 function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
   const quality = analysis.dataQuality;
   const newsCoverage = quality?.newsCoverage;
+  const newsTimeline = analysis.dataScope?.newsTimeline;
   const supporting = analysis.supportingEvidence ?? [];
   const opposing = analysis.opposingEvidence ?? [];
   const missing = analysis.missingEvidence ?? [];
@@ -218,6 +219,49 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <ScopeLine label="共享行业查询" value={newsCoverage.sharedTopicReused ? "已复用" : "未复用"} />
           <ScopeLine label="额度跳过" value={`${newsCoverage.skippedQueryCount ?? 0}`} />
           <ScopeLine label="新闻来源" value={(newsCoverage.sourceProviders ?? []).join(" / ") || "未记录"} />
+          <ScopeLine label="事件 / 重复转载" value={`${newsCoverage.eventClusterCount ?? 0} / ${newsCoverage.duplicateArticleCount ?? 0}`} />
+          <ScopeLine label="未来时间异常新闻" value={`${newsCoverage.futureDatedArticleCount ?? 0}`} />
+          <ScopeLine label="显式预期 / 推断 / 未知" value={`${newsCoverage.explicitExpectationCount ?? 0} / ${newsCoverage.inferredExpectationCount ?? 0} / ${newsCoverage.unavailableExpectationCount ?? 0}`} />
+          <ScopeLine label="已有价格反应" value={`${newsCoverage.priceReactionAvailableCount ?? 0}`} />
+        </div>
+      ) : null}
+      {newsTimeline?.events.length ? (
+        <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="mr-1 text-xs font-medium text-foreground">新闻事件、预期差与价格反应</div>
+            <Badge variant={newsTimeline.status === "complete" ? "success" : "warning"}>{newsTimeline.status === "complete" ? "已闭合" : "部分闭合"}</Badge>
+            <span className="text-[11px] text-muted-foreground">{newsTimeline.windowDescription}</span>
+          </div>
+          <div className="mt-3 space-y-3">
+            {newsTimeline.events.map((event) => (
+              <div key={event.eventId} className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {event.canonicalSource.url ? (
+                    <a className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline" href={event.canonicalSource.url} target="_blank" rel="noreferrer">{event.title}</a>
+                  ) : <span className="font-medium text-foreground">{event.title}</span>}
+                  <Badge variant={event.novelty === "reprint_cluster" ? "warning" : "secondary"}>{event.novelty === "reprint_cluster" ? `${event.articleCount} 篇转载聚类` : "单篇事件"}</Badge>
+                  <Badge variant={event.expectation.status === "explicit" ? "success" : event.expectation.status === "inferred" ? "warning" : "danger"}>
+                    {event.expectation.status === "explicit" ? "显式预期差" : event.expectation.status === "inferred" ? "推断预期" : "预期未知"}
+                  </Badge>
+                </div>
+                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <ScopeLine label="窗口内首次" value={formatTime(event.firstSeenAt)} />
+                  <ScopeLine label="规范来源" value={`${event.canonicalSource.name ?? "未知"} · ${newsSourceTierLabel(event.canonicalSource.tier)}`} />
+                  <ScopeLine label="1 / 3 / 5 日反应" value={`${formatSignedPct(event.priceReaction.close1dPct)} / ${formatSignedPct(event.priceReaction.close3dPct)} / ${formatSignedPct(event.priceReaction.close5dPct)}`} />
+                  <ScopeLine label="首个完整日量比" value={event.priceReaction.volumeRatio20 === null ? "--" : `${event.priceReaction.volumeRatio20.toFixed(2)}x`} />
+                </div>
+                {event.expectation.baseline || event.expectation.actual ? (
+                  <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                    <ScopeLine label="事前基线" value={event.expectation.baseline ?? "未提供"} />
+                    <ScopeLine label="实际事实" value={event.expectation.actual ?? "未提供"} />
+                    <ScopeLine label="预期提炼来源" value={event.eventContextSource ? `${event.eventContextSource.name ?? "未知来源"} · ${formatTime(event.eventContextSource.publishedAt)}` : "未记录"} />
+                    <ScopeLine label="影响期限" value={newsHorizonLabel(event.expectedImpactHorizon)} />
+                  </div>
+                ) : null}
+                {event.priceReaction.missingReason ? <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">价格反应未闭合：{event.priceReaction.missingReason}</p> : null}
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
       {analysis.dataScope ? (
@@ -798,6 +842,24 @@ function List({ values }: { values: string[] }) {
 
 function formatConfidence(value: number) {
   return `${(Math.max(0, Math.min(1, value)) * 100).toFixed(0)}%`;
+}
+
+function formatSignedPct(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function newsSourceTierLabel(value: "primary_official" | "secondary_media" | "unknown") {
+  if (value === "primary_official") return "一级/官方";
+  if (value === "secondary_media") return "权威媒体";
+  return "来源等级未确认";
+}
+
+function newsHorizonLabel(value: "days" | "quarters" | "long_term" | "unclear") {
+  if (value === "days") return "数日";
+  if (value === "quarters") return "数季";
+  if (value === "long_term") return "长期";
+  return "未确认";
 }
 
 function formatAction(action: string) {

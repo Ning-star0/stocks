@@ -13,9 +13,10 @@ import { stockSymbolVariants } from "@/lib/symbols";
 import type { Prisma } from "@prisma/client";
 import type { ApiQuotaPriority } from "@/lib/apiQuota";
 import type { NewsBatchContext } from "@/lib/news/batchCoordinator";
+import { parseNewsEventContext } from "@/lib/news/eventTimeline";
 
 export type StockNewsEvidenceRefresh = {
-  schemaVersion: "news-evidence-refresh-v3";
+  schemaVersion: "news-evidence-refresh-v4";
   symbol: string;
   startedAt: string;
   completedAt: string;
@@ -90,6 +91,7 @@ export async function prepareStockNewsEvidence(input: {
     try {
       const analysis = await analyzeNews({
         title: row.title,
+        url: row.url,
         source: row.source,
         publishedAt: row.publishedAt.toISOString(),
         content: truncate(row.rawContent ?? row.summary ?? row.title, 12_000),
@@ -114,7 +116,7 @@ export async function prepareStockNewsEvidence(input: {
   if (deadlineExceeded) failures.push(`新闻精读等待超过 ${Math.round(maxWaitMs / 1000)} 秒，已按证据不足继续。`);
 
   const receipt: StockNewsEvidenceRefresh = {
-    schemaVersion: "news-evidence-refresh-v3",
+    schemaVersion: "news-evidence-refresh-v4",
     symbol: input.symbol.toUpperCase(),
     startedAt,
     completedAt: new Date().toISOString(),
@@ -175,6 +177,8 @@ async function loadRelevantNews(symbol: string) {
 function initialAnalysisState(row: RelevantNewsRow): NewsEvidenceAnalysisState {
   const latest = row.analyses[0];
   if (!latest) return "missing";
+  // v4 要求已验证精读同时具备结构化事件/预期回执；旧分析必须逐步重读，不能伪装成已闭合。
+  if (!parseNewsEventContext(latest.eventContextJson)) return "missing";
   return latest.isFallback ? "fallback" : "verified";
 }
 
@@ -216,9 +220,9 @@ function parseStoredReceipt(value: unknown): StockNewsEvidenceRefresh | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Partial<StockNewsEvidenceRefresh>;
   const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
-  if (!["news-evidence-refresh-v1", "news-evidence-refresh-v2", "news-evidence-refresh-v3"].includes(String(schemaVersion))) return null;
+  if (!["news-evidence-refresh-v1", "news-evidence-refresh-v2", "news-evidence-refresh-v3", "news-evidence-refresh-v4"].includes(String(schemaVersion))) return null;
   if (typeof record.symbol !== "string") return null;
   if (typeof record.startedAt !== "string" || typeof record.completedAt !== "string") return null;
   if (!record.coverage || !Array.isArray(record.failures)) return null;
-  return { ...(record as StockNewsEvidenceRefresh), schemaVersion: "news-evidence-refresh-v3" };
+  return { ...(record as StockNewsEvidenceRefresh), schemaVersion: "news-evidence-refresh-v4" };
 }

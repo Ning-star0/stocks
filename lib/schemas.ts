@@ -96,6 +96,26 @@ export const loginSchema = z.object({
   password: z.string().min(12).max(256)
 });
 
+export const newsEventContextSchema = z.object({
+  schemaVersion: z.literal("news-event-context-v1"),
+  eventOccurredAt: z.string().nullable(),
+  informationStage: z.enum(["first_report", "follow_up", "reprint", "unclear"]),
+  originalSource: z.object({
+    status: z.enum(["current_source", "referenced_without_url", "unavailable"]),
+    name: z.string().nullable(),
+    url: z.string().url().nullable()
+  }),
+  expectation: z.object({
+    status: z.enum(["explicit", "inferred", "unavailable"]),
+    baseline: z.string().nullable(),
+    actual: z.string().nullable(),
+    gapDirection: z.enum(["positive", "negative", "neutral", "unclear"]),
+    evidence: z.string().nullable()
+  }),
+  expectedImpactHorizon: z.enum(["days", "quarters", "long_term", "unclear"]),
+  falsifiers: z.array(z.string())
+});
+
 export const newsAnalysisSchema = z.object({
   summary: z.string().min(1),
   sentiment: z.enum(["positive", "neutral", "negative"]),
@@ -105,6 +125,7 @@ export const newsAnalysisSchema = z.object({
   riskNotes: z.array(z.string()),
   whyItMatters: z.string().min(1),
   confidence: z.number().min(0).max(1),
+  eventContext: newsEventContextSchema,
   isFallback: z.boolean().default(false),
   fallbackReason: z.string().nullable().default(null)
 });
@@ -225,7 +246,54 @@ const newsEvidenceCoverageSummarySchema = z.object({
   tavilyCalls: z.number().int().nonnegative().optional(),
   sharedTopicReused: z.boolean().optional(),
   skippedQueryCount: z.number().int().nonnegative().optional(),
-  sourceProviders: z.array(z.string()).optional()
+  sourceProviders: z.array(z.string()).optional(),
+  eventClusterCount: z.number().int().nonnegative().optional(),
+  duplicateArticleCount: z.number().int().nonnegative().optional(),
+  futureDatedArticleCount: z.number().int().nonnegative().optional(),
+  explicitExpectationCount: z.number().int().nonnegative().optional(),
+  inferredExpectationCount: z.number().int().nonnegative().optional(),
+  unavailableExpectationCount: z.number().int().nonnegative().optional(),
+  priceReactionAvailableCount: z.number().int().nonnegative().optional()
+});
+
+const newsEventTimelineSummarySchema = z.object({
+  schemaVersion: z.literal("news-event-timeline-v1"),
+  algorithmVersion: z.string(),
+  status: z.enum(["complete", "partial", "insufficient"]),
+  windowDescription: z.string(),
+  futureDatedArticleCount: z.number().int().nonnegative(),
+  events: z.array(z.object({
+    eventId: z.string(),
+    title: z.string(),
+    firstSeenAt: z.string(),
+    latestSeenAt: z.string(),
+    novelty: z.enum(["single_report", "reprint_cluster"]),
+    articleCount: z.number().int().positive(),
+    importance: z.enum(["high", "medium", "low", "unknown"]),
+    canonicalSource: z.object({
+      name: z.string().nullable(),
+      url: z.string().url().nullable(),
+      tier: z.enum(["primary_official", "secondary_media", "unknown"])
+    }),
+    expectation: newsEventContextSchema.shape.expectation,
+    eventContextSource: z.object({
+      name: z.string().nullable(),
+      url: z.string().url().nullable(),
+      publishedAt: z.string()
+    }).nullable(),
+    expectedImpactHorizon: z.enum(["days", "quarters", "long_term", "unclear"]),
+    priceReaction: z.object({
+      status: z.enum(["available", "unavailable"]),
+      reactionSessionDate: z.string().nullable(),
+      close1dPct: z.number().nullable(),
+      close3dPct: z.number().nullable(),
+      close5dPct: z.number().nullable(),
+      volumeRatio20: z.number().nullable(),
+      observedSessions: z.number().int().nonnegative(),
+      missingReason: z.string().nullable()
+    }),
+    limitations: z.array(z.string())
+  }))
 });
 
 const dataQualityReportSchema = z.object({
@@ -271,6 +339,7 @@ export const aiAnalysisSchema = z.object({
       newsWindow: z.string().optional(),
       newsCount: z.number().int().nonnegative().optional(),
       newsCoverage: newsEvidenceCoverageSummarySchema.nullable().optional(),
+      newsTimeline: newsEventTimelineSummarySchema.nullable().optional(),
       newsRefreshFailures: z.array(z.string()).optional(),
       fundamentalsStatus: z.string().optional(),
       fundamentalsReportPeriod: z.string().nullable().optional(),

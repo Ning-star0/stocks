@@ -165,6 +165,7 @@ model NewsAnalysis {
   riskNotes       String[]
   whyItMatters    String?
   confidence      Decimal? @db.Decimal(5, 4)
+  eventContextJson Json?
   isFallback      Boolean  @default(false)
   fallbackReason  String?
   createdAt       DateTime @default(now())

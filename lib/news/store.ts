@@ -67,6 +67,7 @@ export async function saveNewsAnalysis(newsItemId: string, analysis: NewsAnalysi
         riskNotes: analysis.riskNotes.map(toSimplifiedChinese),
         whyItMatters: analysis.whyItMatters ? toSimplifiedChinese(analysis.whyItMatters) : null,
         confidence: analysis.confidence,
+        eventContextJson: JSON.parse(JSON.stringify(analysis.eventContext)) as Prisma.InputJsonValue,
         isFallback: analysis.isFallback,
         fallbackReason: analysis.fallbackReason ? toSimplifiedChinese(analysis.fallbackReason) : null
       }
