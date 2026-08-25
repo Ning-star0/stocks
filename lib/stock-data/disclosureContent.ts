@@ -223,12 +223,17 @@ export async function extractDisclosurePdfText(
     }
 
     const ocrResult = await withOcrSlot(() => ocrMissingPages(parser, embeddedByPage, totalPages, ocrPages, dependencies));
+    const recognizedText = normalizePdfText(ocrResult.pages
+      .map((page) => page.text)
+      .filter(Boolean)
+      .join("\n\n"));
+    if (recognizedText.length < MIN_USEFUL_TEXT_CHARS) {
+      throw new Error(`扫描件 OCR 全文仅识别 ${recognizedText.length}/${MIN_USEFUL_TEXT_CHARS} 个实际正文字符，原文保持未读。`);
+    }
+    // 页码用于审计页面顺序，但不能计入最低正文字符门槛。
     const text = normalizePdfText(ocrResult.pages.map((page) => page.text
       ? `${page.text}\n\n-- 第 ${page.pageNumber}/${totalPages} 页 --`
       : `-- 第 ${page.pageNumber}/${totalPages} 页：空白或未识别到文字 --`).join("\n\n"));
-    if (text.length < MIN_USEFUL_TEXT_CHARS) {
-      throw new Error(`扫描件 OCR 全文仅识别 ${text.length}/${MIN_USEFUL_TEXT_CHARS} 个字符，原文保持未读。`);
-    }
     return {
       text,
       extraction: {

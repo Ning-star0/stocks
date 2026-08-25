@@ -150,6 +150,15 @@ test("OCR page, pixel and recognition failures stay explicit instead of acceptin
     createParser: () => fakeParser([""]),
     ocrPage: async () => ({ text: "太短", engine: "fixture", languages: ["chi_sim", "eng"] })
   }), /原文保持未读/);
+
+  await assert.rejects(() => extractDisclosurePdfText(new Uint8Array([1]), {
+    createParser: () => fakeParser(Array.from({ length: 14 }, () => "")),
+    ocrPage: async (_image, pageNumber) => ({
+      text: pageNumber === 1 ? "只有极少正文" : "",
+      engine: "fixture",
+      languages: ["chi_sim", "eng"]
+    })
+  }), /仅识别 6\/120 个实际正文字符/);
 });
 
 test("a full OCR receipt is hashed, persisted and reused without redownloading", async () => {
