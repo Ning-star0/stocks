@@ -273,6 +273,7 @@ function normalizeDataScope(value: unknown, input: AnalyzeStockInput) {
     fundamentalsStatus: fallback.fundamentalsStatus ?? "unavailable",
     fundamentalsReportPeriod: fallback.fundamentalsReportPeriod ?? null,
     fundamentalsSourceUrl: fallback.fundamentalsSourceUrl ?? null,
+    fundamentalCoverage: fallback.fundamentalCoverage ?? null,
     disclosureStatus: fallback.disclosureStatus ?? "unchecked",
     disclosureCheckedAt: fallback.disclosureCheckedAt ?? null,
     disclosureCount: toInteger(record.disclosureCount, fallback.disclosureCount ?? 0),

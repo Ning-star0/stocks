@@ -143,6 +143,20 @@ test("context hash ignores snapshot generation time but changes with disclosure 
   assert.notEqual(contextHash(base, 100_000, "偏好低回撤"), contextHash(changedDisclosure, 100_000, "偏好低回撤"));
 });
 
+test("context hash changes when derived fundamental metrics change", () => {
+  const base = completeEvidence();
+  const input = completeEvidenceInput();
+  const changedMetrics = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: {
+      ...input.fundamentals,
+      metrics: { ...input.fundamentals.metrics, freeCashFlowMarginTtmPct: 12.5 }
+    }
+  });
+
+  assert.notEqual(contextHash(base, 100_000, "偏好低回撤"), contextHash(changedMetrics, 100_000, "偏好低回撤"));
+});
+
 test("analysis cache keys are isolated by user", () => {
   const hash = "a".repeat(64);
   assert.notEqual(
@@ -218,6 +232,25 @@ test("exhausted news quota is explicit and blocks new positions", () => {
   assert.equal(evidence.dataQuality.newsQuotaStatus, "quota_exhausted");
   assert.ok(evidence.dataQuality.missingFields.includes("newsApiQuota"));
   assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("禁止新增仓位")));
+});
+
+test("long-term entry stays blocked when adjusted profit and valuation comparisons are missing", () => {
+  const input = completeEvidenceInput();
+  const evidence = buildAnalysisEvidencePackage({
+    ...input,
+    userContext: { isHolding: false, timeHorizon: "long_term" },
+    fundamentals: {
+      ...input.fundamentals,
+      status: "partial" as const,
+      missingFields: ["adjustedNetIncome", "valuationHistoricalPercentile", "peerValuation"],
+      missingReason: "尚缺长期决策口径"
+    }
+  });
+
+  assert.equal(evidence.decisionMode, "long_term");
+  assert.equal(evidence.dataQuality.status, "insufficient");
+  assert.ok(evidence.dataQuality.entryBlockers.includes("长期模式的财务与估值证据尚不完整"));
+  assert.equal(buildAnalysisTradePlan(analysisFixture(), analyzeInput(evidence)).entry.status, "blocked");
 });
 
 function completeEvidence() {

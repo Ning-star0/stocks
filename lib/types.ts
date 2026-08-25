@@ -1,3 +1,5 @@
+import type { FundamentalCoverageSummary } from "@/lib/analysis/fundamentalCoverage";
+
 export type Trend = "bullish" | "neutral" | "bearish";
 export type NewsSentiment = "positive" | "neutral" | "negative";
 export type StockNewsSentiment = NewsSentiment | "mixed";
@@ -173,6 +175,7 @@ export interface AiAnalysisResult {
     fundamentalsStatus?: string;
     fundamentalsReportPeriod?: string | null;
     fundamentalsSourceUrl?: string | null;
+    fundamentalCoverage?: FundamentalCoverageSummary | null;
     disclosureStatus?: string;
     disclosureCheckedAt?: string | null;
     disclosureCount?: number;

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { summarizeFundamentalCoverage } from "@/lib/analysis/fundamentalCoverage";
 import {
   buildCninfoFundamentalEvidence,
   classifyCninfoDisclosureTitle,
   isCriticalCninfoDisclosure
 } from "@/lib/stock-data/cninfoEvidence";
+import type { FundamentalEvidence } from "@/lib/stock-data/types";
 
 test("CNINFO cumulative statements are converted into standalone quarters with explicit units", () => {
   const evidence = buildCninfoFundamentalEvidence({
@@ -63,7 +65,43 @@ test("CNINFO cumulative statements are converted into standalone quarters with e
   assert.equal(evidence.valuation.pb, 2);
   assert.equal(evidence.annualPeriods[0].freeCashFlow, 39);
   assert.equal(evidence.metrics.freeCashFlowTtmCny10k, 42);
+  assert.equal(evidence.metrics.operatingCashFlowToParentNetIncomeTtm, 2.3529);
+  assert.equal(evidence.metrics.freeCashFlowToParentNetIncomeTtm, 1.7647);
+  assert.equal(evidence.metrics.freeCashFlowMarginTtmPct, 17.6471);
   assert.equal(evidence.missingFields.includes("freeCashFlow"), false);
+});
+
+test("fundamental coverage exposes cash conversion without inventing unavailable fields", () => {
+  const evidence = summaryEvidence({
+    revenueTtmCny10k: 200,
+    parentNetIncomeTtmCny10k: 20,
+    operatingCashFlowTtmCny10k: 40,
+    freeCashFlowTtmCny10k: 30
+  });
+  const summary = summarizeFundamentalCoverage(evidence);
+
+  assert.equal(summary.operatingCashFlowToParentNetIncomeTtm, 2);
+  assert.equal(summary.freeCashFlowToParentNetIncomeTtm, 1.5);
+  assert.equal(summary.freeCashFlowMarginTtmPct, 15);
+  assert.equal(summary.cashFlowQualityStatus, "available");
+  assert.equal(summary.adjustedNetIncomeAvailable, false);
+  assert.equal(summary.historicalValuationAvailable, false);
+  assert.equal(summary.peerValuationAvailable, false);
+  assert.deepEqual(summary.missingFields, ["adjustedNetIncome", "valuationHistoricalPercentile", "peerValuation"]);
+});
+
+test("cash conversion ratios stay null when profit is non-positive", () => {
+  const summary = summarizeFundamentalCoverage(summaryEvidence({
+    revenueTtmCny10k: 200,
+    parentNetIncomeTtmCny10k: -5,
+    operatingCashFlowTtmCny10k: 40,
+    freeCashFlowTtmCny10k: 30
+  }));
+
+  assert.equal(summary.operatingCashFlowToParentNetIncomeTtm, null);
+  assert.equal(summary.freeCashFlowToParentNetIncomeTtm, null);
+  assert.equal(summary.freeCashFlowMarginTtmPct, 15);
+  assert.equal(summary.cashFlowQualityStatus, "not_meaningful");
 });
 
 test("critical statutory disclosure categories are deterministic", () => {
@@ -128,4 +166,31 @@ function withSecondaryMetric<T extends Record<"one" | "middle" | "three" | "year
     });
   }
   return record;
+}
+
+function summaryEvidence(metrics: FundamentalEvidence["metrics"]): FundamentalEvidence {
+  return {
+    schemaVersion: "fundamental-evidence-v1",
+    status: "partial",
+    provider: "CNINFO",
+    sourceUrl: "https://www.cninfo.com.cn/",
+    fetchedAt: "2026-08-25T01:00:00.000Z",
+    reportPeriod: "2025-12-31",
+    annualPeriods: [],
+    quarterlyPeriods: [],
+    valuation: {
+      asOf: "2026-08-24T07:00:00.000Z",
+      price: 20,
+      epsTtm: 2,
+      peTtm: 10,
+      bookValuePerShare: 10,
+      pb: 2,
+      historicalPercentile: null
+    },
+    metrics,
+    missingFields: ["adjustedNetIncome", "valuationHistoricalPercentile", "peerValuation"],
+    conflictingFields: [],
+    failures: [],
+    missingReason: "尚缺关键估值证据"
+  };
 }

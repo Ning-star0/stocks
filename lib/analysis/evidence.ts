@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.3.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.4.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -249,7 +249,7 @@ export function buildAnalysisEvidencePackage(input: {
   ]);
   const status: DataQualityStatus = conflictingFields.length
     ? "conflicted"
-    : !quoteFresh || !klineFresh || !fundamentalsFresh || !disclosuresFresh || criticalDisclosureUnread || !portfolioRiskEvaluated || portfolioRiskBlocked || history.length < MIN_DAILY_HISTORY_CANDLES || fallbackAnalysisCount > 0 || !criticalNewsAnalyzed
+    : entryBlockers.length
       ? "insufficient"
       : missingFields.length
         ? "partial"

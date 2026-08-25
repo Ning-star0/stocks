@@ -1,6 +1,7 @@
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { DisclosureSourceSummary, NewsEvidenceCoverageSummary } from "@/lib/types";
 import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
+import type { FundamentalCoverageSummary } from "@/lib/analysis/fundamentalCoverage";
 
 export type AnalyzeStockInput = {
   symbol: string;
@@ -28,6 +29,7 @@ export type AnalyzeStockInput = {
     fundamentalsStatus?: string;
     fundamentalsReportPeriod?: string | null;
     fundamentalsSourceUrl?: string | null;
+    fundamentalCoverage?: FundamentalCoverageSummary | null;
     disclosureStatus?: string;
     disclosureCheckedAt?: string | null;
     disclosureCount?: number;

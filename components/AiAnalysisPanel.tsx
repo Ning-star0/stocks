@@ -7,6 +7,7 @@ import { TrendBadge } from "@/components/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DecisionChange } from "@/lib/decision/change";
+import type { FundamentalCashFlowQualityStatus } from "@/lib/analysis/fundamentalCoverage";
 import { getPrimaryAdvice, type PositionContext } from "@/lib/positionAdvice";
 import type { AiAnalysisResult } from "@/lib/types";
 import { formatPriceValue, toNumber } from "@/lib/utils";
@@ -178,6 +179,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
   const opposing = analysis.opposingEvidence ?? [];
   const missing = analysis.missingEvidence ?? [];
   const blockers = quality?.entryBlockers ?? [];
+  const fundamentalCoverage = analysis.dataScope?.fundamentalCoverage;
 
   return (
     <Block title="证据覆盖与反方检查">
@@ -217,6 +219,29 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <ScopeLine label="关键公告原文" value={`${analysis.dataScope.disclosureExtractedCount ?? 0} / ${analysis.dataScope.disclosureCriticalCount ?? 0}`} />
           <ScopeLine label="组合风险状态" value={analysis.dataScope.portfolioRiskStatus ?? "未核算"} />
           <ScopeLine label="剩余风险额度" value={analysis.dataScope.portfolioAvailableRiskAmount === null || analysis.dataScope.portfolioAvailableRiskAmount === undefined ? "--" : `¥${analysis.dataScope.portfolioAvailableRiskAmount.toFixed(2)}`} />
+        </div>
+      ) : null}
+      {fundamentalCoverage ? (
+        <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="mr-1 text-xs font-medium text-foreground">基本面覆盖与现金流质量</div>
+            <Badge variant={fundamentalCoverage.adjustedNetIncomeAvailable ? "success" : "danger"}>扣非净利润{fundamentalCoverage.adjustedNetIncomeAvailable ? "已覆盖" : "缺失"}</Badge>
+            <Badge variant={fundamentalCoverage.historicalValuationAvailable ? "success" : "danger"}>历史估值{fundamentalCoverage.historicalValuationAvailable ? "已覆盖" : "缺失"}</Badge>
+            <Badge variant={fundamentalCoverage.peerValuationAvailable ? "success" : "danger"}>同行估值{fundamentalCoverage.peerValuationAvailable ? "已覆盖" : "缺失"}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <ScopeLine label="财务样本" value={`${fundamentalCoverage.annualPeriodCount} / 5 年，${fundamentalCoverage.standaloneQuarterCount} / 8 单季`} />
+            <ScopeLine label="现金质量口径" value={cashFlowQualityLabel(fundamentalCoverage.cashFlowQualityStatus)} />
+            <ScopeLine label="自由现金流 TTM" value={formatCny10k(fundamentalCoverage.freeCashFlowTtmCny10k)} />
+            <ScopeLine label="经营现金流 / 归母净利" value={formatMultiple(fundamentalCoverage.operatingCashFlowToParentNetIncomeTtm)} />
+            <ScopeLine label="自由现金流 / 归母净利" value={formatMultiple(fundamentalCoverage.freeCashFlowToParentNetIncomeTtm)} />
+            <ScopeLine label="自由现金流率 TTM" value={formatMetricPercent(fundamentalCoverage.freeCashFlowMarginTtmPct)} />
+            <ScopeLine label="PE(TTM) / PB" value={`${formatMetricNumber(fundamentalCoverage.peTtm)} / ${formatMetricNumber(fundamentalCoverage.pb)}`} />
+            <ScopeLine label="历史估值分位" value={formatMetricPercent(fundamentalCoverage.historicalPercentile)} />
+          </div>
+          {fundamentalCoverage.missingFields.length ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">明确缺失：{fundamentalCoverage.missingFields.map(fundamentalFieldLabel).join("、")}</p>
+          ) : null}
         </div>
       ) : null}
       {analysis.dataScope?.disclosureSources?.length ? (
@@ -704,6 +729,50 @@ function actionTone(action?: string): "watch" | "wait" | "avoid" | "bullish" | "
   if (/等待|回调|观察|观望/.test(text)) return "wait";
   if (/入场|建仓|试探|加仓|增持/.test(text)) return "bullish";
   return "watch";
+}
+
+function formatCny10k(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  if (Math.abs(value) >= 10_000) return `${(value / 10_000).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} 亿元`;
+  return `${value.toLocaleString("zh-CN", { maximumFractionDigits: 2 })} 万元`;
+}
+
+function formatMultiple(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)} 倍` : "--";
+}
+
+function formatMetricPercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}%` : "--";
+}
+
+function formatMetricNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "--";
+}
+
+function cashFlowQualityLabel(status: FundamentalCashFlowQualityStatus) {
+  if (status === "available") return "完整可比";
+  if (status === "partial") return "部分可比";
+  if (status === "not_meaningful") return "归母净利非正，比例无意义";
+  return "不可用";
+}
+
+function fundamentalFieldLabel(field: string) {
+  const labels: Record<string, string> = {
+    fundamentalSource: "法定财务来源",
+    fiveAnnualPeriods: "5 年年度数据",
+    eightStandaloneQuarters: "8 个独立季度",
+    annualRevenue: "年度营收",
+    annualParentNetIncome: "年度归母净利润",
+    annualOperatingCashFlow: "年度经营现金流",
+    freeCashFlow: "自由现金流",
+    epsTtm: "每股收益 TTM",
+    peTtm: "PE(TTM)",
+    pb: "PB",
+    adjustedNetIncome: "扣非净利润",
+    valuationHistoricalPercentile: "历史估值分位",
+    peerValuation: "同行估值"
+  };
+  return labels[field] ?? field;
 }
 
 function decisionStatusLabel(status: NonNullable<AiAnalysisResult["decisionStatus"]>) {

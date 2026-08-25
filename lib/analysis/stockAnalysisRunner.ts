@@ -6,6 +6,7 @@ import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { analyzeStock } from "@/lib/ai/analyzeStock";
 import { createAnalysisCacheKey, createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { buildAnalysisEvidencePackage } from "@/lib/analysis/evidence";
+import { summarizeFundamentalCoverage } from "@/lib/analysis/fundamentalCoverage";
 import {
   getStoredStockCompanyEvidence,
   prepareStockCompanyEvidence,
@@ -240,6 +241,7 @@ export async function buildStockAnalysisContext(
     fundamentalsStatus: companyEvidenceRefresh?.fundamentals.status ?? "unavailable",
     fundamentalsReportPeriod: companyEvidenceRefresh?.fundamentals.reportPeriod ?? null,
     fundamentalsSourceUrl: companyEvidenceRefresh?.fundamentals.sourceUrl || null,
+    fundamentalCoverage: summarizeFundamentalCoverage(companyEvidenceRefresh?.fundamentals),
     disclosureStatus: companyEvidenceRefresh?.disclosures.status ?? "unchecked",
     disclosureCheckedAt: companyEvidenceRefresh?.disclosures.checkedAt ?? null,
     disclosureCount: companyEvidenceRefresh?.disclosures.totalCount ?? 0,

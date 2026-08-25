@@ -176,6 +176,9 @@ export function buildCninfoFundamentalEvidence(input: {
   const operatingCashFlowTtm = calculateFinancialTtm(cumulative, reportPeriod, "operatingCashFlow");
   const capitalExpenditureTtm = calculateFinancialTtm(cumulative, reportPeriod, "capitalExpenditure");
   const freeCashFlowTtm = calculateFinancialTtm(cumulative, reportPeriod, "freeCashFlow");
+  const operatingCashFlowToParentNetIncomeTtm = ratioToPositiveDenominator(operatingCashFlowTtm, parentNetIncomeTtm);
+  const freeCashFlowToParentNetIncomeTtm = ratioToPositiveDenominator(freeCashFlowTtm, parentNetIncomeTtm);
+  const freeCashFlowMarginTtmPct = ratioToPositiveDenominator(freeCashFlowTtm, revenueTtm, 100);
   const latestBookValue = latestIndicator?.bookValuePerShare ?? null;
   const peTtm = positiveRatio(input.price, epsTtm);
   const pb = positiveRatio(input.price, latestBookValue);
@@ -227,6 +230,9 @@ export function buildCninfoFundamentalEvidence(input: {
       operatingCashFlowTtmCny10k: operatingCashFlowTtm,
       capitalExpenditureTtmCny10k: capitalExpenditureTtm,
       freeCashFlowTtmCny10k: freeCashFlowTtm,
+      operatingCashFlowToParentNetIncomeTtm,
+      freeCashFlowToParentNetIncomeTtm,
+      freeCashFlowMarginTtmPct,
       latestQuarterRevenueCny10k: latestQuarter?.revenue ?? null,
       latestQuarterParentNetIncomeCny10k: latestQuarter?.parentNetIncome ?? null,
       latestRoePct: latestIndicator?.roePct ?? null,
@@ -598,6 +604,11 @@ function subtractNullable(current: number | null, previous: number | null | unde
 function positiveRatio(numerator: number | null, denominator: number | null) {
   if (numerator === null || denominator === null || numerator <= 0 || denominator <= 0) return null;
   return round(numerator / denominator);
+}
+
+function ratioToPositiveDenominator(numerator: number | null, denominator: number | null, multiplier = 1) {
+  if (numerator === null || denominator === null || denominator <= 0) return null;
+  return round((numerator / denominator) * multiplier);
 }
 
 function finiteNumber(value: unknown) {
