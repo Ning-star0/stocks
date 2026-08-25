@@ -3,9 +3,11 @@ import test from "node:test";
 
 import { reserveApiQuota, settleApiQuota, type ApiQuotaReservation } from "@/lib/apiQuota";
 import { deleteCache, rememberWithStatus, setCache } from "@/lib/cache";
+import { disconnectRedisClient } from "@/lib/cache/redis";
 import { prisma } from "@/lib/prisma";
 
 test.after(async () => {
+  disconnectRedisClient();
   await prisma.$disconnect();
 });
 

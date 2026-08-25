@@ -58,6 +58,13 @@ export function markRedisUnavailable() {
   }
 }
 
+export function disconnectRedisClient() {
+  const client = globalRedis.__stockAiRedisClient;
+  delete globalRedis.__stockAiRedisClient;
+  delete globalRedis.__stockAiRedisUnavailableUntil;
+  if (client && client.status !== "end") client.disconnect();
+}
+
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
