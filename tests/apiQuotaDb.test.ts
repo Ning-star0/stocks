@@ -5,6 +5,10 @@ import { reserveApiQuota, settleApiQuota, type ApiQuotaReservation } from "@/lib
 import { deleteCache, rememberWithStatus, setCache } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
 
+test.after(async () => {
+  await prisma.$disconnect();
+});
+
 test("database advisory lock prevents concurrent quota overspend", {
   skip: process.env.RUN_DB_E2E_TESTS !== "true"
 }, async () => {

@@ -70,7 +70,12 @@ export async function reserveApiQuota(input: ReserveApiQuotaInput): Promise<ApiQ
   const lockKey = `api_quota:${provider}:${apiName}`;
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    // pg_advisory_xact_lock returns PostgreSQL's `void` pseudo-type, which
+    // Prisma cannot deserialize directly. Wrapping it in a boolean expression
+    // keeps the blocking lock semantics while returning a supported type.
+    await tx.$queryRaw<{ acquired: boolean }[]>`
+      SELECT pg_advisory_xact_lock(hashtext(${lockKey})) IS NULL AS acquired
+    `;
     const [dailySuccess, dailyReserved, monthlySuccess, monthlyReserved] = await Promise.all([
       sumUsage(tx, provider, apiName, windows.dayStart, "success"),
       sumUsage(tx, provider, apiName, windows.dayStart, "reserved", activeReservationCutoff),
