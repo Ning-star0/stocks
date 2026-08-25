@@ -98,6 +98,12 @@ npm run dev
 | `DISCLOSURE_MAX_PDF_BYTES` | 单份公告 PDF 最大字节数 | `16777216` |
 | `DISCLOSURE_PDF_TIMEOUT_MS` | 单份公告 PDF 下载超时 | `25000` |
 | `TAVILY_API_KEY` | 联网搜索（可选） | - |
+| `TAVILY_PROJECT_ID` | Tavily 用量归因项目 ID | `stocks` |
+| `NEWS_DAILY_CALL_LIMIT` | 天行成功请求日硬上限；`0` 表示不设本地上限 | `100` |
+| `WEB_SEARCH_MONTHLY_CALL_LIMIT` | Tavily 月硬上限；`0` 表示不设本地上限 | `1000` |
+| `NEWS_CRITICAL_QUOTA_RESERVE_PCT` | 为手动关键风险核验保留的额度比例 | `20` |
+| `NEWS_MAX_TIANAPI_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的天行请求 | `2` |
+| `NEWS_MAX_TAVILY_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的 Tavily 请求 | `1` |
 | `ALPHA_VANTAGE_API_KEY` | Alpha Vantage（可选） | - |
 | `FINNHUB_API_KEY` | Finnhub（可选） | - |
 | `TIANAPI_KEY` | 天行财经（可选） | - |

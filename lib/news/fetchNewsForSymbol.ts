@@ -1,7 +1,15 @@
+import { randomUUID } from "node:crypto";
+
+import type { ApiQuotaPriority, ApiQuotaStatus } from "@/lib/apiQuota";
 import { deleteCache } from "@/lib/cache";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
+import {
+  createNewsRequestContext,
+  newsQuotaStatus,
+  type NewsProviderEvent
+} from "@/lib/news/NewsProvider";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import {
   buildSectorNewsKeywords,
@@ -18,6 +26,7 @@ import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
 
 export type FetchNewsForSymbolResult = {
+  schemaVersion: "news-fetch-v2";
   symbol: string;
   completed: boolean;
   fetched: number;
@@ -27,11 +36,26 @@ export type FetchNewsForSymbolResult = {
   webSearchUsed: boolean;
   companySearchCompleted: boolean;
   topicSearchCompleted: boolean;
+  quotaStatus: ApiQuotaStatus;
+  quotaEvents: NewsProviderEvent[];
+  cacheHitCount: number;
+  tianapiCalls: number;
+  tavilyCalls: number;
   failures: string[];
 };
 
-export async function fetchNewsForSymbol(symbol: string, userId: string): Promise<FetchNewsForSymbolResult> {
+export async function fetchNewsForSymbol(
+  symbol: string,
+  userId: string,
+  options: { priority?: ApiQuotaPriority; requestBatchId?: string } = {}
+): Promise<FetchNewsForSymbolResult> {
   const provider = getNewsProvider();
+  const context = createNewsRequestContext({
+    userId,
+    symbol,
+    priority: options.priority ?? "routine",
+    requestBatchId: options.requestBatchId ?? randomUUID()
+  });
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const name = await resolveSymbolName(symbol);
@@ -46,30 +70,32 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
   const failures: string[] = [];
 
   // 公司新闻
+  const companyEventStart = context.events.length;
   try {
-    const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
+    const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
     const relevantCodeNews = rankUsefulNews(
       filterRelevantNewsForStock(codeNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }),
       sectorKeywords
     );
     filteredOut += codeNews.length - relevantCodeNews.length;
     fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
-    companySearchCompleted = true;
+    companySearchCompleted = requestCompleted(context.events.slice(companyEventStart));
   } catch (error) {
     failures.push(`公司新闻检索失败：${errorMessage(error)}`);
   }
 
   // 主题新闻
   const topicKeywords = sectorKeywords.filter((k) => !/^\d+$/.test(k)).slice(0, 5);
+  const topicEventStart = context.events.length;
   try {
-    const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString());
+    const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
     const relevantTopicNews = rankUsefulNews(
       filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }),
       sectorKeywords
     );
     filteredOut += topicNews.length - relevantTopicNews.length;
     fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
-    topicSearchCompleted = true;
+    topicSearchCompleted = requestCompleted(context.events.slice(topicEventStart));
   } catch (error) {
     failures.push(`主题新闻检索失败：${errorMessage(error)}`);
   }
@@ -82,7 +108,8 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
         name,
         sectorKeywords,
         days: 7,
-        maxResults: 8
+        maxResults: 8,
+        context
       });
       if (webSearch.results.length) webSearchUsed = true;
       fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
@@ -142,9 +169,15 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
   ]);
   await Promise.all(cacheKeys.map((key) => deleteCache(key)));
 
+  const quotaStatus = newsQuotaStatus(context.events);
+  for (const event of context.events) {
+    if (event.status === "quota_exhausted" && event.message) failures.push(`新闻额度不足：${event.message}`);
+  }
+
   return {
+    schemaVersion: "news-fetch-v2",
     symbol,
-    completed: companySearchCompleted && topicSearchCompleted && failures.length === 0,
+    completed: companySearchCompleted && topicSearchCompleted && quotaStatus !== "quota_exhausted" && failures.length === 0,
     fetched: fetched.length,
     saved: saved.length,
     filteredOut,
@@ -152,6 +185,11 @@ export async function fetchNewsForSymbol(symbol: string, userId: string): Promis
     webSearchUsed,
     companySearchCompleted,
     topicSearchCompleted,
+    quotaStatus,
+    quotaEvents: context.events,
+    cacheHitCount: context.events.filter((event) => event.status === "cache_hit").length,
+    tianapiCalls: context.events.filter((event) => event.provider === "tianapi" && (event.status === "success" || event.status === "failed")).length,
+    tavilyCalls: context.events.filter((event) => event.provider === "tavily" && (event.status === "success" || event.status === "failed")).length,
     failures: uniqueText(failures)
   };
 }
@@ -204,4 +242,11 @@ function uniqueText(values: string[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "未知错误";
+}
+
+function requestCompleted(events: NewsProviderEvent[]) {
+  if (events.some((event) => event.status === "quota_exhausted")) return false;
+  const failed = events.some((event) => event.status === "failed");
+  const fulfilled = events.some((event) => event.status === "success" || event.status === "cache_hit");
+  return !failed || fulfilled;
 }

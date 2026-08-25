@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 
-import { logApiUsage } from "@/lib/apiUsage";
 import { generateNewsSearchPlan, type NewsSearchPlan } from "@/lib/ai/generateNewsSearchQueries";
-import { remember } from "@/lib/cache";
+import { logApiCacheHit, reserveApiQuota, settleApiQuota } from "@/lib/apiQuota";
+import { rememberWithStatus } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
 import { getNewsProvider } from "@/lib/news";
+import {
+  consumeNewsRequestBudget,
+  createNewsRequestContext,
+  type NewsRequestContext
+} from "@/lib/news/NewsProvider";
 import {
   buildSectorNewsKeywords,
   buildStockNewsKeywords,
@@ -22,6 +27,7 @@ export type RelatedNewsSearchInput = {
   sectorKeywords?: string[];
   days?: number;
   maxResults?: number;
+  context?: NewsRequestContext;
 };
 
 export type RelatedNewsSearchOutput = {
@@ -48,6 +54,7 @@ type TavilyResponse = {
 };
 
 export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<RelatedNewsSearchOutput> {
+  const context = input.context ?? createNewsRequestContext({ symbol: input.symbol });
   const searchPlan = await generateNewsSearchPlan(input);
   const searchInput = enrichInputWithPlan(input, searchPlan);
   const queries = buildSearchQueries(searchInput, searchPlan);
@@ -65,7 +72,7 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
 
   if (normalizeEnv(process.env.TAVILY_API_KEY)) {
     try {
-      const tavily = await searchTavilyNews(searchInput, queries);
+      const tavily = await searchTavilyNews(searchInput, queries, context);
       if (tavily.results.length) {
         return {
           provider: "tavily",
@@ -85,7 +92,7 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
         results: []
       };
     } catch (error) {
-      const fallback = await searchViaConfiguredNewsProvider(searchInput, queries);
+      const fallback = await searchViaConfiguredNewsProvider(searchInput, queries, context);
       return {
         provider: "news_provider",
         status: `${strategyStatus}；Tavily 调用失败，已回退到 ${process.env.NEWS_PROVIDER || "news provider"}：${error instanceof Error ? error.message : "未知错误"}`,
@@ -97,7 +104,7 @@ export async function searchRelatedNews(input: RelatedNewsSearchInput): Promise<
     }
   }
 
-  const fallbackResults = await searchViaConfiguredNewsProvider(searchInput, queries);
+  const fallbackResults = await searchViaConfiguredNewsProvider(searchInput, queries, context);
   return {
     provider: "news_provider",
     status: `${strategyStatus}；未配置 TAVILY_API_KEY，已使用 ${process.env.NEWS_PROVIDER || "news provider"} 搜索`,
@@ -166,28 +173,12 @@ function buildSearchQueries(input: RelatedNewsSearchInput, searchPlan?: NewsSear
   return [...output].filter((item) => item.length >= 4).slice(0, numberEnv("WEB_SEARCH_MAX_QUERIES", 6));
 }
 
-async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[]) {
+async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[], context: NewsRequestContext) {
   const rawRows: NewsItem[] = [];
   const maxResults = input.maxResults ?? 8;
 
-  for (const query of queries) {
-    rawRows.push(...(await searchTavilyQuery(query, input, "finance")));
-    if (rawRows.length >= maxResults) break;
-  }
-
-  if (rawRows.length === 0) {
-    for (const query of queries.slice(0, 2)) {
-      rawRows.push(...(await searchTavilyQuery(query, input, "news")));
-      if (rawRows.length >= maxResults) break;
-    }
-  }
-
-  if (rawRows.length === 0) {
-    for (const query of queries.slice(0, 2)) {
-      rawRows.push(...(await searchTavilyQuery(query, input, "general")));
-      if (rawRows.length >= maxResults) break;
-    }
-  }
+  const query = queries[0];
+  if (query) rawRows.push(...(await searchTavilyQuery(query, input, "finance", context)));
 
   const filtered = filterAndDedupe(rawRows, input);
   const results = filtered.length || !allowUnfilteredWebNews() ? filtered : fallbackDedupe(rawRows, input);
@@ -198,12 +189,29 @@ async function searchTavilyNews(input: RelatedNewsSearchInput, queries: string[]
   };
 }
 
-async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, topic: TavilyTopic) {
+async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, topic: TavilyTopic, context: NewsRequestContext) {
   const key = normalizeEnv(process.env.TAVILY_API_KEY);
   if (!key) return [];
 
   const cacheKey = `web_news:tavily:v3:${hash(`${topic}:${query}:${input.days ?? 30}`)}`;
-  return remember(cacheKey, numberEnv("WEB_SEARCH_CACHE_TTL_SECONDS", numberEnv("NEWS_CACHE_TTL_SECONDS", 1800)), async () => {
+  const result = await rememberWithStatus(cacheKey, numberEnv("WEB_SEARCH_CACHE_TTL_SECONDS", 4 * 3600), async () => {
+    consumeNewsRequestBudget(context, "tavily", "web");
+    let reservation;
+    try {
+      reservation = await reserveApiQuota({
+        userId: context.userId,
+        provider: "tavily",
+        apiName: "web_search",
+        priority: context.priority,
+        symbol: context.symbol,
+        requestBatchId: context.requestBatchId,
+        requestKind: "web",
+        metadata: { topic, queryHash: hash(query) }
+      });
+    } catch (error) {
+      context.events.push({ provider: "tavily", apiName: "web_search", status: "quota_exhausted", requestKind: "web", message: errorMessage(error) });
+      throw error;
+    }
     const body: Record<string, unknown> = {
       query,
       topic,
@@ -219,36 +227,70 @@ async function searchTavilyQuery(query: string, input: RelatedNewsSearchInput, t
     } else {
       body.time_range = "month";
     }
-    const response = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "X-Project-ID": normalizeProjectId(process.env.TAVILY_PROJECT_ID)
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (error) {
+      await settleApiQuota(reservation, "failed", { error: errorMessage(error) });
+      context.events.push({ provider: "tavily", apiName: "web_search", status: "failed", requestKind: "web", message: errorMessage(error) });
+      throw error;
+    }
 
-    const payload = await readProviderJsonResponse<TavilyResponse & { error?: string; message?: string }>(response, "Tavily 网页搜索", {
-      fallbackOnHttpError: {}
-    });
+    let payload: TavilyResponse & { error?: string; message?: string };
+    try {
+      payload = await readProviderJsonResponse<TavilyResponse & { error?: string; message?: string }>(response, "Tavily 网页搜索", {
+        fallbackOnHttpError: {}
+      });
+    } catch (error) {
+      await settleApiQuota(reservation, "failed", { error: errorMessage(error) });
+      context.events.push({ provider: "tavily", apiName: "web_search", status: "failed", requestKind: "web", message: errorMessage(error) });
+      throw error;
+    }
     if (!response.ok) {
-      await logApiUsage({ provider: "tavily", apiName: "web_search", status: "failed", metadata: { topic, status: response.status } });
+      await settleApiQuota(reservation, "failed", { topic, httpStatus: response.status });
+      context.events.push({ provider: "tavily", apiName: "web_search", status: "failed", requestKind: "web", message: `HTTP ${response.status}` });
       throw new AppError("DATA_PROVIDER_ERROR", payload.error || payload.message || `Tavily 搜索失败：HTTP ${response.status}`);
     }
-    await logApiUsage({ provider: "tavily", apiName: "web_search", status: "success", metadata: { topic, resultCount: payload.results?.length ?? 0 } });
+    await settleApiQuota(reservation, "success", { topic, resultCount: payload.results?.length ?? 0 });
+    if (reservation.status === "quota_low") {
+      context.events.push({ provider: "tavily", apiName: "web_search", status: "quota_low", requestKind: "web" });
+    }
+    context.events.push({ provider: "tavily", apiName: "web_search", status: "success", requestKind: "web" });
 
     return (payload.results ?? []).map((row) => tavilyRowToNewsItem(row, input));
   });
+  if (result.source !== "fresh") {
+    context.events.push({ provider: "tavily", apiName: "web_search", status: "cache_hit", requestKind: "web" });
+    await logApiCacheHit({
+      userId: context.userId,
+      provider: "tavily",
+      apiName: "web_search",
+      priority: context.priority,
+      symbol: context.symbol,
+      requestBatchId: context.requestBatchId,
+      requestKind: "web",
+      metadata: { topic, cacheSource: result.source }
+    });
+  }
+  return result.value;
 }
 
-async function searchViaConfiguredNewsProvider(input: RelatedNewsSearchInput, queries: string[]) {
+async function searchViaConfiguredNewsProvider(input: RelatedNewsSearchInput, queries: string[], context: NewsRequestContext) {
   const provider = getNewsProvider();
   const to = new Date();
   const from = new Date(Date.now() - Math.max(1, input.days ?? 7) * 24 * 60 * 60 * 1000);
   const rows: NewsItem[] = [];
 
-  for (const query of queries.slice(0, numberEnv("WEB_SEARCH_MAX_QUERIES", 4))) {
-    rows.push(...(await provider.searchTopicNews(query.split(/\s+/).filter(Boolean).slice(0, 4), from.toISOString(), to.toISOString()).catch(() => [])));
+  for (const query of queries.slice(0, 1)) {
+    rows.push(...(await provider.searchTopicNews(query.split(/\s+/).filter(Boolean).slice(0, 4), from.toISOString(), to.toISOString(), context).catch(() => [])));
   }
 
   return {
@@ -387,6 +429,14 @@ function hash(value: string) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeProjectId(value?: string) {
+  return String(value ?? "stocks").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "stocks";
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
 }
 
 function allowUnfilteredWebNews() {

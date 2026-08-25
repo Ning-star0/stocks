@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 
-import { logApiUsage } from "@/lib/apiUsage";
-import { remember } from "@/lib/cache";
+import { logApiCacheHit, reserveApiQuota, settleApiQuota } from "@/lib/apiQuota";
+import { rememberWithStatus } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import { readProviderJsonResponse } from "@/lib/httpJson";
-import type { NewsProvider } from "@/lib/news/NewsProvider";
+import {
+  consumeNewsRequestBudget,
+  createNewsRequestContext,
+  type NewsProvider,
+  type NewsProviderEvent,
+  type NewsRequestContext
+} from "@/lib/news/NewsProvider";
 import type { NewsItem } from "@/lib/types";
 
 type TianApiResponse = {
@@ -36,23 +42,23 @@ const tianApiState = globalThis as unknown as {
 export class TianApiNewsProvider implements NewsProvider {
   private readonly baseUrl = "https://apis.tianapi.com/caijing/index";
 
-  async searchCompanyNews(symbol: string, from: string, to: string): Promise<NewsItem[]> {
+  async searchCompanyNews(symbol: string, from: string, to: string, context = createNewsRequestContext({ symbol })): Promise<NewsItem[]> {
     const normalized = symbol.toUpperCase();
     const compact = normalized.replace(/\.(SH|SZ|BJ|HK)$/i, "");
-    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 10 }));
+    const rows = dedupeRows(await this.search({ word: compact, page: 1, num: 10 }, context, "company", numberEnv("NEWS_COMPANY_CACHE_TTL_SECONDS", 3600)));
 
     return rows
       .map((row) => normalizeTianApiNews(row, [normalized], []))
       .filter((item) => withinRange(item, from, to));
   }
 
-  async searchTopicNews(keywords: string[], from: string, to: string): Promise<NewsItem[]> {
-    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, 3);
+  async searchTopicNews(keywords: string[], from: string, to: string, context = createNewsRequestContext()): Promise<NewsItem[]> {
+    const cleanKeywords = keywords.map((keyword) => keyword.trim()).filter(Boolean).slice(0, numberEnv("NEWS_TOPIC_QUERY_LIMIT", 1));
     if (!cleanKeywords.length) return [];
 
     const rows: TianApiNewsRow[] = [];
     for (const keyword of cleanKeywords) {
-      rows.push(...(await this.search({ word: keyword, page: 1, num: 10 })));
+      rows.push(...(await this.search({ word: keyword, page: 1, num: 10 }, context, "topic", numberEnv("NEWS_TOPIC_CACHE_TTL_SECONDS", 4 * 3600))));
     }
 
     return dedupeRows(rows)
@@ -61,7 +67,12 @@ export class TianApiNewsProvider implements NewsProvider {
       .filter((item) => containsAnyKeyword(item, cleanKeywords));
   }
 
-  private async search(input: { word?: string; page?: number; num?: number }) {
+  private async search(
+    input: { word?: string; page?: number; num?: number },
+    context: NewsRequestContext,
+    requestKind: NewsProviderEvent["requestKind"],
+    ttlSeconds: number
+  ) {
     const key = requireTianApiKey();
     const url = new URL(this.baseUrl);
     url.searchParams.set("key", key);
@@ -70,40 +81,90 @@ export class TianApiNewsProvider implements NewsProvider {
     url.searchParams.set("form", "1");
     if (input.word) url.searchParams.set("word", input.word);
 
-    const cacheKey = `news:tianapi:v2:${hashUrlWithoutKey(url)}`;
-    return remember(cacheKey, numberEnv("NEWS_CACHE_TTL_SECONDS", 900), async () => this.fetchWithRetry(url));
+    const cacheKey = `news:tianapi:v3:${hashUrlWithoutKey(url)}`;
+    const result = await rememberWithStatus(cacheKey, ttlSeconds, async () => {
+      return this.fetchWithRetry(url, context, requestKind);
+    });
+    if (result.source !== "fresh") {
+      context.events.push({ provider: "tianapi", apiName: "news", status: "cache_hit", requestKind });
+      await logApiCacheHit(usageInput(context, requestKind, { cacheSource: result.source }));
+    }
+    return result.value;
   }
 
-  private async fetchWithRetry(url: URL) {
+  private async fetchWithRetry(url: URL, context: NewsRequestContext, requestKind: NewsProviderEvent["requestKind"]) {
     let lastPayload: TianApiResponse | null = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      consumeNewsRequestBudget(context, "tianapi", requestKind);
+      let reservation;
+      try {
+        reservation = await reserveApiQuota(usageInput(context, requestKind, { attempt: attempt + 1 }));
+      } catch (error) {
+        context.events.push({ provider: "tianapi", apiName: "news", status: "quota_exhausted", requestKind, message: errorMessage(error) });
+        throw error;
+      }
+      if (reservation.status === "quota_low") {
+        context.events.push({ provider: "tianapi", apiName: "news", status: "quota_low", requestKind });
+      }
       await waitForTianApiSlot();
-      const response = await fetch(url, { cache: "no-store" });
+      let response: Response;
+      try {
+        response = await fetch(url, { cache: "no-store" });
+      } catch (error) {
+        await settleApiQuota(reservation, "failed", { error: errorMessage(error) });
+        context.events.push({ provider: "tianapi", apiName: "news", status: "failed", requestKind, message: errorMessage(error) });
+        throw error;
+      }
       if (!response.ok) {
-        await logApiUsage({ provider: "tianapi", apiName: "news", status: "failed", metadata: { status: response.status } });
+        await settleApiQuota(reservation, "failed", { httpStatus: response.status });
+        context.events.push({ provider: "tianapi", apiName: "news", status: "failed", requestKind, message: `HTTP ${response.status}` });
         throw new AppError("DATA_PROVIDER_ERROR", `天行财经新闻请求失败：HTTP ${response.status}`);
       }
 
-      const payload = await readProviderJsonResponse<TianApiResponse>(response, "天行财经新闻");
+      let payload: TianApiResponse;
+      try {
+        payload = await readProviderJsonResponse<TianApiResponse>(response, "天行财经新闻");
+      } catch (error) {
+        await settleApiQuota(reservation, "failed", { error: errorMessage(error) });
+        context.events.push({ provider: "tianapi", apiName: "news", status: "failed", requestKind, message: errorMessage(error) });
+        throw error;
+      }
       lastPayload = payload;
       if (payload.code === 200) {
-        await logApiUsage({ provider: "tianapi", apiName: "news", status: "success", metadata: { count: payload.result?.list?.length ?? 0 } });
+        await settleApiQuota(reservation, "success", { code: payload.code, count: payload.result?.list?.length ?? 0 });
+        context.events.push({ provider: "tianapi", apiName: "news", status: "success", requestKind });
         return payload.result?.list ?? [];
       }
       if (payload.code === 250) {
-        await logApiUsage({ provider: "tianapi", apiName: "news", status: "success", metadata: { count: 0 } });
+        await settleApiQuota(reservation, "failed", { code: payload.code, count: 0, billable: false });
+        context.events.push({ provider: "tianapi", apiName: "news", status: "success", requestKind, message: "无结果且不计成功额度" });
         return [];
       }
+      await settleApiQuota(reservation, "failed", { code: payload.code, message: payload.msg });
       if (payload.code === 130 && attempt === 0) {
+        context.events.push({ provider: "tianapi", apiName: "news", status: "failed", requestKind, message: payload.msg ?? "QPS 超限，准备重试" });
         await sleep(1200);
         continue;
       }
-      await logApiUsage({ provider: "tianapi", apiName: "news", status: "failed", metadata: { code: payload.code, msg: payload.msg } });
+      context.events.push({ provider: "tianapi", apiName: "news", status: "failed", requestKind, message: payload.msg });
       throw mapTianApiError(payload);
     }
 
     throw mapTianApiError(lastPayload ?? { code: 100, msg: "unknown" });
   }
+}
+
+function usageInput(context: NewsRequestContext, requestKind: NewsProviderEvent["requestKind"], metadata: Record<string, unknown> = {}) {
+  return {
+    userId: context.userId,
+    provider: "tianapi",
+    apiName: "news",
+    priority: context.priority,
+    symbol: context.symbol,
+    requestBatchId: context.requestBatchId,
+    requestKind,
+    metadata
+  };
 }
 
 function requireTianApiKey() {
@@ -204,4 +265,8 @@ function sleep(ms: number) {
 function numberEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
 }

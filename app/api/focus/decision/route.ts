@@ -61,7 +61,8 @@ async function analyzeFocusSymbol(userId: string, runId: string, symbol: string)
       refreshNewsBeforeAnalysis: true,
       refreshCompanyEvidenceBeforeAnalysis: true,
       forceQuoteRefresh: true,
-      forceHistoryRefresh: true
+      forceHistoryRefresh: true,
+      newsQuotaPriority: "critical"
     });
     const watchlistItem = await prisma.watchlistItem.findFirst({
       where: { symbol, watchlist: { userId } }

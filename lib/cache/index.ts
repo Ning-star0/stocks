@@ -12,11 +12,14 @@ type MemoryEntry = {
 const globalCache = globalThis as unknown as {
   __stockAiMemoryCache?: Map<string, MemoryEntry>;
   __stockAiMemoryCacheBytes?: number;
+  __stockAiInFlightCache?: Map<string, Promise<unknown>>;
 };
 
 const memoryCache = globalCache.__stockAiMemoryCache ?? new Map<string, MemoryEntry>();
 globalCache.__stockAiMemoryCache = memoryCache;
 globalCache.__stockAiMemoryCacheBytes ??= 0;
+const inFlightCache = globalCache.__stockAiInFlightCache ?? new Map<string, Promise<unknown>>();
+globalCache.__stockAiInFlightCache = inFlightCache;
 
 const maxKeys = numberEnv("IN_MEMORY_CACHE_MAX_KEYS", 500);
 const maxBytes = numberEnv("IN_MEMORY_CACHE_MAX_MB", 64) * 1024 * 1024;
@@ -69,11 +72,38 @@ export async function deleteCache(key: string): Promise<void> {
 }
 
 export async function remember<T>(key: string, ttlSeconds: number, fn: () => Promise<T>): Promise<T> {
+  return (await rememberWithStatus(key, ttlSeconds, fn)).value;
+}
+
+export async function rememberWithStatus<T>(
+  key: string,
+  ttlSeconds: number,
+  fn: () => Promise<T>
+): Promise<{ value: T; source: "cache" | "fresh" | "in_flight" }> {
   const cached = await getCache<T>(key);
-  if (cached !== null) return cached;
-  const value = await fn();
-  await setCache(key, value, ttlSeconds);
-  return value;
+  if (cached !== null) return { value: cached, source: "cache" };
+
+  return coalesceInFlight(key, async () => {
+    const value = await fn();
+    await setCache(key, value, ttlSeconds);
+    return value;
+  });
+}
+
+export async function coalesceInFlight<T>(
+  key: string,
+  fn: () => Promise<T>
+): Promise<{ value: T; source: "fresh" | "in_flight" }> {
+  const inFlight = inFlightCache.get(key) as Promise<T> | undefined;
+  if (inFlight) return { value: await inFlight, source: "in_flight" };
+
+  const pending = fn();
+  inFlightCache.set(key, pending);
+  try {
+    return { value: await pending, source: "fresh" };
+  } finally {
+    if (inFlightCache.get(key) === pending) inFlightCache.delete(key);
+  }
 }
 
 export async function deleteExpiredCache(): Promise<void> {

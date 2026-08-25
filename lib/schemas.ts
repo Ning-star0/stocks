@@ -218,7 +218,11 @@ const newsEvidenceCoverageSummarySchema = z.object({
   pendingCriticalCount: z.number().int().nonnegative(),
   pendingRelevantCount: z.number().int().nonnegative(),
   deadlineExceeded: z.boolean(),
-  webSearchUsed: z.boolean()
+  webSearchUsed: z.boolean(),
+  quotaStatus: z.enum(["available", "quota_low", "quota_exhausted"]).optional(),
+  cacheHitCount: z.number().int().nonnegative().optional(),
+  tianapiCalls: z.number().int().nonnegative().optional(),
+  tavilyCalls: z.number().int().nonnegative().optional()
 });
 
 const dataQualityReportSchema = z.object({
@@ -233,6 +237,7 @@ const dataQualityReportSchema = z.object({
   fundamentalsComplete: z.boolean(),
   portfolioRiskEvaluated: z.boolean(),
   newsRefreshCompleted: z.boolean(),
+  newsQuotaStatus: z.enum(["available", "quota_low", "quota_exhausted"]).optional(),
   criticalNewsAnalyzed: z.boolean(),
   missingFields: z.array(z.string()),
   staleFields: z.array(z.string()),

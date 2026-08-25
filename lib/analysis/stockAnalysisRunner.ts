@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import type { ApiQuotaPriority } from "@/lib/apiQuota";
 
 import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { analyzeStock } from "@/lib/ai/analyzeStock";
@@ -38,6 +39,7 @@ export type StockAnalysisRunInput = {
   refreshCompanyEvidenceBeforeAnalysis?: boolean;
   forceQuoteRefresh?: boolean;
   forceHistoryRefresh?: boolean;
+  newsQuotaPriority?: ApiQuotaPriority;
 };
 
 export async function runStockAnalysis(input: StockAnalysisRunInput) {
@@ -45,7 +47,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const symbol = input.symbol.toUpperCase();
   const newsRefreshStartedAt = Date.now();
   const newsEvidenceRefresh = input.refreshNewsBeforeAnalysis
-    ? await prepareStockNewsEvidence({ userId: input.userId, symbol })
+    ? await prepareStockNewsEvidence({ userId: input.userId, symbol, quotaPriority: input.newsQuotaPriority ?? "routine" })
     : undefined;
   const newsRefreshDurationMs = input.refreshNewsBeforeAnalysis ? Date.now() - newsRefreshStartedAt : 0;
   const context = await buildStockAnalysisContext(input.userId, symbol, {
@@ -214,7 +216,11 @@ export async function buildStockAnalysisContext(
       pendingCriticalCount: effectiveNewsEvidenceRefresh.coverage.pendingCriticalCount,
       pendingRelevantCount: effectiveNewsEvidenceRefresh.coverage.pendingRelevantCount,
       deadlineExceeded: effectiveNewsEvidenceRefresh.deadlineExceeded,
-      webSearchUsed: effectiveNewsEvidenceRefresh.fetch?.webSearchUsed ?? false
+      webSearchUsed: effectiveNewsEvidenceRefresh.fetch?.webSearchUsed ?? false,
+      quotaStatus: effectiveNewsEvidenceRefresh.fetch?.quotaStatus ?? "available",
+      cacheHitCount: effectiveNewsEvidenceRefresh.fetch?.cacheHitCount ?? 0,
+      tianapiCalls: effectiveNewsEvidenceRefresh.fetch?.tianapiCalls ?? 0,
+      tavilyCalls: effectiveNewsEvidenceRefresh.fetch?.tavilyCalls ?? 0
     } : null,
     newsRefreshFailures: effectiveNewsEvidenceRefresh?.failures ?? [],
     fundamentalsStatus: companyEvidenceRefresh?.fundamentals.status ?? "unavailable",

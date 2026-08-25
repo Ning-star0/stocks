@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAiConfig } from "@/lib/ai/config";
 import { getDeepSeekBalance } from "@/lib/ai/balance";
 import { readQuota } from "@/lib/apiUsage";
+import { quotaPolicy, quotaWindowStarts } from "@/lib/apiQuota";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -38,8 +39,7 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const { dayStart: todayStart, monthStart } = quotaWindowStarts(now);
 
     const [aiConfig, aiToday, aiMonth, apiLogs, aiBalance] = await Promise.all([
       getAiConfig(),
@@ -149,14 +149,15 @@ function buildApiItem(input: {
   key: string;
   label: string;
   provider: string;
-  logs: Array<{ apiName: string; amount: number; createdAt: Date }>;
+  logs: Array<{ apiName: string; provider: string; status: string; amount: number; createdAt: Date }>;
   apiName: string;
   dailyLimitEnv: string;
   monthlyLimitEnv: string;
 }): UsageItem {
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const matched = input.logs.filter((log) => log.apiName === input.apiName);
+  const { dayStart: todayStart } = quotaWindowStarts(now);
+  const matched = input.logs.filter((log) => log.apiName === input.apiName && log.status === "success");
+  const policy = quotaPolicy(input.provider, input.apiName);
   return withRemaining({
     key: input.key,
     label: input.label,
@@ -164,8 +165,8 @@ function buildApiItem(input: {
     usedToday: sumAmount(matched.filter((log) => log.createdAt >= todayStart)),
     usedMonth: sumAmount(matched),
     unit: "次",
-    dailyLimit: readQuota(input.dailyLimitEnv),
-    monthlyLimit: readQuota(input.monthlyLimitEnv)
+    dailyLimit: readQuota(input.dailyLimitEnv) ?? policy.dailyLimit,
+    monthlyLimit: readQuota(input.monthlyLimitEnv) ?? policy.monthlyLimit
   });
 }
 

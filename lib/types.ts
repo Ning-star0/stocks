@@ -199,6 +199,7 @@ export interface AiAnalysisResult {
     fundamentalsComplete: boolean;
     portfolioRiskEvaluated: boolean;
     newsRefreshCompleted: boolean;
+    newsQuotaStatus?: "available" | "quota_low" | "quota_exhausted";
     criticalNewsAnalyzed: boolean;
     missingFields: string[];
     staleFields: string[];
@@ -268,6 +269,10 @@ export interface NewsEvidenceCoverageSummary {
   pendingRelevantCount: number;
   deadlineExceeded: boolean;
   webSearchUsed: boolean;
+  quotaStatus?: "available" | "quota_low" | "quota_exhausted";
+  cacheHitCount?: number;
+  tianapiCalls?: number;
+  tavilyCalls?: number;
 }
 
 export interface DisclosureSourceSummary {

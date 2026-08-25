@@ -7,6 +7,7 @@ import { apiError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/enqueueJob";
 import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
+import { createNewsRequestContext } from "@/lib/news/NewsProvider";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import {
   buildSectorNewsKeywords,
@@ -60,18 +61,19 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     for (const symbol of symbols) {
+      const context = createNewsRequestContext({ userId: user.id, symbol, priority: "critical" });
       const name = await resolveSymbolName(symbol);
       const keywords = buildStockNewsKeywords({ symbol, name });
       const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
       const beforeSymbolFetch = fetched.length;
 
-      const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
+      const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
       const relevantCodeNews = rankUsefulNews(filterRelevantNewsForStock(codeNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += codeNews.length - relevantCodeNews.length;
       fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
 
       const topicKeywords = sectorKeywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 5);
-      const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString());
+      const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
       const relevantTopicNews = rankUsefulNews(filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += topicNews.length - relevantTopicNews.length;
       fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
@@ -82,7 +84,8 @@ export async function POST(request: NextRequest) {
           name,
           sectorKeywords,
           days: 7,
-          maxResults: 8
+          maxResults: 8,
+          context
         });
         webSearchReports.push({
           symbol,
@@ -98,7 +101,8 @@ export async function POST(request: NextRequest) {
     }
 
     for (const watch of sectorWatches) {
-      const topicNews = await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString());
+      const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine" });
+      const topicNews = await provider.searchTopicNews(watch.keywords, from.toISOString(), to.toISOString(), context);
       const relevantTopicNews = topicNews.filter((item) =>
         watch.keywords.some((keyword) => isNewsRelevantToStock(item, { symbol: watch.symbols[0] ?? keyword, name: watch.sectorName, keywords: [keyword, watch.sectorName] }))
       );

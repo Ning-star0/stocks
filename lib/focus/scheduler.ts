@@ -6,6 +6,7 @@ import { buildSectorNewsKeywords, buildStockNewsKeywords, isLowValueMarketMoveNe
 import { upsertNewsItem } from "@/lib/news/store";
 import type { NewsItem } from "@/lib/types";
 import { getNewsProvider } from "@/lib/news";
+import { createNewsRequestContext } from "@/lib/news/NewsProvider";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import { isMarketTradingDay, nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
@@ -96,10 +97,11 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
 
   for (const symbol of symbols) {
     try {
+      const context = createNewsRequestContext({ userId, symbol, priority: "routine" });
       const keywords = buildStockNewsKeywords({ symbol, name: null });
       const sectorKeywords = buildSectorNewsKeywords({ symbol, name: null, extraKeywords: keywords });
 
-      const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString());
+      const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
       const relevantCodeNews = codeNews
         .filter((item) => !isLowValueMarketMoveNews(item))
         .sort((a, b) => scoreNewsCatalyst(b, sectorKeywords) - scoreNewsCatalyst(a, keywords));
@@ -107,7 +109,7 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
 
       const topicKeywords = sectorKeywords.filter((kw) => !/^\d+$/.test(kw)).slice(0, 5);
       if (topicKeywords.length) {
-        const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString());
+        const topicNews = await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
         const relevant = topicNews.filter((item) => !isLowValueMarketMoveNews(item));
         fetched.push(...relevant.map((item) => attachSymbol(item, symbol)));
       }
@@ -116,7 +118,7 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[]) {
       if (enableNewsWebSearch() && fetched.filter((item) => item.symbols?.includes(symbol)).length < 3) {
         try {
           const webResults = await searchRelatedNews({
-            symbol, name: null, sectorKeywords, days: 7, maxResults: 5
+            symbol, name: null, sectorKeywords, days: 7, maxResults: 5, context
           });
           fetched.push(...webResults.results.map((item) => attachSymbol(item, symbol)));
         } catch { /* 联网搜索可能不可用 */ }

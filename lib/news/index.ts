@@ -1,8 +1,9 @@
+import { logApiUsage } from "@/lib/apiUsage";
 import { FinnhubNewsProvider } from "@/lib/news/finnhub";
 import { MockNewsProvider } from "@/lib/news/mock";
 import { TavilyNewsProvider } from "@/lib/news/tavily";
 import { TianApiNewsProvider } from "@/lib/news/tianapi";
-import type { NewsProvider } from "@/lib/news/NewsProvider";
+import { createNewsRequestContext, type NewsProvider, type NewsRequestContext } from "@/lib/news/NewsProvider";
 
 let cachedProvider: NewsProvider | null = null;
 
@@ -35,31 +36,59 @@ class FallbackNewsProvider implements NewsProvider {
     private readonly fallback: NewsProvider
   ) {}
 
-  async searchCompanyNews(symbol: string, from: string, to: string) {
+  async searchCompanyNews(symbol: string, from: string, to: string, context: NewsRequestContext = createNewsRequestContext({ symbol })) {
     try {
-      const results = await this.primary.searchCompanyNews(symbol, from, to);
+      const results = await this.primary.searchCompanyNews(symbol, from, to, context);
       if (results.length) return results;
-    } catch {
-      // Primary failed, try fallback
+      await recordFallback(context, "company", "主新闻源无结果，启用备用搜索");
+    } catch (error) {
+      await recordFallback(context, "company", errorMessage(error));
     }
     try {
-      return await this.fallback.searchCompanyNews(symbol, from, to);
-    } catch {
+      const results = await this.fallback.searchCompanyNews(symbol, from, to, context);
+      if (!results.length) await recordFallback(context, "company", "主新闻源与备用搜索均无结果");
+      return results;
+    } catch (error) {
+      await recordFallback(context, "company", errorMessage(error), "failed");
       return [];
     }
   }
 
-  async searchTopicNews(keywords: string[], from: string, to: string) {
+  async searchTopicNews(keywords: string[], from: string, to: string, context: NewsRequestContext = createNewsRequestContext()) {
     try {
-      const results = await this.primary.searchTopicNews(keywords, from, to);
+      const results = await this.primary.searchTopicNews(keywords, from, to, context);
       if (results.length) return results;
-    } catch {
-      // Primary failed, try fallback
+      await recordFallback(context, "topic", "主新闻源无结果，启用备用搜索");
+    } catch (error) {
+      await recordFallback(context, "topic", errorMessage(error));
     }
     try {
-      return await this.fallback.searchTopicNews(keywords, from, to);
-    } catch {
+      const results = await this.fallback.searchTopicNews(keywords, from, to, context);
+      if (!results.length) await recordFallback(context, "topic", "主新闻源与备用搜索均无结果");
+      return results;
+    } catch (error) {
+      await recordFallback(context, "topic", errorMessage(error), "failed");
       return [];
     }
   }
+}
+
+async function recordFallback(
+  context: NewsRequestContext,
+  requestKind: "company" | "topic",
+  message: string,
+  status: "success" | "failed" = "success"
+) {
+  context.events.push({ provider: "news_router", apiName: "fallback", status: "fallback", requestKind, message });
+  await logApiUsage({
+    userId: context.userId,
+    provider: "news_router",
+    apiName: "fallback",
+    status,
+    metadata: { symbol: context.symbol, requestBatchId: context.requestBatchId, requestKind, message }
+  });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "未知错误";
 }

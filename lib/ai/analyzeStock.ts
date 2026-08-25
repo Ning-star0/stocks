@@ -305,7 +305,11 @@ function buildOutputDataQuality(evidencePackage: AnalyzeStockInput["evidencePack
       pendingCriticalCount: news.pendingCriticalCount,
       pendingRelevantCount: news.pendingRelevantCount,
       deadlineExceeded: news.deadlineExceeded,
-      webSearchUsed: news.webSearchUsed
+      webSearchUsed: news.webSearchUsed,
+      quotaStatus: news.quotaStatus,
+      cacheHitCount: news.cacheHitCount,
+      tianapiCalls: news.tianapiCalls,
+      tavilyCalls: news.tavilyCalls
     }
   };
 }

@@ -186,6 +186,11 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
         {quality ? <Badge variant={quality.quoteFresh ? "success" : "danger"}>报价{quality.quoteFresh ? "新鲜" : "过期"}</Badge> : null}
         {quality ? <Badge variant={quality.klineFresh ? "success" : "danger"}>K 线{quality.klineFresh ? "新鲜" : "过期"}</Badge> : null}
         {quality ? <Badge variant={quality.newsRefreshCompleted ? "success" : "warning"}>新闻{quality.newsRefreshCompleted ? "已刷新" : "待刷新"}</Badge> : null}
+        {quality?.newsQuotaStatus ? (
+          <Badge variant={quality.newsQuotaStatus === "available" ? "success" : quality.newsQuotaStatus === "quota_low" ? "warning" : "danger"}>
+            新闻额度{quality.newsQuotaStatus === "available" ? "充足" : quality.newsQuotaStatus === "quota_low" ? "偏低" : "已耗尽"}
+          </Badge>
+        ) : null}
         {quality ? <Badge variant={quality.criticalNewsAnalyzed ? "success" : "danger"}>关键新闻{quality.criticalNewsAnalyzed ? "已精读" : "未闭合"}</Badge> : null}
         {quality ? <Badge variant={quality.disclosuresFresh && quality.criticalDisclosuresRead ? "success" : "danger"}>公告{quality.disclosuresFresh ? (quality.criticalDisclosuresRead ? "已核对" : "待读原文") : "已过期"}</Badge> : null}
         {quality ? <Badge variant={quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "success" : "warning") : "danger"}>基本面{quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "完整" : "部分") : "不可用"}</Badge> : null}
@@ -197,6 +202,8 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <ScopeLine label="相关 / 精读" value={`${newsCoverage.relevantCount} / ${newsCoverage.verifiedAnalyzedCount}`} />
           <ScopeLine label="高 / 中影响" value={`${newsCoverage.highCount} / ${newsCoverage.mediumCount}`} />
           <ScopeLine label="待补 / 失败" value={`${newsCoverage.pendingRelevantCount} / ${newsCoverage.failedAnalysisCount + newsCoverage.fallbackAnalysisCount}`} />
+          <ScopeLine label="天行 / Tavily" value={`${newsCoverage.tianapiCalls ?? 0} / ${newsCoverage.tavilyCalls ?? 0}`} />
+          <ScopeLine label="缓存命中" value={`${newsCoverage.cacheHitCount ?? 0}`} />
         </div>
       ) : null}
       {analysis.dataScope ? (

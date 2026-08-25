@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { ApiQuotaStatus } from "@/lib/apiQuota";
 import type { QuoteStatus } from "@/lib/services/quoteService";
 import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
 import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
@@ -7,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.1.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.2.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -36,6 +37,7 @@ export type DataQualityReport = {
   fundamentalsComplete: boolean;
   portfolioRiskEvaluated: boolean;
   newsRefreshCompleted: boolean;
+  newsQuotaStatus: ApiQuotaStatus;
   criticalNewsAnalyzed: boolean;
   missingFields: string[];
   staleFields: string[];
@@ -101,6 +103,10 @@ export type AnalysisEvidencePackage = {
     refreshStartedAt: string | null;
     refreshAt: string | null;
     refreshCompleted: boolean;
+    quotaStatus: ApiQuotaStatus;
+    cacheHitCount: number;
+    tianapiCalls: number;
+    tavilyCalls: number;
     fetchedCount: number;
     savedCount: number;
     filteredOutCount: number;
@@ -186,6 +192,7 @@ export function buildAnalysisEvidencePackage(input: {
   const newsRefreshCompleted = refresh
     ? refresh.refreshCompleted && isRecentTimestamp(refresh.completedAt, now, 24 * 60 * 60 * 1000)
     : input.newsRefreshCompleted ?? isRecentTimestamp(input.lastNewsFetch, now, 24 * 60 * 60 * 1000);
+  const newsQuotaStatus = refresh?.fetch?.quotaStatus ?? "available";
   const quoteFresh = input.quoteStatus === "normal" || input.quoteStatus === "cached";
   const historyTo = history.at(-1)?.timestamp ?? null;
   const klineFresh = isRecentTimestamp(historyTo, now, 7 * 24 * 60 * 60 * 1000);
@@ -209,6 +216,7 @@ export function buildAnalysisEvidencePackage(input: {
     ...(criticalDisclosureUnread ? ["criticalDisclosureContent"] : []),
     ...(!portfolioRiskEvaluated ? ["portfolioRiskBudget"] : []),
     ...(!newsRefreshCompleted ? ["currentNewsRefresh"] : []),
+    ...(newsQuotaStatus === "quota_exhausted" ? ["newsApiQuota"] : []),
     ...(pendingRelevantCount > 0 ? ["relevantNewsAnalysisCoverage"] : []),
     ...(history.length < MIN_DAILY_HISTORY_CANDLES ? ["minimum120DailyCandles"] : [])
   ];
@@ -232,6 +240,7 @@ export function buildAnalysisEvidencePackage(input: {
     ...(!portfolioRiskEvaluated ? ["尚未完成组合风险预算，不能生成执行仓位"] : []),
     ...(portfolioRiskBlocked ? [input.portfolioRiskContext?.riskBudget.reason ?? "组合风险预算禁止新增风险"] : []),
     ...(!newsRefreshCompleted ? ["本轮分析前未确认完成最新新闻刷新"] : []),
+    ...(newsQuotaStatus === "quota_exhausted" ? ["新闻检索额度已用尽，当前新闻证据不完整，禁止新增仓位"] : []),
     ...(!criticalNewsAnalyzed ? ["仍有高影响新闻尚未完成可信 AI 精读"] : []),
     ...(fallbackAnalysisCount > 0 ? ["相关新闻存在本地兜底精读，不能作为买入证据"] : [])
   ]);
@@ -254,6 +263,7 @@ export function buildAnalysisEvidencePackage(input: {
     fundamentalsComplete,
     portfolioRiskEvaluated,
     newsRefreshCompleted,
+    newsQuotaStatus,
     criticalNewsAnalyzed,
     missingFields,
     staleFields,
@@ -289,6 +299,10 @@ export function buildAnalysisEvidencePackage(input: {
       refreshStartedAt: refresh?.startedAt ?? null,
       refreshAt: refresh?.completedAt ?? normalizeTimestamp(input.lastNewsFetch),
       refreshCompleted: newsRefreshCompleted,
+      quotaStatus: newsQuotaStatus,
+      cacheHitCount: refresh?.fetch?.cacheHitCount ?? 0,
+      tianapiCalls: refresh?.fetch?.tianapiCalls ?? 0,
+      tavilyCalls: refresh?.fetch?.tavilyCalls ?? 0,
       fetchedCount: refresh?.fetch?.fetched ?? 0,
       savedCount: refresh?.fetch?.saved ?? 0,
       filteredOutCount: refresh?.fetch?.filteredOut ?? 0,

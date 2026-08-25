@@ -194,6 +194,32 @@ test("fallback news analysis is visible and blocks conditional entry", () => {
   assert.ok(evidence.dataQuality.entryBlockers.includes("相关新闻存在本地兜底精读，不能作为买入证据"));
 });
 
+test("exhausted news quota is explicit and blocks new positions", () => {
+  const evidence = buildAnalysisEvidencePackage({
+    ...completeEvidenceInput(),
+    newsEvidenceRefresh: newsReceipt({
+      refreshCompleted: false,
+      fetch: {
+        ...newsReceipt().fetch!,
+        completed: false,
+        quotaStatus: "quota_exhausted",
+        quotaEvents: [{
+          provider: "tianapi",
+          apiName: "news",
+          status: "quota_exhausted",
+          requestKind: "company",
+          message: "今日额度已用完"
+        }]
+      }
+    })
+  });
+
+  assert.equal(evidence.news.quotaStatus, "quota_exhausted");
+  assert.equal(evidence.dataQuality.newsQuotaStatus, "quota_exhausted");
+  assert.ok(evidence.dataQuality.missingFields.includes("newsApiQuota"));
+  assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("禁止新增仓位")));
+});
+
 function completeEvidence() {
   return buildAnalysisEvidencePackage(completeEvidenceInput());
 }
@@ -384,13 +410,14 @@ function analyzeInput(evidence: ReturnType<typeof completeEvidence>): AnalyzeSto
 
 function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNewsEvidenceRefresh {
   return {
-    schemaVersion: "news-evidence-refresh-v1",
+    schemaVersion: "news-evidence-refresh-v2",
     symbol: quote.symbol,
     startedAt: "2026-08-24T23:20:00+08:00",
     completedAt: "2026-08-24T23:30:00+08:00",
     refreshCompleted: true,
     deadlineExceeded: false,
     fetch: {
+      schemaVersion: "news-fetch-v2",
       symbol: quote.symbol,
       completed: true,
       fetched: 1,
@@ -400,6 +427,11 @@ function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNe
       webSearchUsed: false,
       companySearchCompleted: true,
       topicSearchCompleted: true,
+      quotaStatus: "available",
+      quotaEvents: [],
+      cacheHitCount: 0,
+      tianapiCalls: 2,
+      tavilyCalls: 0,
       failures: []
     },
     coverage: {

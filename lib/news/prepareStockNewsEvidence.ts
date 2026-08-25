@@ -11,9 +11,10 @@ import { saveNewsAnalysis } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
 import { stockSymbolVariants } from "@/lib/symbols";
 import type { Prisma } from "@prisma/client";
+import type { ApiQuotaPriority } from "@/lib/apiQuota";
 
 export type StockNewsEvidenceRefresh = {
-  schemaVersion: "news-evidence-refresh-v1";
+  schemaVersion: "news-evidence-refresh-v2";
   symbol: string;
   startedAt: string;
   completedAt: string;
@@ -35,6 +36,7 @@ export async function prepareStockNewsEvidence(input: {
   maxWaitMs?: number;
   maxCritical?: number;
   maxMedium?: number;
+  quotaPriority?: ApiQuotaPriority;
 }): Promise<StockNewsEvidenceRefresh> {
   const now = input.now ?? new Date();
   const startedAt = now.toISOString();
@@ -45,7 +47,7 @@ export async function prepareStockNewsEvidence(input: {
   let fetch: FetchNewsForSymbolResult | null = null;
 
   try {
-    fetch = await fetchNewsForSymbol(input.symbol, input.userId);
+    fetch = await fetchNewsForSymbol(input.symbol, input.userId, { priority: input.quotaPriority ?? "routine" });
     failures.push(...fetch.failures);
   } catch (error) {
     failures.push(`新闻刷新失败：${errorMessage(error)}`);
@@ -103,7 +105,7 @@ export async function prepareStockNewsEvidence(input: {
   if (deadlineExceeded) failures.push(`新闻精读等待超过 ${Math.round(maxWaitMs / 1000)} 秒，已按证据不足继续。`);
 
   const receipt: StockNewsEvidenceRefresh = {
-    schemaVersion: "news-evidence-refresh-v1",
+    schemaVersion: "news-evidence-refresh-v2",
     symbol: input.symbol.toUpperCase(),
     startedAt,
     completedAt: new Date().toISOString(),
@@ -204,8 +206,10 @@ function toJson(value: StockNewsEvidenceRefresh) {
 function parseStoredReceipt(value: unknown): StockNewsEvidenceRefresh | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Partial<StockNewsEvidenceRefresh>;
-  if (record.schemaVersion !== "news-evidence-refresh-v1" || typeof record.symbol !== "string") return null;
+  const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
+  if (schemaVersion !== "news-evidence-refresh-v2" && schemaVersion !== "news-evidence-refresh-v1") return null;
+  if (typeof record.symbol !== "string") return null;
   if (typeof record.startedAt !== "string" || typeof record.completedAt !== "string") return null;
   if (!record.coverage || !Array.isArray(record.failures)) return null;
-  return record as StockNewsEvidenceRefresh;
+  return { ...(record as StockNewsEvidenceRefresh), schemaVersion: "news-evidence-refresh-v2" };
 }

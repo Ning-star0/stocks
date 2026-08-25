@@ -355,7 +355,8 @@ async function analyzeStockAndRecord(input: {
     refreshNewsBeforeAnalysis: input.refreshNewsBeforeAnalysis,
     refreshCompanyEvidenceBeforeAnalysis: input.refreshCompanyEvidenceBeforeAnalysis,
     forceQuoteRefresh: input.forceQuoteRefresh,
-    forceHistoryRefresh: input.forceHistoryRefresh
+    forceHistoryRefresh: input.forceHistoryRefresh,
+    newsQuotaPriority: input.source === "manual" ? "critical" : "routine"
   });
   const watchlistItem = await prisma.watchlistItem.findFirst({
     where: { symbol: { in: stockSymbolVariants(input.symbol) }, watchlist: { userId: input.userId } }

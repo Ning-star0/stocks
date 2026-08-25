@@ -74,6 +74,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
       refreshStartedAt: input.evidence.news.refreshStartedAt,
       refreshAt: input.evidence.news.refreshAt,
       refreshCompleted: input.evidence.news.refreshCompleted,
+      quotaStatus: input.evidence.news.quotaStatus,
       fetchedCount: input.evidence.news.fetchedCount,
       savedCount: input.evidence.news.savedCount,
       relevantCount: input.evidence.news.relevantCount,

@@ -6,8 +6,9 @@ setDefaultResultOrder("ipv4first");
 loadDotEnv();
 
 async function main() {
-  const [{ getNewsProvider }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
+  const [{ getNewsProvider }, { createNewsRequestContext }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
     import("@/lib/news"),
+    import("@/lib/news/NewsProvider"),
     import("@/lib/jobs/enqueueJob"),
     import("@/lib/jobs/jobTypes"),
     import("@/lib/news/importance"),
@@ -34,10 +35,11 @@ async function main() {
   let fetched = 0;
   let queued = 0;
   for (const symbol of symbols) {
-    const items = await provider.searchCompanyNews(symbol, from, to);
+    const context = createNewsRequestContext({ userId: user.id, symbol, priority: "routine" });
+    const items = await provider.searchCompanyNews(symbol, from, to, context);
     const name = await resolveSymbolName(getQuote, symbol);
     if (name) {
-      const namedItems = await provider.searchTopicNews([name], from, to);
+      const namedItems = await provider.searchTopicNews([name], from, to, context);
       items.push(...namedItems.map((item) => attachSymbol(item, symbol, name)));
     }
 
@@ -63,7 +65,8 @@ async function main() {
   }
 
   for (const watch of sectorWatches) {
-    const topicItems = await provider.searchTopicNews(watch.keywords, from, to);
+    const context = createNewsRequestContext({ userId: user.id, symbol: watch.symbols[0], priority: "routine" });
+    const topicItems = await provider.searchTopicNews(watch.keywords, from, to, context);
     for (const item of topicItems.map((newsItem) => attachSectorWatch(newsItem, watch.sectorName, watch.keywords, watch.symbols))) {
       fetched += 1;
       const row = await upsertNewsItem(item);
