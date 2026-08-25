@@ -185,6 +185,26 @@ test("context hash changes when the historical valuation price series changes", 
   assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
 });
 
+test("context hash changes when the peer valuation evidence changes", () => {
+  const input = completeEvidenceInput();
+  const first = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: {
+      ...input.fundamentals,
+      valuation: { ...input.fundamentals.valuation, peerEvidence: peerValuationFixture("peer-hash-a") }
+    }
+  });
+  const second = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: {
+      ...input.fundamentals,
+      valuation: { ...input.fundamentals.valuation, peerEvidence: peerValuationFixture("peer-hash-b") }
+    }
+  });
+
+  assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
+});
+
 test("context hash changes when an adjusted-profit source document changes", () => {
   const input = completeEvidenceInput();
   const source = {
@@ -436,6 +456,36 @@ function historicalValuationFixture(priceSeriesHash: string) {
     pbPercentile: 40,
     compositePercentile: 37.5,
     reportSources: [],
+    missingReason: null
+  };
+}
+
+function peerValuationFixture(contentHash: string) {
+  return {
+    schemaVersion: "peer-valuation-v1" as const,
+    algorithmVersion: "eastmoney-provider-ranked-positive-multiples-v1" as const,
+    status: "available" as const,
+    provider: "EASTMONEY" as const,
+    sourceUrl: "https://example.test/peer",
+    classificationSourceUrl: "https://example.test/classification",
+    fetchedAt: "2026-08-24T15:00:00+08:00",
+    maximumAgeHours: 24,
+    industryName: "测试行业",
+    classificationMethod: "EASTMONEY_EM2016" as const,
+    selectionMethod: "EASTMONEY_INDUSTRY_COMPARABLE_RANK" as const,
+    peBasis: "PE_TTM" as const,
+    pbBasis: "PB_MRQ" as const,
+    minimumSampleSize: 5,
+    targetSymbol: "600000.SH",
+    targetName: "测试公司",
+    targetPeTtm: 10,
+    targetPbMrq: 2,
+    financialReportPeriod: "2025-12-31",
+    peComparison: { target: 10, sampleMedian: 12, providerIndustryMedian: 11, percentile: 20, premiumDiscountPct: -16.67, sampleSize: 5 },
+    pbComparison: { target: 2, sampleMedian: 2.2, providerIndustryMedian: 2.1, percentile: 40, premiumDiscountPct: -9.09, sampleSize: 5 },
+    comparables: [],
+    crossCheck: { maximumDifferencePct: 15, peDifferencePct: 1, pbDifferencePct: 1, peMatched: true, pbMatched: true },
+    contentHash,
     missingReason: null
   };
 }

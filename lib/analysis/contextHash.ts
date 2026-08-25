@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v12";
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v13";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -27,7 +27,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 12,
+    analysisPromptVersion: 13,
     evidenceSchemaVersion: input.evidence.schemaVersion,
     decisionPolicyVersion: input.evidence.decisionPolicyVersion,
     marketDataRevision: input.evidence.marketDataRevision,

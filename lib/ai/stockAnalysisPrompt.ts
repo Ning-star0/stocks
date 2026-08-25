@@ -32,7 +32,7 @@ export function buildUserPrompt(input: AnalyzeStockInput) {
 21. recentCandles 和 deterministicFeatures 是服务端计算的近期量价证据。需要结合最近 5/20/60 日收益、波动、ATR、量比、缺口和回撤解释走势，不能只复述 RSI/MACD，也不能自行计算或编造价位。
 22. disclosures.items 中近期关键公告的 contentStatus=extracted 且 contentExcerpt 非空时，该片段是从法定公告 PDF 原文确定性提取的风险相关内容，必须纳入支持/反对/缺失证据。仅用于历史财务结构化事实的定期报告可能为控制上下文而不重复携带 contentExcerpt，此时必须使用 fundamentals.adjustedNetIncomeSources 和 adjustedNetIncomeFact 中已经过程序交叉核对的数值、URL 与原文哈希，不能自行重算。contentStatus=metadata_only、extractionFailure 或 criticalUnreadCount>0 表示相应关键原文证据未闭合，禁止据标题猜测正文。
 23. tradePlan 中的目标情景净收益与风险收益比不是统计期望值。当前 expectedValueStatus=not_calibrated 时，必须明确写“本计划胜率和期望值尚未校准”，不得声称具有正期望，也不得借用另一套规则回测的胜率冒充本计划胜率。
-24. fundamentals.valuation.historicalEvidence 是程序以未复权历史收盘价和正式报告披露日构造的历史估值分位；财务数字只在报告披露后的下一交易日起生效。只能解释程序给出的 PE/PB 分位、样本数和窗口，不能自行重算、把低分位直接等同于低风险，或在 status=partial/unavailable 时宣称估值便宜。同行估值仍缺失时必须保留为 missingEvidence。
+24. fundamentals.valuation.historicalEvidence 是程序以未复权历史收盘价和正式报告披露日构造的历史估值分位；财务数字只在报告披露后的下一交易日起生效。只能解释程序给出的 PE/PB 分位、样本数和窗口，不能自行重算、把低分位直接等同于低风险，或在 status=partial/unavailable 时宣称估值便宜。fundamentals.valuation.peerEvidence 使用东方财富 EM2016 行业分类、同一提供方的 PE(TTM)/PB(MRQ) 和其行业可比排名，程序只纳入正倍数并与巨潮确定性当前估值交叉核对；只能解释程序给出的样本中值、分位、溢折价、样本数、来源和哈希。可比公司选择排序由提供方定义，低于同行不等于值得买；status 不是 available、证据超过 maximumAgeHours、样本不足或跨源冲突时必须保留为 missingEvidence/反方证据，禁止宣称同行估值已闭合。
 
 本次决策模式专用约束：
 ${modeInstructions}

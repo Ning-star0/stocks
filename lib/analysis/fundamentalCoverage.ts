@@ -1,4 +1,5 @@
 import type { FundamentalEvidence } from "@/lib/stock-data/types";
+import { isPeerValuationFresh } from "@/lib/stock-data/peerValuationEvidence";
 
 export type FundamentalCashFlowQualityStatus = "available" | "partial" | "not_meaningful" | "unavailable";
 
@@ -25,6 +26,29 @@ export type FundamentalCoverageSummary = {
   historicalValuationAvailable: boolean;
   historicalValuationStatus: "available" | "partial" | "unavailable";
   peerValuationAvailable: boolean;
+  peerValuationStatus: "available" | "partial" | "unavailable" | "conflicted";
+  peerValuationFresh: boolean;
+  peerValuationAsOf: string | null;
+  peerValuationIndustry: string | null;
+  peerValuationSourceUrl: string | null;
+  peerValuationClassificationSourceUrl: string | null;
+  peerValuationContentHash: string | null;
+  peerValuationMissingReason: string | null;
+  peerValuationSampleSize: number;
+  peerPeTtm: number | null;
+  peerPeTtmMedian: number | null;
+  peerPeTtmPercentile: number | null;
+  peerPeTtmPremiumDiscountPct: number | null;
+  peerPbMrq: number | null;
+  peerPbMrqMedian: number | null;
+  peerPbMrqPercentile: number | null;
+  peerPbMrqPremiumDiscountPct: number | null;
+  peerValuationComparables: Array<{
+    symbol: string;
+    name: string;
+    peTtm: number | null;
+    pbMrq: number | null;
+  }>;
   peTtm: number | null;
   pb: number | null;
   historicalPercentile: number | null;
@@ -69,7 +93,6 @@ export function summarizeFundamentalCoverage(evidence?: FundamentalEvidence | nu
     cashFlowQualityStatus = "partial";
   }
 
-  const peerSampleSize = metricNumber(evidence, "peerValuationSampleSize");
   const adjustedNetIncomeTtmCny10k = metricNumber(evidence, "adjustedParentNetIncomeTtmCny10k");
   const adjustedAnnualPeriodCount = evidence?.annualPeriods.filter((period) => typeof period.adjustedParentNetIncome === "number").length ?? 0;
   const adjustedStandaloneQuarterCount = evidence?.quarterlyPeriods.filter((period) => typeof period.adjustedParentNetIncome === "number").length ?? 0;
@@ -81,6 +104,10 @@ export function summarizeFundamentalCoverage(evidence?: FundamentalEvidence | nu
   const historicalEvidence = evidence?.valuation.historicalEvidence ?? null;
   const historicalValuationStatus = historicalEvidence?.status
     ?? (finiteNumber(evidence?.valuation.historicalPercentile) !== null ? "available" : "unavailable");
+  const peerEvidence = evidence?.valuation.peerEvidence ?? null;
+  const peerValuationStatus = peerEvidence?.status ?? "unavailable";
+  const peerValuationFresh = isPeerValuationFresh(peerEvidence);
+  const peerValuationSampleSize = Math.max(peerEvidence?.peComparison?.sampleSize ?? 0, peerEvidence?.pbComparison?.sampleSize ?? 0);
   return {
     annualPeriodCount: evidence?.annualPeriods.length ?? 0,
     standaloneQuarterCount: evidence?.quarterlyPeriods.length ?? 0,
@@ -103,7 +130,30 @@ export function summarizeFundamentalCoverage(evidence?: FundamentalEvidence | nu
     })),
     historicalValuationAvailable: historicalValuationStatus === "available",
     historicalValuationStatus,
-    peerValuationAvailable: peerSampleSize !== null && peerSampleSize > 0,
+    peerValuationAvailable: peerValuationStatus === "available" && peerValuationFresh,
+    peerValuationStatus,
+    peerValuationFresh,
+    peerValuationAsOf: peerEvidence?.fetchedAt ?? null,
+    peerValuationIndustry: peerEvidence?.industryName ?? null,
+    peerValuationSourceUrl: peerEvidence?.sourceUrl ?? null,
+    peerValuationClassificationSourceUrl: peerEvidence?.classificationSourceUrl ?? null,
+    peerValuationContentHash: peerEvidence?.contentHash ?? null,
+    peerValuationMissingReason: peerEvidence?.missingReason ?? null,
+    peerValuationSampleSize,
+    peerPeTtm: finiteNumber(peerEvidence?.targetPeTtm),
+    peerPeTtmMedian: finiteNumber(peerEvidence?.peComparison?.sampleMedian),
+    peerPeTtmPercentile: finiteNumber(peerEvidence?.peComparison?.percentile),
+    peerPeTtmPremiumDiscountPct: finiteNumber(peerEvidence?.peComparison?.premiumDiscountPct),
+    peerPbMrq: finiteNumber(peerEvidence?.targetPbMrq),
+    peerPbMrqMedian: finiteNumber(peerEvidence?.pbComparison?.sampleMedian),
+    peerPbMrqPercentile: finiteNumber(peerEvidence?.pbComparison?.percentile),
+    peerPbMrqPremiumDiscountPct: finiteNumber(peerEvidence?.pbComparison?.premiumDiscountPct),
+    peerValuationComparables: (peerEvidence?.comparables ?? []).map((peer) => ({
+      symbol: peer.symbol,
+      name: peer.name,
+      peTtm: peer.peTtm,
+      pbMrq: peer.pbMrq
+    })),
     peTtm: finiteNumber(evidence?.valuation.peTtm),
     pb: finiteNumber(evidence?.valuation.pb),
     historicalPercentile: finiteNumber(evidence?.valuation.historicalPercentile),

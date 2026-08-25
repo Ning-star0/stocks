@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.6.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.7.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -132,7 +132,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "quote" | "kline" | "news" | "fundamentals" | "valuation" | "disclosure";
+    kind: "quote" | "kline" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -364,6 +364,16 @@ export function buildAnalysisEvidencePackage(input: {
           ?? (fundamentals.valuation.historicalPercentile !== null ? "available" as const : "unavailable" as const)
       },
       {
+        kind: "peer_valuation" as const,
+        provider: fundamentals.valuation.peerEvidence?.provider ?? "not_configured",
+        asOf: fundamentals.valuation.peerEvidence?.fetchedAt ?? null,
+        status: fundamentals.valuation.peerEvidence?.status === "available"
+          ? "available" as const
+          : fundamentals.valuation.peerEvidence?.status === "partial" || fundamentals.valuation.peerEvidence?.status === "conflicted"
+            ? "partial" as const
+            : "unavailable" as const
+      },
+      {
         kind: "disclosure" as const,
         provider: disclosures.provider,
         asOf: disclosures.checkedAt,
@@ -527,7 +537,9 @@ function unavailableFundamentals(): FundamentalEvidence {
       peTtm: null,
       bookValuePerShare: null,
       pb: null,
-      historicalPercentile: null
+      historicalPercentile: null,
+      historicalEvidence: null,
+      peerEvidence: null
     },
     metrics: {},
     missingFields: ["fundamentals"],

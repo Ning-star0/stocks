@@ -5,8 +5,9 @@ import { getStockDataProvider } from "@/lib/stock-data";
 import { mergeAdjustedNetIncomeEvidence } from "@/lib/stock-data/adjustedNetIncomeEvidence";
 import { enrichDisclosureContent } from "@/lib/stock-data/disclosureContent";
 import { mergeHistoricalValuationEvidence } from "@/lib/stock-data/historicalValuationEvidence";
+import { mergePeerValuationEvidence } from "@/lib/stock-data/peerValuationEvidence";
 import { stockSymbolVariants } from "@/lib/symbols";
-import type { DisclosureEvidence, FundamentalEvidence, Quote, ValuationPriceHistoryEvidence } from "@/lib/stock-data/types";
+import type { DisclosureEvidence, FundamentalEvidence, PeerValuationEvidence, Quote, ValuationPriceHistoryEvidence } from "@/lib/stock-data/types";
 
 export type StockCompanyEvidenceRefresh = {
   schemaVersion: "company-evidence-refresh-v2";
@@ -32,7 +33,7 @@ export async function prepareStockCompanyEvidence(input: {
     price: input.quote.price,
     priceAsOf: input.quote.timestamp
   };
-  const [rawFundamentals, rawDisclosures, valuationPriceHistory] = await Promise.all([
+  const [rawFundamentals, rawDisclosures, valuationPriceHistory, peerValuation] = await Promise.all([
     provider.getFundamentals
       ? provider.getFundamentals(input.symbol, options).catch((error) => unavailableFundamentals(errorMessage(error)))
       : Promise.resolve(unavailableFundamentals("当前股票数据提供器未实现财务与估值证据接口。")),
@@ -42,16 +43,23 @@ export async function prepareStockCompanyEvidence(input: {
     provider.getValuationPriceHistory
       ? provider.getValuationPriceHistory(input.symbol, { forceRefresh: input.forceRefresh, adjustment: "none" })
           .catch((error) => unavailableValuationPriceHistory(errorMessage(error)))
-      : Promise.resolve(unavailableValuationPriceHistory("当前股票数据提供器未实现未复权历史估值价格接口。"))
+      : Promise.resolve(unavailableValuationPriceHistory("当前股票数据提供器未实现未复权历史估值价格接口。")),
+    provider.getPeerValuation
+      ? provider.getPeerValuation(input.symbol, { forceRefresh: input.forceRefresh })
+          .catch((error) => unavailablePeerValuation(input.symbol, errorMessage(error)))
+      : Promise.resolve(unavailablePeerValuation(input.symbol, "当前股票数据提供器未实现同行估值证据接口。"))
   ]);
   const disclosures = await enrichDisclosureContent(rawDisclosures, previous?.disclosures).catch((error) => ({
     ...rawDisclosures,
     failures: uniqueStrings([...rawDisclosures.failures, `公告原文提取流程失败：${errorMessage(error)}`])
   }));
-  const fundamentals = mergeHistoricalValuationEvidence(
-    mergeAdjustedNetIncomeEvidence(rawFundamentals, disclosures),
-    disclosures,
-    valuationPriceHistory
+  const fundamentals = mergePeerValuationEvidence(
+    mergeHistoricalValuationEvidence(
+      mergeAdjustedNetIncomeEvidence(rawFundamentals, disclosures),
+      disclosures,
+      valuationPriceHistory
+    ),
+    peerValuation
   );
   const receipt: StockCompanyEvidenceRefresh = {
     schemaVersion: "company-evidence-refresh-v2",
@@ -122,7 +130,8 @@ function parseFundamentals(value: unknown): FundamentalEvidence | null {
     adjustedNetIncomeSources: Array.isArray(parsed.adjustedNetIncomeSources) ? parsed.adjustedNetIncomeSources : [],
     valuation: {
       ...parsed.valuation,
-      historicalEvidence: parsed.valuation.historicalEvidence ?? null
+      historicalEvidence: parsed.valuation.historicalEvidence ?? null,
+      peerEvidence: parsed.valuation.peerEvidence ?? null
     }
   };
 }
@@ -160,7 +169,8 @@ function unavailableFundamentals(reason: string): FundamentalEvidence {
       bookValuePerShare: null,
       pb: null,
       historicalPercentile: null,
-      historicalEvidence: null
+      historicalEvidence: null,
+      peerEvidence: null
     },
     metrics: {},
     missingFields: ["fundamentalSource"],
@@ -180,6 +190,47 @@ function unavailableValuationPriceHistory(reason: string): ValuationPriceHistory
     adjustment: "none",
     candles: [],
     failure: reason
+  };
+}
+
+function unavailablePeerValuation(symbol: string, reason: string): PeerValuationEvidence {
+  const raw = symbol.trim().toUpperCase();
+  const compact = raw.replace(/^SH|^SZ|^BJ/, "").replace(/\.(SH|SZ|BJ)$/, "");
+  const exchange = raw.match(/^(SH|SZ|BJ)/)?.[1] ?? raw.match(/\.(SH|SZ|BJ)$/)?.[1] ?? (/^(5|6|9)/.test(compact) ? "SH" : "SZ");
+  const targetSymbol = /^\d{6}$/.test(compact) ? `${compact}.${exchange}` : raw;
+  const f10Code = /^\d{6}$/.test(compact) ? `${exchange}${compact}` : raw;
+  return {
+    schemaVersion: "peer-valuation-v1",
+    algorithmVersion: "eastmoney-provider-ranked-positive-multiples-v1",
+    status: "unavailable",
+    provider: "EASTMONEY",
+    sourceUrl: `https://emweb.securities.eastmoney.com/PC_HSF10/IndustryAnalysis/PageAjax?code=${encodeURIComponent(f10Code)}`,
+    classificationSourceUrl: `https://emweb.securities.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax?code=${encodeURIComponent(f10Code)}`,
+    fetchedAt: new Date().toISOString(),
+    maximumAgeHours: 24,
+    industryName: null,
+    classificationMethod: "EASTMONEY_EM2016",
+    selectionMethod: "EASTMONEY_INDUSTRY_COMPARABLE_RANK",
+    peBasis: "PE_TTM",
+    pbBasis: "PB_MRQ",
+    minimumSampleSize: 5,
+    targetSymbol,
+    targetName: null,
+    targetPeTtm: null,
+    targetPbMrq: null,
+    financialReportPeriod: null,
+    peComparison: null,
+    pbComparison: null,
+    comparables: [],
+    crossCheck: {
+      maximumDifferencePct: 15,
+      peDifferencePct: null,
+      pbDifferencePct: null,
+      peMatched: null,
+      pbMatched: null
+    },
+    contentHash: null,
+    missingReason: reason
   };
 }
 

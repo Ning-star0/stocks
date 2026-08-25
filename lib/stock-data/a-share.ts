@@ -5,6 +5,7 @@ import {
   assertNoUnexplainedCorporateActionGap
 } from "@/lib/stock-data/corporateActions";
 import { fetchCninfoDisclosures, fetchCninfoFundamentals } from "@/lib/stock-data/cninfoEvidence";
+import { fetchEastMoneyPeerValuationEvidence } from "@/lib/stock-data/peerValuationEvidence";
 import type {
   Candle,
   CompanyEvidenceOptions,
@@ -12,6 +13,7 @@ import type {
   DisclosureEvidence,
   FundamentalEvidence,
   HistoryOptions,
+  PeerValuationEvidence,
   Quote,
   StockDataProvider,
   ValuationPriceHistoryEvidence
@@ -219,6 +221,11 @@ export class AShareEastMoneyProvider implements StockDataProvider {
         };
       }
     }
+  }
+
+  async getPeerValuation(symbol: string, options: HistoryOptions = {}): Promise<PeerValuationEvidence> {
+    const target = normalizeAShareSymbol(symbol);
+    return fetchEastMoneyPeerValuationEvidence({ symbol: target.symbol, forceRefresh: options.forceRefresh });
   }
 
   private async getEastMoneyHistory(

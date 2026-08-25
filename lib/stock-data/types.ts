@@ -51,6 +51,58 @@ export type HistoricalValuationEvidence = {
   missingReason: string | null;
 };
 
+export type PeerValuationComparable = {
+  symbol: string;
+  name: string;
+  peTtm: number | null;
+  pbMrq: number | null;
+  providerRank: number | null;
+  reportPeriod: string | null;
+};
+
+export type PeerValuationMetricComparison = {
+  target: number;
+  sampleMedian: number;
+  providerIndustryMedian: number | null;
+  percentile: number;
+  premiumDiscountPct: number;
+  sampleSize: number;
+};
+
+export type PeerValuationEvidence = {
+  schemaVersion: "peer-valuation-v1";
+  algorithmVersion: "eastmoney-provider-ranked-positive-multiples-v1";
+  status: "available" | "partial" | "unavailable" | "conflicted";
+  provider: "EASTMONEY";
+  sourceUrl: string;
+  classificationSourceUrl: string;
+  fetchedAt: string;
+  maximumAgeHours: number;
+  industryName: string | null;
+  classificationMethod: "EASTMONEY_EM2016";
+  selectionMethod: "EASTMONEY_INDUSTRY_COMPARABLE_RANK";
+  peBasis: "PE_TTM";
+  pbBasis: "PB_MRQ";
+  minimumSampleSize: number;
+  targetSymbol: string;
+  targetName: string | null;
+  targetPeTtm: number | null;
+  targetPbMrq: number | null;
+  financialReportPeriod: string | null;
+  peComparison: PeerValuationMetricComparison | null;
+  pbComparison: PeerValuationMetricComparison | null;
+  comparables: PeerValuationComparable[];
+  crossCheck: {
+    maximumDifferencePct: number;
+    peDifferencePct: number | null;
+    pbDifferencePct: number | null;
+    peMatched: boolean | null;
+    pbMatched: boolean | null;
+  };
+  contentHash: string | null;
+  missingReason: string | null;
+};
+
 export type FinancialPeriodEvidence = {
   periodEnd: string;
   periodType: "quarter" | "annual";
@@ -113,6 +165,7 @@ export type FundamentalEvidence = {
     pb: number | null;
     historicalPercentile: number | null;
     historicalEvidence?: HistoricalValuationEvidence | null;
+    peerEvidence?: PeerValuationEvidence | null;
   };
   metrics: Record<string, number | string | null>;
   missingFields: string[];
@@ -165,6 +218,7 @@ export interface StockDataProvider {
   getQuote(symbol: string): Promise<Quote>;
   getHistory(symbol: string, range: string, interval: string, options?: HistoryOptions): Promise<Candle[]>;
   getValuationPriceHistory?(symbol: string, options?: HistoryOptions): Promise<ValuationPriceHistoryEvidence>;
+  getPeerValuation?(symbol: string, options?: HistoryOptions): Promise<PeerValuationEvidence>;
   getCompanyProfile?(symbol: string): Promise<CompanyProfile>;
   getFundamentals?(symbol: string, options?: CompanyEvidenceOptions): Promise<FundamentalEvidence>;
   getDisclosures?(symbol: string, options?: CompanyEvidenceOptions): Promise<DisclosureEvidence>;

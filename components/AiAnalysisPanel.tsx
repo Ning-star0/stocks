@@ -186,6 +186,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
   const historicalValuationStatus = fundamentalCoverage?.historicalValuationStatus
     ?? (fundamentalCoverage?.historicalValuationAvailable ? "available" : "unavailable");
   const historicalValuationReportSources = fundamentalCoverage?.historicalValuationReportSources ?? [];
+  const peerValuationStatus = fundamentalCoverage?.peerValuationStatus
+    ?? (fundamentalCoverage?.peerValuationAvailable ? "available" : "unavailable");
+  const peerValuationComparables = fundamentalCoverage?.peerValuationComparables ?? [];
 
   return (
     <Block title="证据覆盖与反方检查">
@@ -233,7 +236,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
             <div className="mr-1 text-xs font-medium text-foreground">基本面覆盖与现金流质量</div>
             <Badge variant={adjustedNetIncomeStatus === "complete" ? "success" : adjustedNetIncomeStatus === "partial" ? "warning" : "danger"}>扣非净利润{adjustedNetIncomeStatusLabel(adjustedNetIncomeStatus)}</Badge>
             <Badge variant={historicalValuationStatus === "available" ? "success" : historicalValuationStatus === "partial" ? "warning" : "danger"}>历史估值{historicalValuationStatusLabel(historicalValuationStatus)}</Badge>
-            <Badge variant={fundamentalCoverage.peerValuationAvailable ? "success" : "danger"}>同行估值{fundamentalCoverage.peerValuationAvailable ? "已覆盖" : "缺失"}</Badge>
+            <Badge variant={fundamentalCoverage.peerValuationAvailable ? "success" : peerValuationStatus === "partial" ? "warning" : "danger"}>同行估值{peerValuationStatusLabel(peerValuationStatus, fundamentalCoverage.peerValuationFresh)}</Badge>
           </div>
           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <ScopeLine label="财务样本" value={`${fundamentalCoverage.annualPeriodCount} / 5 年，${fundamentalCoverage.standaloneQuarterCount} / 8 单季`} />
@@ -251,12 +254,21 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
             <ScopeLine label="估值窗口" value={fundamentalCoverage.historicalValuationWindowStart && fundamentalCoverage.historicalValuationWindowEnd ? `${fundamentalCoverage.historicalValuationWindowStart} — ${fundamentalCoverage.historicalValuationWindowEnd}` : "--"} />
             <ScopeLine label="估值价格口径" value={fundamentalCoverage.historicalValuationPriceProvider ? `${fundamentalCoverage.historicalValuationPriceProvider} · 未复权` : "--"} />
             <ScopeLine label="估值价格新鲜度" value={fundamentalCoverage.historicalValuationPriceSeriesFresh ? "合格" : "不合格 / 未记录"} />
+            <ScopeLine label="同行行业口径" value={fundamentalCoverage.peerValuationIndustry ?? "--"} />
+            <ScopeLine label="同行目标 PE / PB" value={`${formatMetricNumber(fundamentalCoverage.peerPeTtm)} / ${formatMetricNumber(fundamentalCoverage.peerPbMrq)}`} />
+            <ScopeLine label="同行样本 PE / PB 中值" value={`${formatMetricNumber(fundamentalCoverage.peerPeTtmMedian)} / ${formatMetricNumber(fundamentalCoverage.peerPbMrqMedian)}`} />
+            <ScopeLine label="PE / PB 同行分位" value={`${formatMetricPercent(fundamentalCoverage.peerPeTtmPercentile)} / ${formatMetricPercent(fundamentalCoverage.peerPbMrqPercentile)}`} />
+            <ScopeLine label="PE / PB 相对样本中值" value={`${formatMetricPercent(fundamentalCoverage.peerPeTtmPremiumDiscountPct)} / ${formatMetricPercent(fundamentalCoverage.peerPbMrqPremiumDiscountPct)}`} />
+            <ScopeLine label="同行样本 / 新鲜度" value={`${fundamentalCoverage.peerValuationSampleSize ?? 0} 家 / ${fundamentalCoverage.peerValuationFresh ? "合格" : "过期或未记录"}`} />
           </div>
           {fundamentalCoverage.missingFields.length ? (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">明确缺失：{fundamentalCoverage.missingFields.map(fundamentalFieldLabel).join("、")}</p>
           ) : null}
           {fundamentalCoverage.historicalValuationMissingReason ? (
             <p className="mt-2 text-xs leading-5 text-muted-foreground">历史估值未闭合：{fundamentalCoverage.historicalValuationMissingReason}</p>
+          ) : null}
+          {fundamentalCoverage.peerValuationMissingReason ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">同行估值未闭合：{fundamentalCoverage.peerValuationMissingReason}</p>
           ) : null}
           {adjustedNetIncomeSources.length ? (
             <ul className="mt-3 space-y-1 border-t border-border/70 pt-2 text-xs leading-5">
@@ -287,6 +299,31 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
                   ))}
                 </ul>
               ) : null}
+            </div>
+          ) : null}
+          {fundamentalCoverage.peerValuationSourceUrl || fundamentalCoverage.peerValuationClassificationSourceUrl || peerValuationComparables.length ? (
+            <div className="mt-3 border-t border-border/70 pt-2 text-xs leading-5">
+              <div className="font-medium text-foreground">同行估值可追溯来源</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground">
+                {fundamentalCoverage.peerValuationSourceUrl ? (
+                  <a className="text-primary underline-offset-2 hover:underline" href={fundamentalCoverage.peerValuationSourceUrl} target="_blank" rel="noreferrer">同行 PE(TTM) / PB(MRQ)</a>
+                ) : null}
+                {fundamentalCoverage.peerValuationClassificationSourceUrl ? (
+                  <a className="text-primary underline-offset-2 hover:underline" href={fundamentalCoverage.peerValuationClassificationSourceUrl} target="_blank" rel="noreferrer">EM2016 行业分类</a>
+                ) : null}
+                {fundamentalCoverage.peerValuationAsOf ? <span>抓取于 {formatTime(fundamentalCoverage.peerValuationAsOf)}</span> : null}
+                {fundamentalCoverage.peerValuationContentHash ? <span>证据哈希 {fundamentalCoverage.peerValuationContentHash.slice(0, 10)}</span> : null}
+              </div>
+              {peerValuationComparables.length ? (
+                <ul className="mt-1 space-y-1">
+                  {peerValuationComparables.map((peer) => (
+                    <li key={peer.symbol} className="text-muted-foreground">
+                      {peer.name}（{peer.symbol}）：PE(TTM) {formatMetricNumber(peer.peTtm)} / PB(MRQ) {formatMetricNumber(peer.pbMrq)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <p className="mt-1 text-muted-foreground">同行排序由数据提供方定义；分位和溢折价只描述该样本，不能单独推出买入结论。</p>
             </div>
           ) : null}
         </div>
@@ -811,6 +848,16 @@ function adjustedNetIncomeStatusLabel(status: "complete" | "partial" | "unavaila
 
 function historicalValuationStatusLabel(status: "available" | "partial" | "unavailable") {
   if (status === "available") return "已覆盖";
+  if (status === "partial") return "样本不足";
+  return "缺失";
+}
+
+function peerValuationStatusLabel(
+  status: "available" | "partial" | "unavailable" | "conflicted",
+  fresh: boolean
+) {
+  if (status === "available") return fresh ? "已覆盖" : "已过期";
+  if (status === "conflicted") return "跨源冲突";
   if (status === "partial") return "样本不足";
   return "缺失";
 }
