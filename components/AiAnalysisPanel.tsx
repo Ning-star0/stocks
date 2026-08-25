@@ -180,6 +180,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
   const missing = analysis.missingEvidence ?? [];
   const blockers = quality?.entryBlockers ?? [];
   const fundamentalCoverage = analysis.dataScope?.fundamentalCoverage;
+  const adjustedNetIncomeStatus = fundamentalCoverage?.adjustedNetIncomeStatus
+    ?? (fundamentalCoverage?.adjustedNetIncomeAvailable ? "complete" : "unavailable");
+  const adjustedNetIncomeSources = fundamentalCoverage?.adjustedNetIncomeSources ?? [];
 
   return (
     <Block title="证据覆盖与反方检查">
@@ -225,7 +228,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
         <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="mr-1 text-xs font-medium text-foreground">基本面覆盖与现金流质量</div>
-            <Badge variant={fundamentalCoverage.adjustedNetIncomeAvailable ? "success" : "danger"}>扣非净利润{fundamentalCoverage.adjustedNetIncomeAvailable ? "已覆盖" : "缺失"}</Badge>
+            <Badge variant={adjustedNetIncomeStatus === "complete" ? "success" : adjustedNetIncomeStatus === "partial" ? "warning" : "danger"}>扣非净利润{adjustedNetIncomeStatusLabel(adjustedNetIncomeStatus)}</Badge>
             <Badge variant={fundamentalCoverage.historicalValuationAvailable ? "success" : "danger"}>历史估值{fundamentalCoverage.historicalValuationAvailable ? "已覆盖" : "缺失"}</Badge>
             <Badge variant={fundamentalCoverage.peerValuationAvailable ? "success" : "danger"}>同行估值{fundamentalCoverage.peerValuationAvailable ? "已覆盖" : "缺失"}</Badge>
           </div>
@@ -236,11 +239,23 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
             <ScopeLine label="经营现金流 / 归母净利" value={formatMultiple(fundamentalCoverage.operatingCashFlowToParentNetIncomeTtm)} />
             <ScopeLine label="自由现金流 / 归母净利" value={formatMultiple(fundamentalCoverage.freeCashFlowToParentNetIncomeTtm)} />
             <ScopeLine label="自由现金流率 TTM" value={formatMetricPercent(fundamentalCoverage.freeCashFlowMarginTtmPct)} />
+            <ScopeLine label="扣非净利润 TTM" value={formatCny10k(fundamentalCoverage.adjustedNetIncomeTtmCny10k)} />
+            <ScopeLine label="扣非利润样本" value={`${fundamentalCoverage.adjustedAnnualPeriodCount ?? 0} / 5 年，${fundamentalCoverage.adjustedStandaloneQuarterCount ?? 0} / 8 单季`} />
             <ScopeLine label="PE(TTM) / PB" value={`${formatMetricNumber(fundamentalCoverage.peTtm)} / ${formatMetricNumber(fundamentalCoverage.pb)}`} />
             <ScopeLine label="历史估值分位" value={formatMetricPercent(fundamentalCoverage.historicalPercentile)} />
           </div>
           {fundamentalCoverage.missingFields.length ? (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">明确缺失：{fundamentalCoverage.missingFields.map(fundamentalFieldLabel).join("、")}</p>
+          ) : null}
+          {adjustedNetIncomeSources.length ? (
+            <ul className="mt-3 space-y-1 border-t border-border/70 pt-2 text-xs leading-5">
+              {adjustedNetIncomeSources.slice(0, 8).map((source) => (
+                <li key={`${source.periodEnd}-${source.contentHash}`} className="flex flex-wrap items-center gap-2">
+                  <a className="text-primary underline-offset-2 hover:underline" href={source.url} target="_blank" rel="noreferrer">{source.periodEnd} · {source.title}</a>
+                  <span className="text-muted-foreground">原文哈希 {source.contentHash.slice(0, 10)}</span>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}
@@ -756,6 +771,12 @@ function cashFlowQualityLabel(status: FundamentalCashFlowQualityStatus) {
   return "不可用";
 }
 
+function adjustedNetIncomeStatusLabel(status: "complete" | "partial" | "unavailable") {
+  if (status === "complete") return "已覆盖";
+  if (status === "partial") return "部分覆盖";
+  return "缺失";
+}
+
 function fundamentalFieldLabel(field: string) {
   const labels: Record<string, string> = {
     fundamentalSource: "法定财务来源",
@@ -769,6 +790,9 @@ function fundamentalFieldLabel(field: string) {
     peTtm: "PE(TTM)",
     pb: "PB",
     adjustedNetIncome: "扣非净利润",
+    adjustedNetIncomeTtm: "扣非净利润 TTM",
+    fiveAnnualAdjustedNetIncomePeriods: "5 年扣非净利润",
+    eightStandaloneAdjustedNetIncomeQuarters: "8 个独立季度扣非净利润",
     valuationHistoricalPercentile: "历史估值分位",
     peerValuation: "同行估值"
   };

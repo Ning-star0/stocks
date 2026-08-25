@@ -8,7 +8,7 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.4.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.5.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -274,6 +274,7 @@ export function buildAnalysisEvidencePackage(input: {
     fallbacksUsed: fallbackAnalysisCount > 0 ? [`newsAnalysisFallback:${fallbackAnalysisCount}`] : [],
     entryBlockers
   };
+  const analysisDisclosures = compactDisclosureEvidence(disclosures);
 
   const packageWithoutHash = {
     schemaVersion: ANALYSIS_EVIDENCE_SCHEMA_VERSION,
@@ -296,7 +297,7 @@ export function buildAnalysisEvidencePackage(input: {
       recentCandles
     },
     fundamentals,
-    disclosures,
+    disclosures: analysisDisclosures,
     news: {
       window: "最近 7 天",
       refreshStartedAt: refresh?.startedAt ?? null,
@@ -367,6 +368,15 @@ export function buildAnalysisEvidencePackage(input: {
   return {
     ...packageWithoutHash,
     evidenceHash: createHash("sha256").update(JSON.stringify(packageWithoutHash)).digest("hex")
+  };
+}
+
+export function compactDisclosureEvidence(disclosures: DisclosureEvidence): DisclosureEvidence {
+  return {
+    ...disclosures,
+    items: disclosures.items.map((item) => item.isFundamentalSource && !item.isCritical
+      ? { ...item, contentExcerpt: null }
+      : item)
   };
 }
 
@@ -494,7 +504,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function unavailableFundamentals(): FundamentalEvidence {
   const reason = "当前股票数据源尚未接入版本化财务与估值证据。";
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status: "unavailable",
     provider: "not_configured",
     sourceUrl: "",
@@ -502,6 +512,7 @@ function unavailableFundamentals(): FundamentalEvidence {
     reportPeriod: null,
     annualPeriods: [],
     quarterlyPeriods: [],
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: null,
       price: null,
@@ -521,7 +532,7 @@ function unavailableFundamentals(): FundamentalEvidence {
 
 function uncheckedDisclosures(): DisclosureEvidence {
   return {
-    schemaVersion: "disclosure-evidence-v1",
+    schemaVersion: "disclosure-evidence-v2",
     status: "unchecked",
     provider: "not_configured",
     queryUrl: "",

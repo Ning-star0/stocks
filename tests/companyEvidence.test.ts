@@ -5,6 +5,7 @@ import { summarizeFundamentalCoverage } from "@/lib/analysis/fundamentalCoverage
 import {
   buildCninfoFundamentalEvidence,
   classifyCninfoDisclosureTitle,
+  fetchCninfoDisclosures,
   isCriticalCninfoDisclosure
 } from "@/lib/stock-data/cninfoEvidence";
 import type { FundamentalEvidence } from "@/lib/stock-data/types";
@@ -85,6 +86,10 @@ test("fundamental coverage exposes cash conversion without inventing unavailable
   assert.equal(summary.freeCashFlowMarginTtmPct, 15);
   assert.equal(summary.cashFlowQualityStatus, "available");
   assert.equal(summary.adjustedNetIncomeAvailable, false);
+  assert.equal(summary.adjustedNetIncomeStatus, "unavailable");
+  assert.equal(summary.adjustedAnnualPeriodCount, 0);
+  assert.equal(summary.adjustedStandaloneQuarterCount, 0);
+  assert.deepEqual(summary.adjustedNetIncomeSources, []);
   assert.equal(summary.historicalValuationAvailable, false);
   assert.equal(summary.peerValuationAvailable, false);
   assert.deepEqual(summary.missingFields, ["adjustedNetIncome", "valuationHistoricalPercentile", "peerValuation"]);
@@ -112,6 +117,74 @@ test("critical statutory disclosure categories are deterministic", () => {
   assert.equal(isCriticalCninfoDisclosure("earnings", "关于召开半年度业绩说明会的公告"), false);
   assert.equal(isCriticalCninfoDisclosure("periodic_report", "2026年半年度报告摘要"), false);
   assert.equal(isCriticalCninfoDisclosure("periodic_report", "2026年半年度报告"), true);
+});
+
+test("CNINFO announcement coverage follows the real 30-row page limit", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedPages: number[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/new/data/szse_stock.json")) {
+      return jsonResponse({ stockList: [{ code: "600000", orgId: "gssh0600000", zwjc: "测试银行" }] });
+    }
+    const params = new URLSearchParams(String(init?.body ?? ""));
+    if (params.get("category")) return jsonResponse({ totalAnnouncement: 0, announcements: [] });
+    const page = Number(params.get("pageNum"));
+    requestedPages.push(page);
+    const count = page === 1 ? 30 : page === 2 ? 1 : 0;
+    return jsonResponse({
+      totalAnnouncement: 31,
+      announcements: Array.from({ length: count }, (_, index) => ({
+        secCode: "600000",
+        secName: "测试银行",
+        announcementId: `notice-${page}-${index}`,
+        announcementTitle: `测试公告 ${page}-${index}`,
+        announcementTime: Date.parse("2026-08-20T00:00:00.000Z"),
+        adjunctUrl: `finalpage/2026-08-20/notice-${page}-${index}.PDF`
+      }))
+    });
+  };
+
+  try {
+    const evidence = await fetchCninfoDisclosures({ code: "600000", symbol: "600000.SH", exchange: "SH" });
+    assert.equal(evidence.status, "checked");
+    assert.equal(evidence.items.length, 31);
+    assert.deepEqual(requestedPages, [1, 2]);
+    assert.deepEqual(evidence.failures, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CNINFO announcement overflow is explicit instead of being reported as fully checked", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedPages: number[] = [];
+  globalThis.fetch = async (_input, init) => {
+    const params = new URLSearchParams(String(init?.body ?? ""));
+    if (params.get("category")) return jsonResponse({ totalAnnouncement: 0, announcements: [] });
+    const page = Number(params.get("pageNum"));
+    requestedPages.push(page);
+    return jsonResponse({
+      totalAnnouncement: 121,
+      announcements: Array.from({ length: 30 }, (_, index) => ({
+        secCode: "600000",
+        secName: "测试银行",
+        announcementId: `overflow-${page}-${index}`,
+        announcementTitle: `超量公告 ${page}-${index}`,
+        announcementTime: Date.parse("2026-08-20T00:00:00.000Z"),
+        adjunctUrl: `finalpage/2026-08-20/overflow-${page}-${index}.PDF`
+      }))
+    });
+  };
+
+  try {
+    const evidence = await fetchCninfoDisclosures({ code: "600000", symbol: "600000.SH", exchange: "SH" });
+    assert.equal(evidence.status, "partial");
+    assert.deepEqual(requestedPages, [1, 2, 3, 4]);
+    assert.ok(evidence.failures.some((item) => item.includes("分页超过安全上限")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 function indicatorRows(suffix: string, values: Record<number, [number, number]>) {
@@ -170,7 +243,7 @@ function withSecondaryMetric<T extends Record<"one" | "middle" | "three" | "year
 
 function summaryEvidence(metrics: FundamentalEvidence["metrics"]): FundamentalEvidence {
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status: "partial",
     provider: "CNINFO",
     sourceUrl: "https://www.cninfo.com.cn/",
@@ -178,6 +251,7 @@ function summaryEvidence(metrics: FundamentalEvidence["metrics"]): FundamentalEv
     reportPeriod: "2025-12-31",
     annualPeriods: [],
     quarterlyPeriods: [],
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: "2026-08-24T07:00:00.000Z",
       price: 20,
@@ -193,4 +267,11 @@ function summaryEvidence(metrics: FundamentalEvidence["metrics"]): FundamentalEv
     failures: [],
     missingReason: "尚缺关键估值证据"
   };
+}
+
+function jsonResponse(value: unknown) {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "Content-Type": "application/json; charset=utf-8" }
+  });
 }

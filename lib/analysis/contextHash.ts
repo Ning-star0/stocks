@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v10";
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v11";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -27,7 +27,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 10,
+    analysisPromptVersion: 11,
     evidenceSchemaVersion: input.evidence.schemaVersion,
     decisionPolicyVersion: input.evidence.decisionPolicyVersion,
     marketDataRevision: input.evidence.marketDataRevision,
@@ -52,6 +52,12 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
       })).digest("hex"),
       valuation: input.evidence.fundamentals.valuation,
       metrics: input.evidence.fundamentals.metrics,
+      adjustedNetIncomeSources: input.evidence.fundamentals.adjustedNetIncomeSources.map((source) => ({
+        periodEnd: source.periodEnd,
+        sourceDisclosureId: source.sourceDisclosureId,
+        contentHash: source.contentHash,
+        parserVersion: source.parserVersion
+      })),
       missingFields: input.evidence.fundamentals.missingFields,
       conflictingFields: input.evidence.fundamentals.conflictingFields
     },

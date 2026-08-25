@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 
 import { PDFParse } from "pdf-parse";
 
+import { parseAdjustedNetIncomeDisclosureFact } from "@/lib/stock-data/adjustedNetIncomeEvidence";
 import type { DisclosureEvidence, DisclosureEvidenceItem } from "@/lib/stock-data/types";
 
 const DEFAULT_MAX_DOCUMENTS = 6;
+const DEFAULT_MIN_FUNDAMENTAL_DOCUMENTS = 3;
 const DEFAULT_MAX_PDF_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 25_000;
 const MAX_EXCERPT_CHARS = 6_000;
@@ -16,6 +18,7 @@ const RISK_TERMS = [
   "购建固定资产、无形资产和其他长期资产支付的现金",
   "经营活动产生的现金流量净额",
   "净利润",
+  "归属于上市公司股东的扣除非经常性损益的净利润",
   "可能存在",
   "不确定性",
   "立案",
@@ -41,13 +44,11 @@ export async function enrichDisclosureContent(
   const previousById = new Map((previous?.items ?? []).map((item) => [item.id, item]));
   const reused = evidence.items.map((item) => reuseExtractedContent(item, previousById.get(item.id)));
   const maxDocuments = positiveIntegerEnv("DISCLOSURE_MAX_PDF_PER_REFRESH", DEFAULT_MAX_DOCUMENTS);
-  const candidateIds = new Set(
-    reused
-      .filter((item) => item.isCritical && item.contentStatus === "metadata_only")
-      .sort(compareDisclosurePriority)
-      .slice(0, maxDocuments)
-      .map((item) => item.id)
-  );
+  const fundamentalSlots = Math.min(maxDocuments, positiveIntegerEnv(
+    "DISCLOSURE_MIN_FUNDAMENTAL_PDF_PER_REFRESH",
+    DEFAULT_MIN_FUNDAMENTAL_DOCUMENTS
+  ));
+  const candidateIds = selectDisclosureExtractionCandidateIds(reused, maxDocuments, fundamentalSlots);
   const failures: string[] = [...evidence.failures];
   const items: DisclosureEvidenceItem[] = [];
 
@@ -73,6 +74,28 @@ export async function enrichDisclosureContent(
   };
 }
 
+export function selectDisclosureExtractionCandidateIds(
+  items: DisclosureEvidenceItem[],
+  maxDocuments: number,
+  fundamentalSlots: number
+) {
+  const pending = items.filter((item) => (item.isCritical || item.isFundamentalSource) && item.contentStatus === "metadata_only");
+  const reservedFundamentalIds = pending
+    .filter((item) => item.isFundamentalSource)
+    .sort((a, b) => Number(Boolean(a.extractionFailure)) - Number(Boolean(b.extractionFailure))
+      || b.publishedAt.localeCompare(a.publishedAt))
+    .slice(0, Math.min(maxDocuments, fundamentalSlots))
+    .map((item) => item.id);
+  return new Set([
+    ...reservedFundamentalIds,
+    ...pending
+      .filter((item) => !reservedFundamentalIds.includes(item.id))
+      .sort(compareDisclosurePriority)
+      .slice(0, maxDocuments - reservedFundamentalIds.length)
+      .map((item) => item.id)
+  ]);
+}
+
 export async function extractDisclosureItem(item: DisclosureEvidenceItem): Promise<DisclosureEvidenceItem> {
   if (!isAllowedCninfoPdfUrl(item.sourceUrl)) {
     return { ...item, extractionFailure: "公告原文 URL 不属于巨潮官方 PDF 白名单。" };
@@ -85,13 +108,17 @@ export async function extractDisclosureItem(item: DisclosureEvidenceItem): Promi
     if (text.length < MIN_USEFUL_TEXT_CHARS) {
       return { ...item, extractionFailure: "PDF 未提取到足够的可读文本，可能是扫描件或受保护文件。" };
     }
+    const contentHash = createHash("sha256").update(text).digest("hex");
     return {
       ...item,
       contentStatus: "extracted",
-      contentHash: createHash("sha256").update(text).digest("hex"),
+      contentHash,
       contentExcerpt: buildDisclosureRiskExcerpt(text),
       extractedCharacters: text.length,
-      extractionFailure: null
+      extractionFailure: null,
+      adjustedNetIncomeFact: item.category === "periodic_report"
+        ? parseAdjustedNetIncomeDisclosureFact({ title: item.title, text })
+        : null
     };
   } finally {
     await parser.destroy();
@@ -149,14 +176,18 @@ function bestTermIndex(text: string, term: string) {
 }
 
 function reuseExtractedContent(current: DisclosureEvidenceItem, previous: DisclosureEvidenceItem | undefined) {
-  if (!previous || previous.sourceUrl !== current.sourceUrl || previous.contentStatus === "metadata_only" || !previous.contentHash) return current;
+  if (!previous || previous.sourceUrl !== current.sourceUrl) return current;
+  if (previous.contentStatus === "metadata_only" || !previous.contentHash) {
+    return { ...current, extractionFailure: previous.extractionFailure };
+  }
   return {
     ...current,
     contentStatus: previous.contentStatus,
     contentHash: previous.contentHash,
     contentExcerpt: previous.contentExcerpt,
     extractedCharacters: previous.extractedCharacters,
-    extractionFailure: null
+    extractionFailure: null,
+    adjustedNetIncomeFact: previous.adjustedNetIncomeFact
   };
 }
 
@@ -217,7 +248,9 @@ function compareDisclosurePriority(a: DisclosureEvidenceItem, b: DisclosureEvide
     if (item.category === "periodic_report" && !/摘要/.test(item.title)) return 3;
     return 4;
   };
-  return score(a) - score(b) || b.publishedAt.localeCompare(a.publishedAt);
+  return Number(Boolean(a.extractionFailure)) - Number(Boolean(b.extractionFailure))
+    || score(a) - score(b)
+    || b.publishedAt.localeCompare(a.publishedAt);
 }
 
 function normalizePdfText(value: string) {

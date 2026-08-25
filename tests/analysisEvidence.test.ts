@@ -5,6 +5,7 @@ import {
   ANALYSIS_EVIDENCE_SCHEMA_VERSION,
   buildAnalysisEvidencePackage,
   calculateDeterministicMarketFeatures,
+  compactDisclosureEvidence,
   resolveDecisionMode
 } from "@/lib/analysis/evidence";
 import { createAnalysisCacheKey, createAnalysisContextHash } from "@/lib/analysis/contextHash";
@@ -157,6 +158,38 @@ test("context hash changes when derived fundamental metrics change", () => {
   assert.notEqual(contextHash(base, 100_000, "偏好低回撤"), contextHash(changedMetrics, 100_000, "偏好低回撤"));
 });
 
+test("context hash changes when an adjusted-profit source document changes", () => {
+  const input = completeEvidenceInput();
+  const source = {
+    schemaVersion: "adjusted-net-income-fact-v1" as const,
+    parserVersion: "cninfo-periodic-table-v1" as const,
+    periodEnd: "2026-06-30",
+    periodKind: "half_year" as const,
+    currency: "CNY" as const,
+    sourceUnit: "CNY" as const,
+    cumulativeValueCny10k: 95,
+    priorComparableValueCny10k: 90,
+    reportedParentNetIncomeCny10k: 100,
+    rawCurrentValue: "950000",
+    rawPriorComparableValue: "900000",
+    sourceDisclosureId: "report-2026-h1",
+    sourceTitle: "2026年半年度报告",
+    sourceUrl: "https://static.cninfo.com.cn/finalpage/2026-08-20/report.PDF",
+    publishedAt: "2026-08-20T00:00:00.000Z",
+    contentHash: "first-content-hash"
+  };
+  const first = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: { ...input.fundamentals, adjustedNetIncomeSources: [source] }
+  });
+  const revised = buildAnalysisEvidencePackage({
+    ...input,
+    fundamentals: { ...input.fundamentals, adjustedNetIncomeSources: [{ ...source, contentHash: "revised-content-hash" }] }
+  });
+
+  assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(revised, 100_000, "偏好低回撤"));
+});
+
 test("analysis cache keys are isolated by user", () => {
   const hash = "a".repeat(64);
   assert.notEqual(
@@ -273,7 +306,7 @@ function completeEvidenceInput() {
     lastNewsFetch: "2026-08-24T23:30:00+08:00",
     newsRefreshCompleted: true,
     fundamentals: {
-      schemaVersion: "fundamental-evidence-v1" as const,
+      schemaVersion: "fundamental-evidence-v2" as const,
       status: "available" as const,
       provider: "fixture",
       sourceUrl: "https://example.test/fundamentals",
@@ -281,6 +314,7 @@ function completeEvidenceInput() {
       reportPeriod: "2026-06-30",
       annualPeriods: [],
       quarterlyPeriods: [],
+      adjustedNetIncomeSources: [],
       valuation: {
         asOf: "2026-08-24T15:00:00+08:00",
         price: 12,
@@ -297,7 +331,7 @@ function completeEvidenceInput() {
       missingReason: null
     },
     disclosures: {
-      schemaVersion: "disclosure-evidence-v1" as const,
+      schemaVersion: "disclosure-evidence-v2" as const,
       status: "checked" as const,
       provider: "fixture",
       queryUrl: "https://example.test/disclosures",
@@ -321,7 +355,9 @@ function completeEvidenceInput() {
         contentExcerpt: "公告原文已经完成提取和分析。",
         extractedCharacters: 16,
         extractionFailure: null,
-        isCritical: true
+        isCritical: true,
+        isFundamentalSource: true,
+        adjustedNetIncomeFact: null
       }],
       failures: []
     },
@@ -365,6 +401,37 @@ test("metadata-only critical disclosures block entry until original content is r
   assert.equal(evidence.dataQuality.status, "insufficient");
   assert.equal(evidence.dataQuality.criticalDisclosuresRead, false);
   assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("关键公告仅有元数据")));
+});
+
+test("historical fundamental reports keep hashes and facts without duplicating long excerpts into the AI context", () => {
+  const disclosures = completeEvidenceInput().disclosures;
+  const compacted = compactDisclosureEvidence({
+    ...disclosures,
+    items: [{
+      ...disclosures.items[0],
+      id: "historical-report",
+      isCritical: false,
+      isFundamentalSource: true,
+      contentExcerpt: "历史报告原文".repeat(2_000),
+      adjustedNetIncomeFact: {
+        schemaVersion: "adjusted-net-income-fact-v1",
+        parserVersion: "cninfo-periodic-table-v1",
+        periodEnd: "2025-12-31",
+        periodKind: "annual",
+        currency: "CNY",
+        sourceUnit: "CNY_10K",
+        cumulativeValueCny10k: 95,
+        priorComparableValueCny10k: 90,
+        reportedParentNetIncomeCny10k: 100,
+        rawCurrentValue: "95",
+        rawPriorComparableValue: "90"
+      }
+    }]
+  });
+
+  assert.equal(compacted.items[0].contentExcerpt, null);
+  assert.equal(compacted.items[0].contentHash, disclosures.items[0].contentHash);
+  assert.equal(compacted.items[0].adjustedNetIncomeFact?.cumulativeValueCny10k, 95);
 });
 
 test("entry plan cannot invent percentage stops or targets when levels are missing", () => {

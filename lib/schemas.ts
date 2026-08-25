@@ -283,7 +283,18 @@ export const aiAnalysisSchema = z.object({
         freeCashFlowToParentNetIncomeTtm: z.number().nullable(),
         freeCashFlowMarginTtmPct: z.number().nullable(),
         cashFlowQualityStatus: z.enum(["available", "partial", "not_meaningful", "unavailable"]),
+        adjustedNetIncomeStatus: z.enum(["complete", "partial", "unavailable"]),
         adjustedNetIncomeAvailable: z.boolean(),
+        adjustedNetIncomeTtmCny10k: z.number().nullable(),
+        adjustedAnnualPeriodCount: z.number().int().nonnegative(),
+        adjustedStandaloneQuarterCount: z.number().int().nonnegative(),
+        adjustedNetIncomeSources: z.array(z.object({
+          periodEnd: z.string(),
+          title: z.string(),
+          url: z.string(),
+          publishedAt: z.string(),
+          contentHash: z.string()
+        })),
         historicalValuationAvailable: z.boolean(),
         peerValuationAvailable: z.boolean(),
         peTtm: z.number().nullable(),

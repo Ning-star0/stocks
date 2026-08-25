@@ -251,7 +251,7 @@ function analysisCandidate() {
 
 function availableFundamentals(): FundamentalEvidence {
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status: "available",
     provider: "db-e2e-fixture",
     sourceUrl: "https://example.test/fundamentals",
@@ -259,6 +259,7 @@ function availableFundamentals(): FundamentalEvidence {
     reportPeriod: "2026-06-30",
     annualPeriods: [],
     quarterlyPeriods: [],
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: quote.timestamp,
       price: quote.price,
@@ -302,7 +303,7 @@ function unavailableFundamentals(): FundamentalEvidence {
 
 function checkedDisclosures(): DisclosureEvidence {
   return {
-    schemaVersion: "disclosure-evidence-v1",
+    schemaVersion: "disclosure-evidence-v2",
     status: "checked",
     provider: "db-e2e-fixture",
     queryUrl: "https://example.test/disclosures",
@@ -315,7 +316,7 @@ function checkedDisclosures(): DisclosureEvidence {
     items: [{
       id: "notice-fixture",
       symbol,
-      companyName: quote.name,
+      companyName: quote.name ?? null,
       title: "半年度报告",
       publishedAt: "2026-08-20T18:00:00+08:00",
       category: "periodic_report",
@@ -326,7 +327,9 @@ function checkedDisclosures(): DisclosureEvidence {
       contentExcerpt: "公告原文已提取。",
       extractedCharacters: 8,
       extractionFailure: null,
-      isCritical: true
+      isCritical: true,
+      isFundamentalSource: true,
+      adjustedNetIncomeFact: null
     }],
     failures: []
   };

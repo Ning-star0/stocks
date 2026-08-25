@@ -12,6 +12,11 @@ const CNINFO_ORIGIN = "https://www.cninfo.com.cn";
 const CNINFO_DATA_ORIGIN = `${CNINFO_ORIGIN}/data20`;
 const REQUEST_TIMEOUT_MS = 15_000;
 const DISCLOSURE_WINDOW_DAYS = 180;
+// 巨潮当前公告接口单页实际上限为 30；请求更大仍只返回 30，必须按真实上限翻页。
+const DISCLOSURE_PAGE_SIZE = 30;
+const DISCLOSURE_MAX_PAGES = 4;
+const PERIODIC_REPORT_LOOKBACK_YEARS = 6;
+const PERIODIC_REPORT_CATEGORIES = "category_ndbg_szsh;category_bndbg_szsh;category_yjdbg_szsh;category_sjdbg_szsh";
 
 type CninfoEnvelope = {
   code?: number;
@@ -103,7 +108,7 @@ export async function fetchCninfoDisclosures(input: {
 
     const params = new URLSearchParams({
       pageNum: "1",
-      pageSize: "50",
+      pageSize: String(DISCLOSURE_PAGE_SIZE),
       column: input.exchange === "SH" ? "sse" : "szse",
       tabName: "fulltext",
       plate: input.exchange === "SH" ? "sh" : "sz",
@@ -117,29 +122,49 @@ export async function fetchCninfoDisclosures(input: {
       sortType: "desc",
       isHLtitle: "true"
     });
-    const payload = await postCninfoJson(queryUrl, params, input.options) as {
-      totalAnnouncement?: number;
-      announcements?: CninfoAnnouncement[];
-    };
-    const rows = Array.isArray(payload.announcements) ? payload.announcements : [];
-    const items = rows
+    const periodicWindowFrom = `${Number(windowTo.slice(0, 4)) - PERIODIC_REPORT_LOOKBACK_YEARS}-01-01`;
+    const periodicParams = new URLSearchParams(params);
+    periodicParams.set("category", PERIODIC_REPORT_CATEGORIES);
+    periodicParams.set("seDate", `${periodicWindowFrom}~${windowTo}`);
+    // 巨潮对突发并发较敏感；公告分页串行拉取，避免把完整性增强变成额外限流风险。
+    const recentPageSet = await fetchCninfoAnnouncementPages(queryUrl, params, input.options);
+    const periodicPageSet = await fetchCninfoAnnouncementPages(queryUrl, periodicParams, input.options);
+    const recentItems = recentPageSet.rows
       .map((row) => normalizeDisclosure(row, input.symbol))
       .filter((item): item is DisclosureEvidenceItem => Boolean(item));
+    const periodicItems = periodicPageSet.rows
+      .map((row) => normalizeDisclosure(row, input.symbol))
+      .filter((item): item is DisclosureEvidenceItem => Boolean(item))
+      .filter(isFundamentalPeriodicReport)
+      .map((item) => ({ ...item, isCritical: false, isFundamentalSource: true }));
+    const byId = new Map<string, DisclosureEvidenceItem>();
+    for (const item of [...periodicItems, ...recentItems]) {
+      const previous = byId.get(item.id);
+      byId.set(item.id, {
+        ...previous,
+        ...item,
+        isCritical: Boolean(previous?.isCritical || item.isCritical),
+        isFundamentalSource: Boolean(previous?.isFundamentalSource || item.isFundamentalSource)
+      });
+    }
+    const items = [...byId.values()].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
     const latestPublishedAt = items.map((item) => item.publishedAt).sort().at(-1) ?? null;
+    const truncated = recentPageSet.truncated || periodicPageSet.truncated;
+    const failures = truncated ? ["巨潮公告分页超过安全上限，当前公告证据不完整。"] : [];
 
     return {
-      schemaVersion: "disclosure-evidence-v1",
-      status: "checked",
+      schemaVersion: "disclosure-evidence-v2",
+      status: truncated ? "partial" : "checked",
       provider: "CNINFO",
       queryUrl,
       checkedAt: checkedAt.toISOString(),
-      windowFrom,
+      windowFrom: periodicWindowFrom,
       windowTo,
       latestPublishedAt,
-      totalCount: Math.max(Number(payload.totalAnnouncement) || 0, items.length),
+      totalCount: Math.max(recentPageSet.totalCount, items.length),
       criticalUnreadCount: items.filter((item) => item.isCritical && item.contentStatus !== "analyzed").length,
       items,
-      failures: []
+      failures
     };
   } catch (error) {
     return {
@@ -202,7 +227,7 @@ export function buildCninfoFundamentalEvidence(input: {
   const status = !coreAvailable ? "unavailable" : missingFields.length ? "partial" : "available";
 
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status,
     provider: "CNINFO",
     sourceUrl: input.sourceUrl,
@@ -210,6 +235,7 @@ export function buildCninfoFundamentalEvidence(input: {
     reportPeriod,
     annualPeriods,
     quarterlyPeriods,
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: input.priceAsOf,
       price: input.price,
@@ -260,6 +286,7 @@ function collectIndicatorPeriods(record: CninfoFinancialRecord) {
         unit: "CNY_10K",
         revenue: null,
         parentNetIncome: null,
+        adjustedParentNetIncome: null,
         operatingCashFlow: null,
         capitalExpenditure: null,
         freeCashFlow: null,
@@ -439,7 +466,9 @@ function normalizeDisclosure(row: CninfoAnnouncement, symbol: string): Disclosur
     contentExcerpt: null,
     extractedCharacters: 0,
     extractionFailure: null,
-    isCritical: isCriticalCninfoDisclosure(category, title)
+    isCritical: isCriticalCninfoDisclosure(category, title),
+    isFundamentalSource: false,
+    adjustedNetIncomeFact: null
   };
 }
 
@@ -538,6 +567,7 @@ function emptyFinancialPeriod(periodEnd: string, periodType: "quarter" | "annual
     unit: "CNY_10K",
     revenue: null,
     parentNetIncome: null,
+    adjustedParentNetIncome: null,
     operatingCashFlow: null,
     capitalExpenditure: null,
     freeCashFlow: null,
@@ -554,7 +584,7 @@ function emptyFinancialPeriod(periodEnd: string, periodType: "quarter" | "annual
 
 function unavailableFundamentals(fetchedAt: string, sourceUrl: string, reason: string): FundamentalEvidence {
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status: "unavailable",
     provider: "CNINFO",
     sourceUrl,
@@ -562,6 +592,7 @@ function unavailableFundamentals(fetchedAt: string, sourceUrl: string, reason: s
     reportPeriod: null,
     annualPeriods: [],
     quarterlyPeriods: [],
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: null,
       price: null,
@@ -581,7 +612,7 @@ function unavailableFundamentals(fetchedAt: string, sourceUrl: string, reason: s
 
 function uncheckedDisclosures(queryUrl: string, reason: string): DisclosureEvidence {
   return {
-    schemaVersion: "disclosure-evidence-v1",
+    schemaVersion: "disclosure-evidence-v2",
     status: "unchecked",
     provider: "CNINFO",
     queryUrl,
@@ -594,6 +625,32 @@ function uncheckedDisclosures(queryUrl: string, reason: string): DisclosureEvide
     items: [],
     failures: [reason]
   };
+}
+
+async function fetchCninfoAnnouncementPages(
+  url: string,
+  baseParams: URLSearchParams,
+  options?: CompanyEvidenceOptions
+) {
+  const rows: CninfoAnnouncement[] = [];
+  let totalCount = 0;
+  for (let page = 1; page <= DISCLOSURE_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams(baseParams);
+    params.set("pageNum", String(page));
+    const payload = await postCninfoJson(url, params, options) as {
+      totalAnnouncement?: number;
+      announcements?: CninfoAnnouncement[];
+    };
+    const pageRows = Array.isArray(payload.announcements) ? payload.announcements : [];
+    totalCount = Math.max(totalCount, Number(payload.totalAnnouncement) || 0);
+    rows.push(...pageRows);
+    if (!pageRows.length || rows.length >= totalCount || pageRows.length < DISCLOSURE_PAGE_SIZE) break;
+  }
+  return { rows, totalCount, truncated: totalCount > rows.length };
+}
+
+function isFundamentalPeriodicReport(item: DisclosureEvidenceItem) {
+  return item.category === "periodic_report" && !/摘要|英文版|取消/.test(item.title);
 }
 
 function subtractNullable(current: number | null, previous: number | null | undefined) {

@@ -2,12 +2,13 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { getStockDataProvider } from "@/lib/stock-data";
+import { mergeAdjustedNetIncomeEvidence } from "@/lib/stock-data/adjustedNetIncomeEvidence";
 import { enrichDisclosureContent } from "@/lib/stock-data/disclosureContent";
 import { stockSymbolVariants } from "@/lib/symbols";
 import type { DisclosureEvidence, FundamentalEvidence, Quote } from "@/lib/stock-data/types";
 
 export type StockCompanyEvidenceRefresh = {
-  schemaVersion: "company-evidence-refresh-v1";
+  schemaVersion: "company-evidence-refresh-v2";
   symbol: string;
   startedAt: string;
   completedAt: string;
@@ -30,7 +31,7 @@ export async function prepareStockCompanyEvidence(input: {
     price: input.quote.price,
     priceAsOf: input.quote.timestamp
   };
-  const [fundamentals, rawDisclosures] = await Promise.all([
+  const [rawFundamentals, rawDisclosures] = await Promise.all([
     provider.getFundamentals
       ? provider.getFundamentals(input.symbol, options).catch((error) => unavailableFundamentals(errorMessage(error)))
       : Promise.resolve(unavailableFundamentals("当前股票数据提供器未实现财务与估值证据接口。")),
@@ -42,8 +43,9 @@ export async function prepareStockCompanyEvidence(input: {
     ...rawDisclosures,
     failures: uniqueStrings([...rawDisclosures.failures, `公告原文提取流程失败：${errorMessage(error)}`])
   }));
+  const fundamentals = mergeAdjustedNetIncomeEvidence(rawFundamentals, disclosures);
   const receipt: StockCompanyEvidenceRefresh = {
-    schemaVersion: "company-evidence-refresh-v1",
+    schemaVersion: "company-evidence-refresh-v2",
     symbol: input.symbol.toUpperCase(),
     startedAt,
     completedAt: new Date().toISOString(),
@@ -89,7 +91,7 @@ export async function getStoredStockCompanyEvidence(userId: string, symbol: stri
     ?? row?.updatedAt.toISOString()
     ?? new Date(0).toISOString();
   return {
-    schemaVersion: "company-evidence-refresh-v1",
+    schemaVersion: "company-evidence-refresh-v2",
     symbol: row?.symbol ?? symbol.toUpperCase(),
     startedAt,
     completedAt: row?.updatedAt.toISOString() ?? startedAt,
@@ -100,19 +102,35 @@ export async function getStoredStockCompanyEvidence(userId: string, symbol: stri
 }
 
 function parseFundamentals(value: unknown): FundamentalEvidence | null {
-  if (!isRecord(value) || value.schemaVersion !== "fundamental-evidence-v1") return null;
+  if (!isRecord(value) || !["fundamental-evidence-v1", "fundamental-evidence-v2"].includes(String(value.schemaVersion))) return null;
   if (!Array.isArray(value.annualPeriods) || !Array.isArray(value.quarterlyPeriods) || !isRecord(value.valuation)) return null;
-  return value as unknown as FundamentalEvidence;
+  const parsed = value as unknown as FundamentalEvidence;
+  return {
+    ...parsed,
+    schemaVersion: "fundamental-evidence-v2",
+    annualPeriods: parsed.annualPeriods.map((period) => ({ ...period, adjustedParentNetIncome: period.adjustedParentNetIncome ?? null })),
+    quarterlyPeriods: parsed.quarterlyPeriods.map((period) => ({ ...period, adjustedParentNetIncome: period.adjustedParentNetIncome ?? null })),
+    adjustedNetIncomeSources: Array.isArray(parsed.adjustedNetIncomeSources) ? parsed.adjustedNetIncomeSources : []
+  };
 }
 
 function parseDisclosures(value: unknown): DisclosureEvidence | null {
-  if (!isRecord(value) || value.schemaVersion !== "disclosure-evidence-v1" || !Array.isArray(value.items)) return null;
-  return value as unknown as DisclosureEvidence;
+  if (!isRecord(value) || !["disclosure-evidence-v1", "disclosure-evidence-v2"].includes(String(value.schemaVersion)) || !Array.isArray(value.items)) return null;
+  const parsed = value as unknown as DisclosureEvidence;
+  return {
+    ...parsed,
+    schemaVersion: "disclosure-evidence-v2",
+    items: parsed.items.map((item) => ({
+      ...item,
+      isFundamentalSource: item.isFundamentalSource ?? false,
+      adjustedNetIncomeFact: item.adjustedNetIncomeFact ?? null
+    }))
+  };
 }
 
 function unavailableFundamentals(reason: string): FundamentalEvidence {
   return {
-    schemaVersion: "fundamental-evidence-v1",
+    schemaVersion: "fundamental-evidence-v2",
     status: "unavailable",
     provider: "not_configured",
     sourceUrl: "",
@@ -120,6 +138,7 @@ function unavailableFundamentals(reason: string): FundamentalEvidence {
     reportPeriod: null,
     annualPeriods: [],
     quarterlyPeriods: [],
+    adjustedNetIncomeSources: [],
     valuation: {
       asOf: null,
       price: null,
@@ -139,7 +158,7 @@ function unavailableFundamentals(reason: string): FundamentalEvidence {
 
 function uncheckedDisclosures(reason: string): DisclosureEvidence {
   return {
-    schemaVersion: "disclosure-evidence-v1",
+    schemaVersion: "disclosure-evidence-v2",
     status: "unchecked",
     provider: "not_configured",
     queryUrl: "",

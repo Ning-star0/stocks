@@ -11,6 +11,7 @@ export type FinancialPeriodEvidence = {
   unit: "CNY_10K";
   revenue: number | null;
   parentNetIncome: number | null;
+  adjustedParentNetIncome: number | null;
   operatingCashFlow: number | null;
   capitalExpenditure: number | null;
   freeCashFlow: number | null;
@@ -24,8 +25,30 @@ export type FinancialPeriodEvidence = {
   netIncomeGrowthPct: number | null;
 };
 
+export type AdjustedNetIncomeDisclosureFact = {
+  schemaVersion: "adjusted-net-income-fact-v1";
+  parserVersion: "cninfo-periodic-table-v1";
+  periodEnd: string;
+  periodKind: "q1" | "half_year" | "q3" | "annual";
+  currency: "CNY";
+  sourceUnit: "CNY" | "CNY_1K" | "CNY_10K" | "CNY_1M";
+  cumulativeValueCny10k: number;
+  priorComparableValueCny10k: number | null;
+  reportedParentNetIncomeCny10k: number;
+  rawCurrentValue: string;
+  rawPriorComparableValue: string | null;
+};
+
+export type AdjustedNetIncomeSource = AdjustedNetIncomeDisclosureFact & {
+  sourceDisclosureId: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  publishedAt: string;
+  contentHash: string;
+};
+
 export type FundamentalEvidence = {
-  schemaVersion: "fundamental-evidence-v1";
+  schemaVersion: "fundamental-evidence-v2";
   status: "available" | "partial" | "unavailable";
   provider: string;
   sourceUrl: string;
@@ -33,6 +56,7 @@ export type FundamentalEvidence = {
   reportPeriod: string | null;
   annualPeriods: FinancialPeriodEvidence[];
   quarterlyPeriods: FinancialPeriodEvidence[];
+  adjustedNetIncomeSources: AdjustedNetIncomeSource[];
   valuation: {
     asOf: string | null;
     price: number | null;
@@ -64,10 +88,12 @@ export type DisclosureEvidenceItem = {
   extractedCharacters: number;
   extractionFailure: string | null;
   isCritical: boolean;
+  isFundamentalSource: boolean;
+  adjustedNetIncomeFact: AdjustedNetIncomeDisclosureFact | null;
 };
 
 export type DisclosureEvidence = {
-  schemaVersion: "disclosure-evidence-v1";
+  schemaVersion: "disclosure-evidence-v2";
   status: "checked" | "partial" | "unchecked";
   provider: string;
   queryUrl: string;

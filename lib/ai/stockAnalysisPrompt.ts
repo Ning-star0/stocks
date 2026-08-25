@@ -30,7 +30,7 @@ export function buildUserPrompt(input: AnalyzeStockInput) {
 19. decisionStatus 必须使用结构化枚举。证据不足用 insufficient_data；硬风险否决用 rejected；值得继续研究用 research_candidate；逻辑成立但等待价格/事件用 setup_wait；只有证据充分且全部条件满足时才能提议 conditional_entry；已持仓用 manage_position；已触发退出风险用 exit_risk。服务端会根据硬门控覆盖你的候选状态。
 20. supportingEvidence、opposingEvidence、missingEvidence 必须分别列出支持、反对和缺失证据。不得把同一事实重复放入多个数组，也不得把推测写成事实。
 21. recentCandles 和 deterministicFeatures 是服务端计算的近期量价证据。需要结合最近 5/20/60 日收益、波动、ATR、量比、缺口和回撤解释走势，不能只复述 RSI/MACD，也不能自行计算或编造价位。
-22. disclosures.items 中 contentStatus=extracted 的 contentExcerpt 是从法定公告 PDF 原文确定性提取的风险相关片段；必须纳入支持/反对/缺失证据。contentStatus=metadata_only、extractionFailure 或 criticalUnreadCount>0 表示原文证据未闭合，禁止据标题猜测正文。
+22. disclosures.items 中近期关键公告的 contentStatus=extracted 且 contentExcerpt 非空时，该片段是从法定公告 PDF 原文确定性提取的风险相关内容，必须纳入支持/反对/缺失证据。仅用于历史财务结构化事实的定期报告可能为控制上下文而不重复携带 contentExcerpt，此时必须使用 fundamentals.adjustedNetIncomeSources 和 adjustedNetIncomeFact 中已经过程序交叉核对的数值、URL 与原文哈希，不能自行重算。contentStatus=metadata_only、extractionFailure 或 criticalUnreadCount>0 表示相应关键原文证据未闭合，禁止据标题猜测正文。
 23. tradePlan 中的目标情景净收益与风险收益比不是统计期望值。当前 expectedValueStatus=not_calibrated 时，必须明确写“本计划胜率和期望值尚未校准”，不得声称具有正期望，也不得借用另一套规则回测的胜率冒充本计划胜率。
 
 本次决策模式专用约束：
