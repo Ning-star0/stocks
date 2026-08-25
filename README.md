@@ -149,6 +149,14 @@ sudo bash update.sh
 
 `update.sh` 仅在确认工作目录为 `/opt/stocks` 后清理 `.next`；健康检查失败时会输出两个服务的最近日志并以失败状态退出。
 
+部署后可在已配置且允许写入临时固定样本的数据库运行可选端到端验收；测试使用唯一邮箱和缓存键，并在结束时级联清理临时用户、分析、证据与用量记录：
+
+```bash
+RUN_DB_E2E_TESTS=true npx tsx --test tests/apiQuotaDb.test.ts tests/analysisPersistenceDb.test.ts
+```
+
+该验收覆盖并发额度锁、持久化缓存、用户级分析复用隔离、交易记忆导致的上下文失效，以及持久化证据不足继续阻断条件买入。
+
 ## 低配设计
 
 不需要 Redis、Kafka、Docker 多容器。PostgreSQL 本身就是任务队列：

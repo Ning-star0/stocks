@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { buildStockAnalysisContext } from "@/lib/analysis/stockAnalysisRunner";
 import { createAnalysisCacheKey } from "@/lib/analysis/contextHash";
+import { findReusableAnalysisByContextHash } from "@/lib/analysis/reusableAnalysis";
 import { getAiConfig } from "@/lib/ai/config";
 import { shouldRunStockAnalysis } from "@/lib/analysis/shouldAnalyze";
 import { getCache } from "@/lib/cache";
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
         contextHash
       });
     }
-    const existingByHash = await findAnalysisByContextHash(user.id, canonicalSymbol, contextHash);
+    const existingByHash = await findReusableAnalysisByContextHash(user.id, canonicalSymbol, contextHash);
     if (existingByHash && !forceRefresh) {
       const history = await createDecisionHistoryFromAnalysis({
         userId: user.id,
@@ -194,25 +195,8 @@ async function hasImportantAlertTriggered(userId: string, symbol: string) {
   return Boolean(recent);
 }
 
-async function findAnalysisByContextHash(userId: string, symbol: string, contextHash: string) {
-  const rows = await prisma.aiAnalysis.findMany({
-    where: { userId, symbol: { in: stockSymbolVariants(symbol) } },
-    orderBy: { createdAt: "desc" },
-    take: 20
-  });
-  return rows.find((row) => {
-    const input = row.inputJson as { contextHash?: string } | null;
-    return input?.contextHash === contextHash && !isFallbackAnalysis(row.outputJson);
-  }) ?? null;
-}
-
 function uniqueSymbols(symbols: string[]) {
   return [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
-}
-
-function isFallbackAnalysis(outputJson: unknown) {
-  const output = outputJson as { isFallback?: boolean } | null;
-  return Boolean(output?.isFallback);
 }
 
 function priorityForReason(reason: string) {
