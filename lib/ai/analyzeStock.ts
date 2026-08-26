@@ -129,6 +129,7 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
     decisionMode: evidencePackage?.decisionMode,
     trend: normalizeTrend(record.trend),
     confidence: normalizeConfidence(record.confidence),
+    entryOutcomeForecast: normalizeEntryOutcomeForecast(record.entryOutcomeForecast, evidencePackage?.decisionMode),
     analysisAsOf: toNonEmptyString(record.analysisAsOf, input.analysisAsOf ?? new Date().toISOString()),
     dataScope,
     summary: ensureChineseAnalysisText(toNonEmptyString(record.summary, buildDefaultSummary(input, dataScope)), buildDefaultSummary(input, dataScope)),
@@ -177,33 +178,45 @@ function normalizeStockAnalysis(value: unknown, input: AnalyzeStockInput) {
   return {
     ...normalized,
     decisionStatus: resolveDecisionStatus({
-      candidate: normalizeDecisionStatusCandidate(record.decisionStatus),
       input,
-      analysis: normalized,
       tradePlan
     }),
     tradePlan
   };
 }
 
-function normalizeDecisionStatusCandidate(value: unknown): AiAnalysisResult["decisionStatus"] {
-  const text = String(value ?? "").trim();
-  if (
-    text === "insufficient_data" ||
-    text === "rejected" ||
-    text === "research_candidate" ||
-    text === "setup_wait" ||
-    text === "conditional_entry" ||
-    text === "manage_position" ||
-    text === "exit_risk"
-  ) return text;
-  return "research_candidate";
+function normalizeEntryOutcomeForecast(value: unknown, mode: AiAnalysisResult["decisionMode"]): NonNullable<AiAnalysisResult["entryOutcomeForecast"]> {
+  const horizonTradingDays = mode === "swing_trade" ? 20 : mode === "long_term" ? 63 : null;
+  const definition = horizonTradingDays
+    ? `从分析后的下一完整交易日开盘模拟入场，${horizonTradingDays} 个交易日内先触及止盈位而非止损位。`
+    : "持仓管理不生成新的入场胜率预测。";
+  const record = isRecord(value) ? value : {};
+  const probability = toFiniteNumber(record.targetBeforeStopProbability);
+  if (!horizonTradingDays || probability === null) {
+    return {
+      schemaVersion: "entry-outcome-forecast-v1",
+      status: "unavailable",
+      targetBeforeStopProbability: null,
+      horizonTradingDays,
+      definition,
+      reasoning: "没有可进入影子观察的有效主观概率。"
+    };
+  }
+  return {
+    schemaVersion: "entry-outcome-forecast-v1",
+    status: "subjective_unvalidated",
+    targetBeforeStopProbability: Number(Math.min(0.95, Math.max(0.05, probability)).toFixed(4)),
+    horizonTradingDays,
+    definition,
+    reasoning: ensureChineseAnalysisText(
+      toNonEmptyString(record.reasoning, "模型未充分解释该主观概率。"),
+      "模型未充分解释该主观概率。"
+    )
+  };
 }
 
 function resolveDecisionStatus(input: {
-  candidate: AiAnalysisResult["decisionStatus"];
   input: AnalyzeStockInput;
-  analysis: Pick<AiAnalysisResult, "trend">;
   tradePlan: NonNullable<AiAnalysisResult["tradePlan"]>;
 }): NonNullable<AiAnalysisResult["decisionStatus"]> {
   const evidence = input.input.evidencePackage;
@@ -218,9 +231,9 @@ function resolveDecisionStatus(input: {
   if (!quality || quality.status === "insufficient" || quality.status === "conflicted" || quality.entryBlockers.length) {
     return "insufficient_data";
   }
-  if (input.tradePlan.entry.status === "blocked" || input.analysis.trend === "bearish" || input.candidate === "rejected") return "rejected";
-  if (input.candidate === "conditional_entry" && input.tradePlan.entry.status === "conditional") return "conditional_entry";
-  if (input.candidate === "setup_wait") return "setup_wait";
+  if (input.tradePlan.entry.status === "blocked") return "rejected";
+  if (input.tradePlan.entry.status === "conditional") return "conditional_entry";
+  if (input.tradePlan.entry.status === "watch") return "setup_wait";
   return "research_candidate";
 }
 
@@ -538,10 +551,9 @@ export function buildAnalysisTradePlan(
       evidenceBlockers: input.evidencePackage?.dataQuality.entryBlockers ?? []
     }),
     exit: buildExitTradePlan({
-      analysis,
       price,
-      stopLossPrice,
-      takeProfitPrice,
+      stopLossPrice: configuredStop,
+      takeProfitPrice: configuredTarget,
       isHolding,
       holdingPrice,
       holdingShares
@@ -563,21 +575,23 @@ function buildEntryTradePlan(input: {
   evidenceBlockers: string[];
 }): NonNullable<AiAnalysisResult["tradePlan"]>["entry"] {
   const constraints: string[] = [];
-  constraints.push(...input.evidenceBlockers.map((item) => `证据硬门控：${item}。`));
-  if (!input.price || input.price <= 0) constraints.push("行情价格不可用，不能测算买入股数。");
-  if (!input.userCapital || input.userCapital <= 0) constraints.push("未填写总本金，无法把首次仓位换算为具体股数。");
-  if (!input.riskBudget) constraints.push("尚未完成组合风险预算，不能生成执行仓位。");
-  if (input.riskBudget?.status === "blocked" || input.riskBudget?.status === "breached_stop") constraints.push(input.riskBudget.reason);
+  const blockers: string[] = [];
+  const addBlocker = (message: string) => {
+    constraints.push(message);
+    blockers.push(message);
+  };
+  input.evidenceBlockers.forEach((item) => addBlocker(`证据硬门控：${item}。`));
+  if (!input.price || input.price <= 0) addBlocker("行情价格不可用，不能测算买入股数。");
+  if (!input.userCapital || input.userCapital <= 0) addBlocker("未填写总本金，无法把首次仓位换算为具体股数。");
+  if (!input.riskBudget) addBlocker("尚未完成组合风险预算，不能生成执行仓位。");
+  if (input.riskBudget?.status === "blocked" || input.riskBudget?.status === "breached_stop") addBlocker(input.riskBudget.reason);
   if (!input.stopLossPrice || !input.triggerPrice || input.stopLossPrice >= input.triggerPrice) {
-    constraints.push("缺少低于触发价的有效止损或技术失效位，不能新增风险。");
+    addBlocker("缺少低于触发价的有效止损或技术失效位，不能新增风险。");
   }
   if (!input.takeProfitPrice || !input.triggerPrice || input.takeProfitPrice <= input.triggerPrice) {
-    constraints.push("缺少高于触发价的首个止盈或压力目标，不能完成收益测算。");
+    addBlocker("缺少高于触发价的首个止盈或压力目标，不能完成收益测算。");
   }
-  if (input.analysis.trend === "bearish") constraints.push("当前趋势偏空，买入计划需降级为观察。");
-  if (adviceBlocksEntry(input.analysis.entryAdvice)) constraints.push("AI 入场建议明确偏等待或回避，不能直接形成买入计划。");
-
-  const suggestedAmount = input.userCapital ? suggestedEntryAmount(input.userCapital, input.analysis.confidence, input.analysis.trend) : null;
+  const suggestedAmount = input.userCapital ? suggestedEntryAmount(input.userCapital) : null;
   const executionPrice = input.triggerPrice ?? input.price;
   const requestedShares = executionPrice && suggestedAmount ? roundLotShares(suggestedAmount / executionPrice) : 0;
   const riskCapacity = input.riskBudget
@@ -592,7 +606,7 @@ function buildEntryTradePlan(input: {
         maxRiskAmount: riskCapacity
       })
     : null;
-  if (fitted?.reason) constraints.push(fitted.reason);
+  if (fitted?.reason) addBlocker(fitted.reason);
   const shares = fitted ? fitted.shares : requestedShares;
   const economics = fitted?.economics ?? (executionPrice && shares > 0
     ? calculateTradeEconomics({
@@ -610,26 +624,32 @@ function buildEntryTradePlan(input: {
     ? roundMoney(Math.max(0, input.triggerPrice - input.stopLossPrice) * shares)
     : null;
 
-  if (suggestedAmount && shares < TRADE_LOT_SIZE) constraints.push(`按当前预算不足 ${TRADE_LOT_SIZE} 股/份整数手，买入无效。`);
+  if (suggestedAmount && shares < TRADE_LOT_SIZE) addBlocker(`按当前预算不足 ${TRADE_LOT_SIZE} 股/份整数手，买入无效。`);
   if (amount !== null && amount < TRADE_FEE_MIN_BASE / 2) constraints.push("计划成交金额偏小，最低 5 元手续费会明显抬高交易成本。");
-  if (riskRewardRatio !== null && riskRewardRatio < 1.25) constraints.push("按当前止损/止盈估算，风险收益比不足 1.25:1。");
+  if (riskRewardRatio !== null && riskRewardRatio < 1.25) addBlocker("按当前止损/止盈估算，风险收益比不足 1.25:1。");
   const economicsBlock = tradeEconomicsBlockReason(economics);
-  if (economicsBlock) constraints.push(`${economicsBlock} 暂不可做。`);
+  if (economicsBlock) addBlocker(`${economicsBlock} 暂不可做。`);
   if (!economics || economics.netRiskRewardRatio === null) {
-    constraints.push("缺少完整止损/目标数据，无法计算扣除双边手续费后的净风险收益比，不能买入。");
+    addBlocker("缺少完整止损/目标数据，无法计算扣除双边手续费后的净风险收益比，不能买入。");
   }
   if (economics?.feeDragPct !== null && economics?.feeDragPct !== undefined && economics.feeDragPct > 1) {
     constraints.push(`预计双边手续费占成交额 ${economics.feeDragPct.toFixed(2)}%，盈亏平衡至少需要上涨 ${economics.breakEvenMovePct.toFixed(2)}%。`);
   }
-  if (input.userCapital && totalCost && totalCost > input.userCapital) constraints.push("计划总成本超过用户填写的总本金。");
-  if (input.availableCash !== null && totalCost && totalCost > input.availableCash) constraints.push("计划总成本超过组合当前可用现金。");
+  if (input.userCapital && totalCost && totalCost > input.userCapital) addBlocker("计划总成本超过用户填写的总本金。");
+  if (input.availableCash !== null && totalCost && totalCost > input.availableCash) addBlocker("计划总成本超过组合当前可用现金。");
+  const shadowEligible = blockers.length === 0
+    && Boolean(economics?.netExpectedProfit && economics.netExpectedProfit > 0)
+    && Boolean(economics?.netRiskAmount && economics.netRiskAmount > 0)
+    && shares > 0;
+  addBlocker("尚未建立同类计划的独立样本外概率校准，扣费后期望值未知，不能新增仓位；本计划仅进入影子观察。");
 
-  const hasHardBlock = input.evidenceBlockers.length > 0 || constraints.some((item) => /不可用|不能|无效|超过/.test(item));
+  const hasHardBlock = blockers.length > 0;
   const status = hasHardBlock ? "blocked" : shares > 0 && amount ? "conditional" : "watch";
 
   return {
     status,
     action: status === "blocked" ? "avoid" : input.isHolding ? "add" : "buy",
+    shadowEligible,
     triggerPrice: input.triggerPrice,
     stopLossPrice: input.stopLossPrice,
     takeProfitPrice: input.takeProfitPrice,
@@ -658,7 +678,6 @@ function buildEntryTradePlan(input: {
 }
 
 function buildExitTradePlan(input: {
-  analysis: Pick<AiAnalysisResult, "holdAdvice">;
   price: number | null;
   stopLossPrice: number | null;
   takeProfitPrice: number | null;
@@ -688,9 +707,8 @@ function buildExitTradePlan(input: {
   if (!input.price || input.price <= 0) constraints.push("行情价格不可用，不能测算卖出金额。");
   if (!input.holdingShares || input.holdingShares < TRADE_LOT_SIZE) constraints.push(`持仓数量不足 ${TRADE_LOT_SIZE} 股/份整数手，不能生成卖出计划。`);
 
-  const adviceText = stringifyAdviceText(input.analysis.holdAdvice);
-  const hardExit = /止损|离场|清仓|回避|卖出/.test(adviceText);
-  const reduce = hardExit || /减仓|止盈|兑现|盈利保护|降低风险/.test(adviceText);
+  const hardExit = Boolean(input.price && input.stopLossPrice && input.price <= input.stopLossPrice);
+  const reduce = hardExit || Boolean(input.price && input.takeProfitPrice && input.price >= input.takeProfitPrice);
   const targetRatio = hardExit ? 100 : reduce ? 50 : 0;
   const shares = input.holdingShares && targetRatio > 0 ? normalizeSellLotShares(input.holdingShares * (targetRatio / 100), input.holdingShares) : 0;
   const amount = input.price && shares > 0 ? roundMoney(input.price * shares) : null;
@@ -714,16 +732,23 @@ function buildExitTradePlan(input: {
     netProceeds,
     sellRatioPct: shares > 0 && input.holdingShares ? roundMoney((shares / input.holdingShares) * 100) : null,
     estimatedPnl,
-    reason: reduce ? "持仓建议触发了减仓、止盈、止损或风险降低语义，系统给出卖出测算。" : "持仓建议暂未触发明确卖出/减仓语义，先保留为观察。",
-    constraints
+    reason: hardExit
+      ? "当前价已达到用户配置的止损位，按确定性规则测算全部退出。"
+      : reduce
+        ? "当前价已达到用户配置的目标位，按确定性规则测算减仓一半。"
+        : "尚未触发用户配置的止损或目标位，持仓动作保持观察。",
+    constraints: [
+      ...constraints,
+      ...(!input.stopLossPrice ? ["未配置持仓止损位，系统不会根据 AI 文本自动生成卖出动作。"] : []),
+      ...(!input.takeProfitPrice ? ["未配置持仓目标位，系统不会根据 AI 文本自动生成止盈动作。"] : [])
+    ]
   };
 }
 
-function suggestedEntryAmount(capital: number, confidence: number, trend: AiAnalysisResult["trend"]) {
-  const basePct = trend === "bullish" ? 0.08 : trend === "neutral" ? 0.05 : 0.03;
-  const confidenceBoost = confidence >= 0.72 ? 0.02 : confidence >= 0.6 ? 0.01 : 0;
+function suggestedEntryAmount(capital: number) {
+  const basePct = 0.05;
   const feeEfficientFloor = capital <= TRADE_FEE_MIN_BASE / 2 ? Math.max(500, capital * 0.25) : TRADE_FEE_MIN_BASE / 2;
-  const target = Math.max(feeEfficientFloor, capital * Math.min(0.12, basePct + confidenceBoost));
+  const target = Math.max(feeEfficientFloor, capital * basePct);
   return roundMoney(Math.min(capital * 0.9, target));
 }
 
@@ -734,22 +759,10 @@ function selectEntryTriggerPrice(price: number, support: number | null) {
   return price;
 }
 
-function adviceBlocksEntry(advice: AiAnalysisResult["entryAdvice"]) {
-  const text = stringifyAdviceText(advice);
-  return /不建议|回避|暂不|等待|观望|不能买|不买/.test(text) && !/条件入场|小仓试探|触发后|分批/.test(text);
-}
-
 function buildEntryTradeReason(reason: string | undefined, status: string, isHolding: boolean) {
   if (status === "blocked") return "交易测算存在硬约束，暂不形成可执行买入计划。";
   const actionText = isHolding ? "增持" : "首次买入";
   return reason || `满足触发条件后才考虑${actionText}，并按止损和手续费约束控制单笔风险。`;
-}
-
-function stringifyAdviceText(value: unknown) {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (!isRecord(value)) return "";
-  return Object.values(value).map((item) => String(item ?? "")).join(" ");
 }
 
 function estimateRiskRewardRatio(triggerPrice: number | null, stopLossPrice: number | null, takeProfitPrice: number | null) {
@@ -825,6 +838,7 @@ function buildFallbackAnalysis(input: AnalyzeStockInput, reason: string): AiAnal
     decisionStatus: evidencePackage?.decisionMode === "position_management" ? "manage_position" : "insufficient_data",
     trend,
     confidence: 0.42,
+    entryOutcomeForecast: normalizeEntryOutcomeForecast(null, evidencePackage?.decisionMode),
     analysisAsOf: input.analysisAsOf ?? new Date().toISOString(),
     dataScope,
     isFallback: true,

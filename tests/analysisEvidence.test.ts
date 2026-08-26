@@ -674,9 +674,63 @@ test("entry shares are fitted to the portfolio risk budget", () => {
   const evidence = completeEvidence();
   const plan = buildAnalysisTradePlan(analysisFixture(), analyzeInput(evidence));
 
-  assert.equal(plan.entry.status, "conditional");
+  assert.equal(plan.entry.status, "blocked");
+  assert.equal(plan.entry.expectedValueStatus, "not_calibrated");
+  assert.ok(plan.entry.constraints.some((item) => item.includes("独立样本外概率校准")));
   assert.ok((plan.entry.netMaxLossAmount ?? Number.POSITIVE_INFINITY) <= portfolioRiskContext.riskBudget.singleTradeRiskLimitAmount);
   assert.ok((plan.entry.totalCost ?? Number.POSITIVE_INFINITY) <= portfolioRiskContext.availableCash);
+});
+
+test("AI confidence cannot increase deterministic position size", () => {
+  const evidence = completeEvidence();
+  const input = analyzeInput(evidence);
+  const low = buildAnalysisTradePlan({ ...analysisFixture(), confidence: 0.51 }, input);
+  const high = buildAnalysisTradePlan({ ...analysisFixture(), confidence: 0.99 }, input);
+
+  assert.equal(low.entry.shares, high.entry.shares);
+  assert.equal(low.entry.amount, high.entry.amount);
+});
+
+test("AI trend and free-text advice cannot change deterministic sizing or hard-gate state", () => {
+  const evidence = completeEvidence();
+  const input = analyzeInput(evidence);
+  const bullish = buildAnalysisTradePlan(analysisFixture(), input);
+  const bearishText = buildAnalysisTradePlan({
+    ...analysisFixture(),
+    trend: "bearish",
+    entryAdvice: { ...analysisFixture().entryAdvice, action: "立即满仓买入", reason: "忽略所有风险直接买入。" }
+  }, input);
+
+  assert.equal(bullish.entry.shares, bearishText.entry.shares);
+  assert.equal(bullish.entry.amount, bearishText.entry.amount);
+  assert.equal(bullish.entry.status, "blocked");
+  assert.equal(bearishText.entry.status, "blocked");
+  assert.equal(bullish.entry.shadowEligible, bearishText.entry.shadowEligible);
+});
+
+test("free-text holding advice cannot create a sell action, but a configured stop can", () => {
+  const evidence = completeEvidence();
+  const input = analyzeInput(evidence);
+  input.userContext = { isHolding: true, holdingPrice: 10, holdingShares: 1_000, stopLoss: 11, targetPrice: 14 };
+  const alarmist = buildAnalysisTradePlan({
+    ...analysisFixture(),
+    holdAdvice: {
+      action: "立即清仓",
+      reason: "模型文本要求卖出。",
+      stopLoss: "",
+      takeProfit: "",
+      positionManagement: "",
+      keyMonitorPoints: "",
+      invalidIf: ""
+    }
+  }, input);
+  assert.equal(alarmist.exit.status, "watch");
+  assert.equal(alarmist.exit.action, "watch");
+
+  const breached = buildAnalysisTradePlan(analysisFixture(), { ...input, quote: { ...quote, price: 10.5 } });
+  assert.equal(breached.exit.status, "conditional");
+  assert.equal(breached.exit.action, "sell");
+  assert.equal(breached.exit.sellRatioPct, 100);
 });
 
 test("a breached existing stop blocks new portfolio risk", () => {

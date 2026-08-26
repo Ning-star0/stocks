@@ -134,9 +134,19 @@ export interface EntryAdvice {
   invalidIf: string;
 }
 
+export interface EntryOutcomeForecast {
+  schemaVersion: "entry-outcome-forecast-v1";
+  status: "subjective_unvalidated" | "unavailable";
+  targetBeforeStopProbability: number | null;
+  horizonTradingDays: 20 | 63 | null;
+  definition: string;
+  reasoning: string;
+}
+
 export interface AnalysisTradePlanLeg {
   status: "conditional" | "watch" | "blocked" | "not_applicable";
   action: "buy" | "add" | "reduce" | "sell" | "watch" | "avoid";
+  shadowEligible?: boolean;
   triggerPrice: number | null;
   stopLossPrice: number | null;
   takeProfitPrice: number | null;
@@ -184,6 +194,7 @@ export interface AiAnalysisResult {
   decisionStatus?: DecisionStatus;
   trend: Trend;
   confidence: number;
+  entryOutcomeForecast?: EntryOutcomeForecast;
   summary: string;
   analysisAsOf?: string;
   dataScope?: {

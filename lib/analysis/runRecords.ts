@@ -23,6 +23,7 @@ type AnalysisRunItemFinishData = {
 };
 
 type AnalysisOutput = {
+  decisionStatus?: string;
   trend?: string;
   confidence?: number;
   summary?: string;
@@ -32,6 +33,10 @@ type AnalysisOutput = {
   holdAdvice?: Record<string, unknown>;
   entryAdvice?: Record<string, unknown>;
   possibleActions?: Array<Record<string, unknown>>;
+  tradePlan?: {
+    entry?: { action?: string; status?: string };
+    exit?: { action?: string; status?: string };
+  };
 };
 
 export async function createAnalysisRun(input: {
@@ -193,8 +198,7 @@ export async function createDecisionHistoryFromAnalysis(input: {
 }) {
   const output = asRecord(input.outputJson) as AnalysisOutput;
   const firstAction = Array.isArray(output.possibleActions) ? output.possibleActions[0] : null;
-  const actionText = stringValue(firstAction?.action) || stringValue(output.entryAdvice?.action) || stringValue(output.holdAdvice?.action);
-  const action = normalizeAction(actionText);
+  const action = resolveAnalysisHistoryAction(output);
   const previous = await prisma.decisionHistory.findFirst({
     where: { userId: input.userId, symbol: { in: stockSymbolVariants(input.symbol) } },
     orderBy: { decisionTime: "desc" }
@@ -257,12 +261,12 @@ export async function createDecisionHistoryFromFocusDecision(input: {
     const candidate = input.candidates?.find((item) => sameStockSymbol(item.symbol, symbol));
     const order = orders.find((item) => sameStockSymbol(stringValue(item.symbol), symbol));
     const sellOrder = sellOrders.find((item) => sameStockSymbol(stringValue(item.symbol), symbol));
-    const action = normalizeAction(stringValue(sellOrder?.action) || stringValue(order?.action) || stringValue(row.view));
+    const action = normalizeStructuredAction(stringValue(sellOrder?.action) || stringValue(order?.action));
     const previous = await prisma.decisionHistory.findFirst({
       where: { userId: input.userId, symbol: { in: stockSymbolVariants(symbol) } },
       orderBy: { decisionTime: "desc" }
     });
-    const strategyDirection = normalizeTrend(candidate?.latestAnalysis?.trend ?? stringValue(row.view));
+    const strategyDirection = normalizeTrend(candidate?.latestAnalysis?.trend);
     const fallbackUsed = Boolean(decision.fallbackReason);
     const history = await prisma.decisionHistory.create({
       data: {
@@ -318,20 +322,34 @@ export async function createDecisionHistoryFromFocusDecision(input: {
   return created;
 }
 
-function normalizeAction(value?: string | null) {
-  const text = value || "";
-  if (/减仓|reduce|sell|卖出|止盈/.test(text)) return "reduce";
-  if (/持有|hold|加仓|增持/.test(text)) return "hold";
-  if (/回避|avoid|止损|离场|不建议/.test(text)) return "avoid";
-  if (/等待|回调|wait|观望/.test(text)) return "wait_pullback";
+export function resolveAnalysisHistoryAction(value: unknown) {
+  const output = asRecord(value) as AnalysisOutput;
+  const decisionStatus = stringValue(output.decisionStatus);
+  if (
+    decisionStatus === "insufficient_data" ||
+    decisionStatus === "rejected" ||
+    decisionStatus === "research_candidate" ||
+    decisionStatus === "setup_wait" ||
+    decisionStatus === "conditional_entry" ||
+    decisionStatus === "manage_position" ||
+    decisionStatus === "exit_risk"
+  ) return decisionStatus;
+  const exit = normalizeStructuredAction(output.tradePlan?.exit?.action);
+  if (exit === "sell" || exit === "reduce") return exit;
+  return normalizeStructuredAction(output.tradePlan?.entry?.action);
+}
+
+function normalizeStructuredAction(value?: string | null) {
+  const action = String(value ?? "").trim().toLowerCase();
+  if (action === "buy" || action === "add" || action === "watch" || action === "avoid" || action === "sell" || action === "reduce") {
+    return action;
+  }
   return "watch";
 }
 
 function normalizeTrend(value?: string | null) {
-  const text = value || "";
-  if (/bullish|偏多|强|优先/.test(text)) return "bullish";
-  if (/bearish|偏空|弱|回避/.test(text)) return "bearish";
-  if (/neutral|中性/.test(text)) return "neutral";
+  const trend = String(value ?? "").trim().toLowerCase();
+  if (trend === "bullish" || trend === "bearish" || trend === "neutral") return trend;
   return "watch";
 }
 

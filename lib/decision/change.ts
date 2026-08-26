@@ -79,6 +79,16 @@ export function buildDecisionChange(previous: DecisionSnapshot | null | undefine
 
 export function actionLabel(value: string) {
   const map: Record<string, string> = {
+    insufficient_data: "证据不足",
+    rejected: "拒绝新增风险",
+    research_candidate: "继续研究",
+    setup_wait: "等待条件",
+    conditional_entry: "条件入场",
+    manage_position: "持仓管理",
+    exit_risk: "退出风险",
+    buy: "买入",
+    add: "增持",
+    sell: "卖出",
     watch: "继续观察",
     wait_pullback: "等待回调",
     hold: "持有/增持观察",

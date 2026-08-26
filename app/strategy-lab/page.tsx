@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, ChartNoAxesCombined, Loader2, Play, ShieldCheck } from "lucide-react";
+import { Activity, AlertTriangle, ChartNoAxesCombined, FlaskConical, Loader2, Play, ShieldCheck } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { StockIdentity } from "@/components/StockIdentity";
@@ -15,6 +15,7 @@ import { readJsonResponse } from "@/lib/clientApi";
 import type { StrategyBacktestComparison, StrategyBacktestPortfolioSummary, StrategyBacktestResult } from "@/lib/strategy/backtest";
 import { formatDate, formatDateTime, formatMoney, formatSignedMoney } from "@/lib/trading/display";
 import { cn } from "@/lib/utils";
+import type { ForecastCalibrationSummary } from "@/lib/validation/shadowForecastStore";
 
 type BacktestOptions = {
   instruments: Array<{ symbol: string; name: string | null; isHolding: boolean; isFocused: boolean }>;
@@ -29,19 +30,29 @@ export default function StrategyLabPage() {
   const [range, setRange] = useState("2y");
   const [initialCapital, setInitialCapital] = useState(100000);
   const [result, setResult] = useState<BacktestResponse | null>(null);
+  const [calibration, setCalibration] = useState<ForecastCalibrationSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [calibrationError, setCalibrationError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
       try {
-        const response = await fetch("/api/strategy-backtest", { cache: "no-store" });
+        const [response, calibrationResponse] = await Promise.all([
+          fetch("/api/strategy-backtest", { cache: "no-store" }),
+          fetch("/api/forecast-calibration", { cache: "no-store" })
+        ]);
         const data = await readJsonResponse<BacktestOptions>(response);
         setOptions(data);
         setSymbols(data.defaults.symbols);
         setRange(data.defaults.range);
         setInitialCapital(data.defaults.initialCapital);
+        try {
+          setCalibration(await readJsonResponse<ForecastCalibrationSummary>(calibrationResponse));
+        } catch (calibrationLoadError) {
+          setCalibrationError(calibrationLoadError instanceof Error ? calibrationLoadError.message : "影子校准读取失败。");
+        }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "回测配置读取失败。");
       } finally {
@@ -85,6 +96,8 @@ export default function StrategyLabPage() {
     <PageContainer>
       <SectionHeader eyebrow="交易策略" title="策略回测" action={<Badge variant="secondary">收盘信号 / 次日开盘成交</Badge>} />
       {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div> : null}
+      {calibrationError ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">影子校准暂不可用：{calibrationError}</div> : null}
+      {calibration ? <ForecastCalibrationPanel summary={calibration} /> : null}
 
       <Card className="performance-card overflow-hidden">
         <CardHeader className="border-b border-border/70 bg-background/25 p-4">
@@ -117,6 +130,53 @@ export default function StrategyLabPage() {
 
       {result ? <div className="space-y-4">{result.portfolioSummary ? <PortfolioValidation summary={result.portfolioSummary} /> : null}{result.comparisons.map((comparison) => <ComparisonPanel key={comparison.symbol} comparison={comparison} />)}<div className="text-right text-xs text-muted-foreground">计算时间 {formatDateTime(result.generatedAt)}</div></div> : null}
     </PageContainer>
+  );
+}
+
+function ForecastCalibrationPanel({ summary }: { summary: ForecastCalibrationSummary }) {
+  const report = summary.overall;
+  const enoughSamples = report.sampleSize >= report.minimumSampleSize;
+  return (
+    <Card className="performance-card overflow-hidden">
+      <CardHeader className="flex-row items-start justify-between gap-3 border-b border-border/70 bg-background/25 p-4">
+        <div>
+          <CardTitle className="flex items-center gap-2"><FlaskConical className="h-4 w-4 text-primary" />AI 条件计划影子校准</CardTitle>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">只观察分析之后的真实价格路径，包含交易费用；结果不会自动解锁买入或提高仓位。</p>
+        </div>
+        <Badge variant={enoughSamples ? "warning" : "secondary"}>{enoughSamples ? "样本达标，仍仅观察" : `样本 ${report.sampleSize}/${report.minimumSampleSize}`}</Badge>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-7">
+          <SummaryMetric label="等待结算" value={String(summary.counts.pending)} />
+          <SummaryMetric label="已结算" value={String(summary.counts.resolved)} />
+          <SummaryMetric label="无效样本" value={String(summary.counts.invalid)} />
+          <SummaryMetric label="追踪失败" value={String(summary.counts.failedChecks)} hint="保持等待并重试" />
+          <SummaryMetric label="Brier Score" value={formatDecimal(report.brierScore)} hint="越低越好" />
+          <SummaryMetric label="基准 Brier" value={formatDecimal(report.baselineBrierScore)} hint="与样本平均胜率比较" />
+          <SummaryMetric label="扣费后平均收益" value={formatSignedPercent(summary.averageNetReturnPct)} positive={(summary.averageNetReturnPct ?? 0) > 0} />
+        </div>
+        <div className="grid gap-4 border-t border-border/70 p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]">
+          <div className="space-y-2 text-xs leading-5 text-muted-foreground">
+            <div className="flex justify-between gap-3"><span>实际目标先达率</span><b className="text-foreground">{report.observedWinRate === null ? "--" : formatPercent(report.observedWinRate * 100)}</b></div>
+            <div className="flex justify-between gap-3"><span>正净收益比例</span><b className="text-foreground">{summary.positiveNetReturnRate === null ? "--" : formatPercent(summary.positiveNetReturnRate * 100)}</b></div>
+            <div className="flex justify-between gap-3"><span>校准误差 ECE</span><b className="text-foreground">{formatDecimal(report.expectedCalibrationError)}</b></div>
+            <div className="flex justify-between gap-3"><span>最近结算</span><b className="text-foreground">{summary.latestResolvedAt ? formatDateTime(summary.latestResolvedAt) : "--"}</b></div>
+          </div>
+          <div className="space-y-1.5">
+            {report.limitations.map((limitation) => <div key={limitation} className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />{limitation}</div>)}
+          </div>
+        </div>
+        {report.bins.length ? (
+          <div className="overflow-x-auto border-t border-border/70">
+            <table className="w-full min-w-[620px] text-left text-xs">
+              <thead className="bg-muted/25 text-muted-foreground"><tr><th className="px-4 py-2 font-medium">预测区间</th><th className="px-3 py-2 font-medium">样本</th><th className="px-3 py-2 font-medium">平均预测</th><th className="px-4 py-2 text-right font-medium">实际目标先达率</th></tr></thead>
+              <tbody className="divide-y divide-border/60">{report.bins.map((bin) => <tr key={`${bin.lowerBound}-${bin.upperBound}`}><td className="px-4 py-2.5 tabular-nums">{Math.round(bin.lowerBound * 100)}%–{Math.round(bin.upperBound * 100)}%</td><td className="px-3 py-2.5 tabular-nums">{bin.sampleSize}</td><td className="px-3 py-2.5 tabular-nums">{formatPercent(bin.averageForecast * 100)}</td><td className="px-4 py-2.5 text-right tabular-nums">{formatPercent(bin.observedWinRate * 100)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        ) : <div className="border-t border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">尚无已结算影子计划；系统会继续采集，不会用空样本推断胜率。</div>}
+        {summary.recentFailures.length ? <div className="space-y-1 border-t border-border/70 p-4">{summary.recentFailures.map((item) => <div key={`${item.symbol}-${item.checkedAt}`} className="text-xs leading-5 text-amber-700 dark:text-amber-300">{item.symbol} · {item.checkedAt ? formatDateTime(item.checkedAt) : "未记录时间"} · {item.failure}</div>)}</div> : null}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -1,6 +1,7 @@
 import { checkFocusSchedules } from "@/lib/focus/scheduler";
 import { JOB_STATUS } from "@/lib/jobs/jobTypes";
 import { processNextJob } from "@/lib/jobs/processNextJob";
+import { refreshPendingShadowForecasts } from "@/lib/validation/shadowForecastStore";
 
 export async function startWorker(options: { signal?: AbortSignal } = {}) {
   const enabled = process.env.ENABLE_BACKGROUND_WORKER !== "false";
@@ -10,14 +11,34 @@ export async function startWorker(options: { signal?: AbortSignal } = {}) {
   const requeueDelayMs = numberEnv("JOB_REQUEUE_DELAY_MS", intervalMs);
   const scheduleIntervalMs = numberEnv("FOCUS_SCHEDULE_CHECK_INTERVAL_MS", 60_000);
   const scheduleInitialDelayMs = numberEnv("FOCUS_SCHEDULE_INITIAL_DELAY_MS", 1000);
+  const forecastIntervalMs = numberEnv("SHADOW_FORECAST_CHECK_INTERVAL_MS", 60 * 60 * 1000);
+  const forecastInitialDelayMs = numberEnv("SHADOW_FORECAST_INITIAL_DELAY_MS", 30_000);
+  const forecastBatchSize = clamp(numberEnv("SHADOW_FORECAST_BATCH_SIZE", 20), 1, 100);
   const workerLimit = clamp(numberEnv("MAX_CONCURRENT_JOBS", 3), 1, 8);
 
   const loops = [
     runScheduleLoop({ intervalMs: scheduleIntervalMs, initialDelayMs: scheduleInitialDelayMs, signal: options.signal }),
+    runShadowForecastLoop({ intervalMs: forecastIntervalMs, initialDelayMs: forecastInitialDelayMs, limit: forecastBatchSize, signal: options.signal }),
     ...Array.from({ length: workerLimit }, (_, index) => runJobLoop({ index, intervalMs, requeueDelayMs, signal: options.signal }))
   ];
 
   await Promise.all(loops);
+}
+
+async function runShadowForecastLoop(input: { intervalMs: number; initialDelayMs: number; limit: number; signal?: AbortSignal }) {
+  await sleep(input.initialDelayMs, input.signal);
+
+  while (!input.signal?.aborted) {
+    const startedAt = Date.now();
+    const result = await refreshPendingShadowForecasts({ limit: input.limit }).catch((error) => {
+      console.error("[worker:shadow-forecast] refresh failed", error);
+      return null;
+    });
+    if (result?.checked) console.info("[worker:shadow-forecast] refresh", result);
+
+    const elapsed = Date.now() - startedAt;
+    await sleep(Math.max(1000, input.intervalMs - elapsed), input.signal);
+  }
 }
 
 async function runJobLoop(input: { index: number; intervalMs: number; requeueDelayMs: number; signal?: AbortSignal }) {

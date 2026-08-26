@@ -64,6 +64,7 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
       { method: "POST", path: "/api/research-export", description: "生成 ChatGPT Markdown / JSON 研究包。", body: "{ symbols, range, interval, newsDays, includeForecast }", cost: "AI" },
       { method: "GET", path: "/api/strategy-backtest", description: "读取策略回测可选标的和默认参数。", cost: "只读" },
       { method: "POST", path: "/api/strategy-backtest", description: "运行日线策略回测。", body: "{ symbols, range, initialCapital }", cost: "只读" },
+      { method: "GET", path: "/api/forecast-calibration", description: "读取当前用户影子预测的结算数、Brier 校准、分箱和扣费后结果；仅供验证，不解锁买入。", cost: "只读" },
       { method: "GET", path: "/api/stocks/[symbol]/indicators", description: "读取技术指标。", cost: "只读" },
       { method: "GET", path: "/api/stocks/[symbol]/analysis/latest", description: "读取最近一次 AI 分析。", cost: "只读" },
       { method: "POST", path: "/api/stocks/[symbol]/analyze", description: "创建或复用股票分析任务。", body: "{ forceRefresh?: boolean }", cost: "入队" }

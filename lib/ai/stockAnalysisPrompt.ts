@@ -34,6 +34,7 @@ export function buildUserPrompt(input: AnalyzeStockInput) {
 23. tradePlan 中的目标情景净收益与风险收益比不是统计期望值。当前 expectedValueStatus=not_calibrated 时，必须明确写“本计划胜率和期望值尚未校准”，不得声称具有正期望，也不得借用另一套规则回测的胜率冒充本计划胜率。
 24. fundamentals.valuation.historicalEvidence 是程序以未复权历史收盘价和正式报告披露日构造的历史估值分位；财务数字只在报告披露后的下一交易日起生效。只能解释程序给出的 PE/PB 分位、样本数和窗口，不能自行重算、把低分位直接等同于低风险，或在 status=partial/unavailable 时宣称估值便宜。fundamentals.valuation.peerEvidence 使用东方财富 EM2016 行业分类、同一提供方的 PE(TTM)/PB(MRQ) 和其行业可比排名，程序只纳入正倍数并与巨潮确定性当前估值交叉核对；只能解释程序给出的样本中值、分位、溢折价、样本数、来源和哈希。可比公司选择排序由提供方定义，低于同行不等于值得买；status 不是 available、证据超过 maximumAgeHours、样本不足或跨源冲突时必须保留为 missingEvidence/反方证据，禁止宣称同行估值已闭合。
 25. evidencePackage.news.timeline 是程序构造的版本化事件时间线。firstSeenAt 只表示当前新闻窗口内首次抓到；novelty=reprint_cluster 表示保守标题聚类后的重复转载，articleCount 不能当作多份独立证据。eventContext.expectation.status=explicit 才表示原文明示了事前基线、实际结果和依据；inferred/unavailable 只能作为待核验假设，禁止宣称存在已确认预期差。priceReaction 从新闻发布后的下一完整交易日开始由程序计算，只能使用给出的 1/3/5 日收益和量比，不得把同步涨跌写成因果，也不得自行补未来窗口。高影响事件缺少显式预期基线时必须保留在 missingEvidence，不能仅因情绪为正面就提议波段入场。
+26. entryOutcomeForecast 只是用于影子观察的模型主观概率，不得据此放大仓位或声称已经校准。波段模式估计“从分析后的下一完整交易日开盘模拟入场后，20 个交易日内是否先触及程序最终采用的止盈位而非止损位”；长期模式使用 63 个交易日；持仓管理或无法形成有效止损/目标时返回 unavailable。概率不得使用 0 或 1，reasoning 必须列出最重要的支持、反对和未知因素。最终事件定义、期限、价格路径、费用和校准状态均由程序覆盖。
 
 本次决策模式专用约束：
 ${modeInstructions}
@@ -105,6 +106,11 @@ const ANALYSIS_RESPONSE_TEMPLATE = {
   decisionStatus: "research_candidate",
   trend: "neutral",
   confidence: 0.5,
+  entryOutcomeForecast: {
+    status: "subjective_unvalidated",
+    targetBeforeStopProbability: 0.5,
+    reasoning: "支持、反对和未知因素的简短说明"
+  },
   analysisAsOf: "",
   dataScope: {
     quoteTime: "",

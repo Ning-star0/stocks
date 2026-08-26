@@ -185,6 +185,7 @@ const entryAdviceSchema = z.object({
 const analysisTradePlanLegSchema = z.object({
   status: z.enum(["conditional", "watch", "blocked", "not_applicable"]),
   action: z.enum(["buy", "add", "reduce", "sell", "watch", "avoid"]),
+  shadowEligible: z.boolean().optional(),
   triggerPrice: z.number().nullable(),
   stopLossPrice: z.number().nullable(),
   takeProfitPrice: z.number().nullable(),
@@ -326,6 +327,14 @@ export const aiAnalysisSchema = z.object({
     .optional(),
   trend: z.enum(["bullish", "neutral", "bearish"]),
   confidence: z.number().min(0).max(1),
+  entryOutcomeForecast: z.object({
+    schemaVersion: z.literal("entry-outcome-forecast-v1"),
+    status: z.enum(["subjective_unvalidated", "unavailable"]),
+    targetBeforeStopProbability: z.number().min(0).max(1).nullable(),
+    horizonTradingDays: z.union([z.literal(20), z.literal(63)]).nullable(),
+    definition: z.string().min(1),
+    reasoning: z.string()
+  }).optional(),
   summary: z.string().min(1),
   analysisAsOf: z.string().optional(),
   dataScope: z

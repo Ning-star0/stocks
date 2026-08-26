@@ -30,6 +30,7 @@ import { getQuote } from "@/lib/services/quoteService";
 import { getStockDataProvider } from "@/lib/stock-data";
 import { stockSymbolVariants } from "@/lib/symbols";
 import { toNumber } from "@/lib/utils";
+import { persistAnalysisWithShadowForecast } from "@/lib/validation/shadowForecastStore";
 
 export type StockAnalysisRunInput = {
   userId: string;
@@ -95,13 +96,16 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
   const isFallback = Boolean(outputJson.isFallback);
   const jsonSafeInput = JSON.parse(JSON.stringify({ ...context.aiInput, contextHash: inputHash, highImpactNewsIds: context.highImpactNewsIds }));
   const jsonSafeOutput = JSON.parse(JSON.stringify(outputJson)) as Prisma.InputJsonValue;
-  const analysis = await prisma.aiAnalysis.create({
-    data: {
-      userId: input.userId,
-      symbol: canonicalSymbol,
-      inputJson: jsonSafeInput as Prisma.InputJsonValue,
-      outputJson: jsonSafeOutput
-    }
+  const aiConfig = await getAiConfig();
+  const { analysis } = await persistAnalysisWithShadowForecast({
+    userId: input.userId,
+    symbol: canonicalSymbol,
+    inputJson: jsonSafeInput as Prisma.InputJsonValue,
+    outputJson: jsonSafeOutput,
+    analysis: outputJson,
+    evidenceHash: context.aiInput.evidencePackage.evidenceHash,
+    analysisAsOf: context.aiInput.analysisAsOf,
+    modelName: isFallback ? null : selectAiModel(aiConfig, "flagship")
   });
 
   if (!isFallback) {
