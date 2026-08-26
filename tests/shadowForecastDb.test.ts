@@ -45,6 +45,7 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
     });
     assert.equal(persisted?.shadowForecast?.modelName, "fixture-model");
     assert.equal(Number(persisted?.shadowForecast?.modelProbability), 0.7);
+    assert.equal(persisted?.shadowForecast?.nextCheckAt.toISOString(), new Date(analysisAsOf).toISOString());
 
     const refresh = await refreshPendingShadowForecasts({
       now: new Date("2026-01-08T16:00:00+08:00"),

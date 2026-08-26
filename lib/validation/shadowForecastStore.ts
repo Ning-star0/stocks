@@ -384,6 +384,7 @@ function shadowForecastCreateData(snapshot: ShadowForecastSnapshot) {
     benchmarkAlgorithmVersion: snapshot.benchmarkAlgorithmVersion,
     decisionMode: snapshot.decisionMode,
     analysisAsOf: new Date(snapshot.analysisAsOf),
+    nextCheckAt: new Date(snapshot.analysisAsOf),
     evidenceHash: snapshot.evidenceHash,
     modelProbability: snapshot.modelProbability,
     horizonTradingDays: snapshot.horizonTradingDays,
