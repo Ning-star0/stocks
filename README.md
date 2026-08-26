@@ -172,7 +172,7 @@ sudo bash update.sh
 npm run test:db:isolated
 ```
 
-数据库端到端测试必须通过上述命令在一次性 PostgreSQL schema 中运行；脚本会迁移隔离 schema、执行额度锁/证据持久化/影子预测测试并在结束后清理。禁止直接把 `RUN_DB_E2E_TESTS=true` 指向生产 `public` schema，因为影子预测后台刷新会扫描待处理记录。
+数据库端到端测试必须通过上述命令在一次性 PostgreSQL schema 中运行；脚本会按当前 Prisma schema 初始化隔离环境、执行额度锁/证据持久化/影子预测测试并在结束后清理。禁止直接把 `RUN_DB_E2E_TESTS=true` 指向生产 `public` schema，因为影子预测后台刷新会扫描待处理记录。生产升级仍只允许 `prisma migrate deploy`；旧迁移目录中早期非时间戳命名导致全新数据库无法按字典序完整重放，建立新的可审计基线迁移仍是必要基础设施缺口，不能通过改写已在生产执行的迁移来掩盖。
 
 该验收覆盖并发额度锁、持久化缓存、用户级分析复用隔离、交易记忆导致的上下文失效，以及持久化证据不足继续阻断条件买入。
 

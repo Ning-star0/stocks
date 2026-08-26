@@ -26,7 +26,11 @@ async function main() {
     schemaCreated = true;
     console.log(`[db-e2e] 已创建隔离 schema：${schema}`);
 
-    await runCommand("prisma", ["migrate", "deploy"], {
+    // Legacy migration names predate the timestamp convention and are not
+    // replayable in lexical order on an empty database. For behavioral E2E
+    // tests, materialize the authoritative current Prisma schema instead of
+    // mutating historical migration checksums or touching production tables.
+    await runCommand("prisma", ["db", "push", "--skip-generate"], {
       DATABASE_URL: isolatedDatabaseUrl
     });
     await runCommand("tsx", ["--test", ...DB_TEST_FILES], {
