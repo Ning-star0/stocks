@@ -34,6 +34,7 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
       evidenceHash: "a".repeat(64),
       analysisAsOf,
       marketFeatures: marketFeatures(),
+      marketEnvironment: marketEnvironment(),
       modelName: "fixture-model"
     });
     assert.equal(saved.shadowForecastCreated, true);
@@ -89,7 +90,7 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
     assert.equal(summary.overall.sampleSize, 1);
     assert.equal(summary.overall.brierScore, 0.09);
     assert.equal(summary.overall.decisionUseAllowed, false);
-    assert.equal(summary.cohorts[0]?.cohortKey, "swing_trade:price_risk_on:20d");
+    assert.equal(summary.cohorts[0]?.cohortKey, "swing_trade:market_risk_on:price_risk_on:20d");
   } finally {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => null);
   }
@@ -109,6 +110,7 @@ test("price provider failure stays pending and records a retryable audit failure
       evidenceHash: "b".repeat(64),
       analysisAsOf: "2026-01-05T15:30:00+08:00",
       marketFeatures: marketFeatures(),
+      marketEnvironment: marketEnvironment(),
       modelName: "fixture-model"
     });
     const refresh = await refreshPendingShadowForecasts({
@@ -181,5 +183,24 @@ function marketFeatures() {
     maxDrawdown60dPct: 5,
     pricePosition60dPct: 70,
     latestGapPct: 0
+  };
+}
+
+function marketEnvironment() {
+  return {
+    schemaVersion: "benchmark-market-regime-v1" as const,
+    algorithmVersion: "csi300-raw-price-regime-v1" as const,
+    status: "available" as const,
+    regime: "risk_on" as const,
+    benchmarkSymbol: "000300.SH" as const,
+    provider: "fixture",
+    sourceUrl: "https://example.invalid/csi300",
+    priceBasis: "raw_unadjusted" as const,
+    fetchedAt: "2026-01-05T15:00:00+08:00",
+    asOf: "2026-01-05T15:00:00+08:00",
+    candleCount: 252,
+    features: marketFeatures(),
+    evidenceHash: "e".repeat(64),
+    failure: null
   };
 }

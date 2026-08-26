@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import type { ApiQuotaStatus } from "@/lib/apiQuota";
 import type { QuoteStatus } from "@/lib/services/quoteService";
 import type { PortfolioRiskContext } from "@/lib/analysis/portfolioRiskContext";
+import type { BenchmarkMarketRegimeEvidence } from "@/lib/analysis/marketRegime";
 import { MARKET_DATA_REVISION } from "@/lib/stock-data/corporateActions";
 import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEvidence";
 import { buildNewsEventTimeline, type NewsEventTimeline, type NewsTimelineArticle } from "@/lib/news/eventTimeline";
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.9.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.10.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -97,6 +98,7 @@ export type AnalysisEvidencePackage = {
     historyCandles: number;
     recentCandles: MarketCandleEvidence[];
   };
+  marketEnvironment: BenchmarkMarketRegimeEvidence;
   fundamentals: FundamentalEvidence;
   disclosures: DisclosureEvidence;
   news: {
@@ -134,7 +136,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "quote" | "kline" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
+    kind: "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -178,6 +180,7 @@ export function buildAnalysisEvidencePackage(input: {
   newsEventTimeline?: NewsEventTimeline;
   fundamentals?: AnalysisEvidencePackage["fundamentals"];
   disclosures?: AnalysisEvidencePackage["disclosures"];
+  marketEnvironment?: BenchmarkMarketRegimeEvidence | null;
   analysisAsOf?: string;
   now?: Date;
 }): AnalysisEvidencePackage {
@@ -214,6 +217,7 @@ export function buildAnalysisEvidencePackage(input: {
   const klineFresh = isRecentTimestamp(historyTo, now, 7 * 24 * 60 * 60 * 1000);
   const fundamentals = input.fundamentals ?? unavailableFundamentals();
   const disclosures = input.disclosures ?? uncheckedDisclosures();
+  const marketEnvironment = input.marketEnvironment ?? unavailableMarketEnvironment();
   const disclosureOcrCount = disclosures.items.filter((item) => item.contentExtraction?.method === "ocr" || item.contentExtraction?.method === "hybrid_ocr").length;
   const fundamentalsAvailable = fundamentals.status !== "unavailable";
   const fundamentalsComplete = fundamentals.status === "available";
@@ -237,13 +241,15 @@ export function buildAnalysisEvidencePackage(input: {
     ...(pendingRelevantCount > 0 ? ["relevantNewsAnalysisCoverage"] : []),
     ...(newsTimeline.futureDatedArticleCount > 0 ? ["futureDatedNews"] : []),
     ...(newsTimeline.events.length > 0 && newsTimeline.explicitExpectationCount < newsTimeline.events.length ? ["newsExpectationBaseline"] : []),
-    ...(history.length < MIN_DAILY_HISTORY_CANDLES ? ["minimum120DailyCandles"] : [])
+    ...(history.length < MIN_DAILY_HISTORY_CANDLES ? ["minimum120DailyCandles"] : []),
+    ...(marketEnvironment.status === "unavailable" ? ["benchmarkMarketRegime"] : [])
   ];
   const staleFields = [
     ...(!quoteFresh ? ["quote"] : []),
     ...(!klineFresh ? ["dailyKline"] : []),
     ...(fundamentalsAvailable && !fundamentalsFresh ? ["fundamentalsFetch"] : []),
-    ...(disclosures.status === "checked" && !disclosuresFresh ? ["disclosureCheck"] : [])
+    ...(disclosures.status === "checked" && !disclosuresFresh ? ["disclosureCheck"] : []),
+    ...(marketEnvironment.status === "stale" ? ["benchmarkMarketRegime"] : [])
   ];
   const conflictingFields: string[] = [...fundamentals.conflictingFields];
   const criticalNewsAnalyzed = pendingCriticalCount === 0;
@@ -324,6 +330,7 @@ export function buildAnalysisEvidencePackage(input: {
       historyCandles: history.length,
       recentCandles
     },
+    marketEnvironment,
     fundamentals,
     disclosures: analysisDisclosures,
     news: {
@@ -372,6 +379,12 @@ export function buildAnalysisEvidencePackage(input: {
         provider: input.quoteSource,
         asOf: historyTo,
         status: klineFresh ? "available" as const : "partial" as const
+      },
+      {
+        kind: "benchmark_market" as const,
+        provider: marketEnvironment.provider,
+        asOf: marketEnvironment.asOf,
+        status: marketEnvironment.status === "available" ? "available" as const : marketEnvironment.status === "stale" ? "partial" as const : "unavailable" as const
       },
       {
         kind: "news" as const,
@@ -551,6 +564,25 @@ function isTimelineNewsItem(item: EvidenceNewsItem): item is EvidenceNewsItem & 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function unavailableMarketEnvironment(): BenchmarkMarketRegimeEvidence {
+  return {
+    schemaVersion: "benchmark-market-regime-v1",
+    algorithmVersion: "csi300-raw-price-regime-v1",
+    status: "unavailable",
+    regime: "unknown",
+    benchmarkSymbol: "000300.SH",
+    provider: "not_available",
+    sourceUrl: "",
+    priceBasis: "raw_unadjusted",
+    fetchedAt: null,
+    asOf: null,
+    candleCount: 0,
+    features: null,
+    evidenceHash: null,
+    failure: "尚未取得宽基市场环境证据。"
+  };
 }
 
 function unavailableFundamentals(): FundamentalEvidence {

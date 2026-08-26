@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v16";
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v17";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -27,7 +27,7 @@ export type AnalysisContextHashInput = {
 
 export function createAnalysisContextHash(input: AnalysisContextHashInput) {
   const stableContext = {
-    analysisPromptVersion: 16,
+    analysisPromptVersion: 17,
     evidenceSchemaVersion: input.evidence.schemaVersion,
     decisionPolicyVersion: input.evidence.decisionPolicyVersion,
     marketDataRevision: input.evidence.marketDataRevision,
@@ -40,6 +40,19 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
     movingAverageState: movingAverageState(input.quote.price, input.indicators),
     recentHistoryDigest: createHash("sha256").update(JSON.stringify(input.evidence.marketData.recentCandles)).digest("hex"),
     latestHistoryAt: input.evidence.marketData.historyTo,
+    marketEnvironmentState: {
+      schemaVersion: input.evidence.marketEnvironment.schemaVersion,
+      algorithmVersion: input.evidence.marketEnvironment.algorithmVersion,
+      status: input.evidence.marketEnvironment.status,
+      regime: input.evidence.marketEnvironment.regime,
+      benchmarkSymbol: input.evidence.marketEnvironment.benchmarkSymbol,
+      provider: input.evidence.marketEnvironment.provider,
+      priceBasis: input.evidence.marketEnvironment.priceBasis,
+      asOf: input.evidence.marketEnvironment.asOf,
+      candleCount: input.evidence.marketEnvironment.candleCount,
+      evidenceHash: input.evidence.marketEnvironment.evidenceHash,
+      failure: input.evidence.marketEnvironment.failure
+    },
     fundamentalsState: {
       schemaVersion: input.evidence.fundamentals.schemaVersion,
       status: input.evidence.fundamentals.status,

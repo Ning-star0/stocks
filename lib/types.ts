@@ -209,6 +209,12 @@ export interface AiAnalysisResult {
     newsCoverage?: NewsEvidenceCoverageSummary | null;
     newsTimeline?: NewsEventTimelineSummary | null;
     newsRefreshFailures?: string[];
+    marketRegimeStatus?: string;
+    marketRegime?: string;
+    marketRegimeBenchmarkSymbol?: string;
+    marketRegimeAsOf?: string | null;
+    marketRegimeSourceUrl?: string;
+    marketRegimeFailure?: string | null;
     fundamentalsStatus?: string;
     fundamentalsReportPeriod?: string | null;
     fundamentalsSourceUrl?: string | null;

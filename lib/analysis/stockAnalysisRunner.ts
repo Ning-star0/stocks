@@ -7,6 +7,7 @@ import { analyzeStock } from "@/lib/ai/analyzeStock";
 import { createAnalysisCacheKey, createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { buildAnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import { summarizeFundamentalCoverage } from "@/lib/analysis/fundamentalCoverage";
+import { loadBenchmarkMarketRegimeEvidence } from "@/lib/analysis/marketRegime";
 import {
   getStoredStockCompanyEvidence,
   prepareStockCompanyEvidence,
@@ -106,6 +107,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     evidenceHash: context.aiInput.evidencePackage.evidenceHash,
     analysisAsOf: context.aiInput.analysisAsOf,
     marketFeatures: context.aiInput.evidencePackage.deterministicFeatures.market,
+    marketEnvironment: context.aiInput.evidencePackage.marketEnvironment,
     modelName: isFallback ? null : selectAiModel(aiConfig, "flagship")
   });
 
@@ -153,10 +155,14 @@ export async function buildStockAnalysisContext(
 
   const quote = quoteStatus.raw;
   const canonicalSymbol = quote.symbol;
+  const analysisAsOf = new Date().toISOString();
   const symbolVariants = uniqueSymbols([...stockSymbolVariants(symbol), ...stockSymbolVariants(canonicalSymbol)]);
-  const history = await provider.getHistory(canonicalSymbol, "1y", "1d", { forceRefresh: options.forceHistoryRefresh }).catch((error) => {
-    throw parseProviderError(error);
-  });
+  const [history, marketEnvironment] = await Promise.all([
+    provider.getHistory(canonicalSymbol, "1y", "1d", { forceRefresh: options.forceHistoryRefresh }).catch((error) => {
+      throw parseProviderError(error);
+    }),
+    loadBenchmarkMarketRegimeEvidence({ provider, analysisAsOf })
+  ]);
   const companyEvidenceStartedAt = Date.now();
   const companyEvidencePromise = options.companyEvidenceRefresh
     ? Promise.resolve(options.companyEvidenceRefresh)
@@ -209,7 +215,6 @@ export async function buildStockAnalysisContext(
   }));
   const webSearchResults = normalizeWebSearchResults(supplementalNews.results).slice(0, numberEnv("AI_WEB_SEARCH_RESULT_LIMIT", 3));
   const recentNews = dedupeAnalysisNews(newsReferences).slice(0, numberEnv("AI_ANALYZED_NEWS_LIMIT", 5));
-  const analysisAsOf = new Date().toISOString();
   const newsEventTimeline = buildNewsEventTimeline({ articles: relevantNews, candles: history, analysisAsOf });
   const firstHistory = history[0]?.timestamp ?? null;
   const lastHistory = history[history.length - 1]?.timestamp ?? null;
@@ -282,6 +287,12 @@ export async function buildStockAnalysisContext(
       }))
     },
     newsRefreshFailures: effectiveNewsEvidenceRefresh?.failures ?? [],
+    marketRegimeStatus: marketEnvironment.status,
+    marketRegime: marketEnvironment.regime,
+    marketRegimeBenchmarkSymbol: marketEnvironment.benchmarkSymbol,
+    marketRegimeAsOf: marketEnvironment.asOf,
+    marketRegimeSourceUrl: marketEnvironment.sourceUrl,
+    marketRegimeFailure: marketEnvironment.failure,
     fundamentalsStatus: companyEvidenceRefresh?.fundamentals.status ?? "unavailable",
     fundamentalsReportPeriod: companyEvidenceRefresh?.fundamentals.reportPeriod ?? null,
     fundamentalsSourceUrl: companyEvidenceRefresh?.fundamentals.sourceUrl || null,
@@ -338,6 +349,7 @@ export async function buildStockAnalysisContext(
     newsEventTimeline,
     fundamentals: companyEvidenceRefresh?.fundamentals,
     disclosures: companyEvidenceRefresh?.disclosures,
+    marketEnvironment,
     analysisAsOf
   });
   const contextHash = createAnalysisContextHash({

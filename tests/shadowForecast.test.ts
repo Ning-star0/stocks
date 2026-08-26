@@ -16,7 +16,8 @@ test("shadow snapshot records a subjective probability without using it for sizi
     analysis: analysisFixture(0.73),
     evidenceHash: "a".repeat(64),
     analysisAsOf: "2026-08-25T07:10:00.000Z",
-    marketFeatures: riskOnFeatures()
+    marketFeatures: riskOnFeatures(),
+    marketEnvironment: marketEnvironment()
   });
 
   assert.ok(snapshot);
@@ -24,7 +25,8 @@ test("shadow snapshot records a subjective probability without using it for sizi
   assert.equal(snapshot.horizonTradingDays, 20);
   assert.equal(snapshot.plannedShares, 100);
   assert.equal(snapshot.priceRegime, "risk_on");
-  assert.equal(snapshot.cohortKey, "swing_trade:price_risk_on:20d");
+  assert.equal(snapshot.marketRegime, "risk_on");
+  assert.equal(snapshot.cohortKey, "swing_trade:market_risk_on:price_risk_on:20d");
   assert.equal(buildShadowForecastSnapshot({
     analysis: { ...analysisFixture(0.73), tradePlan: { ...analysisFixture(0.73).tradePlan!, entry: { ...analysisFixture(0.73).tradePlan!.entry, shadowEligible: false } } },
     evidenceHash: "a".repeat(64),
@@ -97,7 +99,7 @@ test("calibration report computes Brier score and remains shadow-only", () => {
   const observations = Array.from({ length: 100 }, (_, index) => ({
     probability: index < 50 ? 0.2 : 0.8,
     outcome: (index % 2 === 0 ? 1 : 0) as 0 | 1,
-    cohortKey: "swing_trade:price_risk_on:20d"
+    cohortKey: "swing_trade:market_risk_on:price_risk_on:20d"
   }));
   const report = buildForecastCalibrationReport(observations);
 
@@ -114,7 +116,7 @@ test("chronological validation fixes the latest 30 percent as a shadow-only hold
   const observations = Array.from({ length: 100 }, (_, index) => ({
     probability: index < 50 ? 0.2 : 0.8,
     outcome: (index % 2 === 0 ? 1 : 0) as 0 | 1,
-    cohortKey: "swing_trade:price_risk_on:20d",
+    cohortKey: "swing_trade:market_risk_on:price_risk_on:20d",
     forecastAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString()
   })).reverse();
   const report = buildChronologicalForecastValidationReport(observations);
@@ -217,5 +219,24 @@ function riskOnFeatures() {
     maxDrawdown60dPct: 6,
     pricePosition60dPct: 75,
     latestGapPct: 0.2
+  };
+}
+
+function marketEnvironment() {
+  return {
+    schemaVersion: "benchmark-market-regime-v1" as const,
+    algorithmVersion: "csi300-raw-price-regime-v1" as const,
+    status: "available" as const,
+    regime: "risk_on" as const,
+    benchmarkSymbol: "000300.SH" as const,
+    provider: "fixture",
+    sourceUrl: "https://example.invalid/csi300",
+    priceBasis: "raw_unadjusted" as const,
+    fetchedAt: "2026-08-25T07:00:00.000Z",
+    asOf: "2026-08-25T07:00:00.000Z",
+    candleCount: 252,
+    features: riskOnFeatures(),
+    evidenceHash: "d".repeat(64),
+    failure: null
   };
 }

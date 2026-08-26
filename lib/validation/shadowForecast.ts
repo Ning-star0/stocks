@@ -1,5 +1,6 @@
 import type { AiAnalysisResult, Candle } from "@/lib/types";
 import type { DeterministicMarketFeatures } from "@/lib/analysis/evidence";
+import type { BenchmarkMarketRegimeEvidence } from "@/lib/analysis/marketRegime";
 import { calculateTradingFee } from "@/lib/trading/rules";
 
 export const SHADOW_FORECAST_SCHEMA_VERSION = "shadow-forecast-v1" as const;
@@ -18,6 +19,10 @@ export type ShadowForecastSnapshot = {
   cohortKey: string;
   priceRegime: "risk_on" | "neutral" | "risk_off" | "unknown";
   priceRegimeAlgorithmVersion: typeof SHADOW_PRICE_REGIME_ALGORITHM_VERSION;
+  marketRegime: "risk_on" | "neutral" | "risk_off" | "unknown";
+  marketRegimeAlgorithmVersion: string;
+  marketRegimeBenchmarkSymbol: string;
+  marketRegimeEvidenceHash: string | null;
   benchmarkAlgorithmVersion: typeof SHADOW_BENCHMARK_ALGORITHM_VERSION;
   decisionMode: "swing_trade" | "long_term";
   analysisAsOf: string;
@@ -113,6 +118,7 @@ export function buildShadowForecastSnapshot(input: {
   evidenceHash: string;
   analysisAsOf: string;
   marketFeatures?: DeterministicMarketFeatures | null;
+  marketEnvironment?: BenchmarkMarketRegimeEvidence | null;
 }): ShadowForecastSnapshot | null {
   const mode = input.analysis.decisionMode;
   const forecast = input.analysis.entryOutcomeForecast;
@@ -135,13 +141,18 @@ export function buildShadowForecastSnapshot(input: {
   const analysisAsOf = normalizeTimestamp(input.analysisAsOf);
   if (!analysisAsOf || !/^[a-f0-9]{64}$/i.test(input.evidenceHash)) return null;
   const priceRegime = classifyShadowPriceRegime(input.marketFeatures);
+  const marketRegime = input.marketEnvironment?.status === "available" ? input.marketEnvironment.regime : "unknown";
 
   return {
     schemaVersion: SHADOW_FORECAST_SCHEMA_VERSION,
     algorithmVersion: SHADOW_FORECAST_ALGORITHM_VERSION,
-    cohortKey: `${mode}:price_${priceRegime}:${horizonTradingDays}d`,
+    cohortKey: `${mode}:market_${marketRegime}:price_${priceRegime}:${horizonTradingDays}d`,
     priceRegime,
     priceRegimeAlgorithmVersion: SHADOW_PRICE_REGIME_ALGORITHM_VERSION,
+    marketRegime,
+    marketRegimeAlgorithmVersion: input.marketEnvironment?.algorithmVersion ?? "unavailable",
+    marketRegimeBenchmarkSymbol: input.marketEnvironment?.benchmarkSymbol ?? "000300.SH",
+    marketRegimeEvidenceHash: input.marketEnvironment?.status === "available" ? input.marketEnvironment.evidenceHash : null,
     benchmarkAlgorithmVersion: SHADOW_BENCHMARK_ALGORITHM_VERSION,
     decisionMode: mode,
     analysisAsOf,

@@ -67,6 +67,8 @@ test("evidence package carries 60 recent candles and deterministic market featur
   assert.equal(evidence.dataQuality.entryBlockers.length, 0);
   assert.ok(evidence.deterministicFeatures.market.return20dPct !== null);
   assert.ok(evidence.deterministicFeatures.market.averageTrueRange14 !== null);
+  assert.equal(evidence.marketEnvironment.regime, "risk_on");
+  assert.equal(evidence.sourceManifest.find((source) => source.kind === "benchmark_market")?.provider, "fixture");
   assert.equal(evidence.sourceManifest.find((source) => source.kind === "valuation")?.status, "available");
   assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
 });
@@ -82,6 +84,7 @@ test("missing disclosure and current news refresh become deterministic entry blo
     userContext: { isHolding: false, timeHorizon: "swing_trade" },
     userCapital: 100_000,
     portfolioRiskContext,
+    marketEnvironment: benchmarkMarketEnvironmentFixture(),
     relevantNews: [{ importance: "high", analyses: [] }],
     analyzedNews: [],
     lastNewsFetch: null,
@@ -183,6 +186,40 @@ test("context hash changes when the historical valuation price series changes", 
   });
 
   assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
+});
+
+test("context hash changes when deterministic CSI 300 market evidence changes", () => {
+  const riskOn = completeEvidence();
+  const riskOff = buildAnalysisEvidencePackage({
+    ...completeEvidenceInput(),
+    marketEnvironment: {
+      ...benchmarkMarketEnvironmentFixture(),
+      regime: "risk_off",
+      evidenceHash: "f".repeat(64)
+    }
+  });
+
+  assert.notEqual(contextHash(riskOn, 100_000, "偏好低回撤"), contextHash(riskOff, 100_000, "偏好低回撤"));
+});
+
+test("context hash ignores benchmark fetch time when market evidence is otherwise unchanged", () => {
+  const input = completeEvidenceInput();
+  const first = buildAnalysisEvidencePackage({
+    ...input,
+    marketEnvironment: {
+      ...benchmarkMarketEnvironmentFixture(),
+      fetchedAt: "2026-08-24T15:05:00+08:00"
+    }
+  });
+  const second = buildAnalysisEvidencePackage({
+    ...input,
+    marketEnvironment: {
+      ...benchmarkMarketEnvironmentFixture(),
+      fetchedAt: "2026-08-24T15:35:00+08:00"
+    }
+  });
+
+  assert.equal(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
 });
 
 test("context hash changes when the peer valuation evidence changes", () => {
@@ -427,6 +464,7 @@ function completeEvidenceInput() {
     userContext: { isHolding: false, timeHorizon: "swing_trade" },
     userCapital: 100_000,
     portfolioRiskContext,
+    marketEnvironment: benchmarkMarketEnvironmentFixture(),
     relevantNews: [{ importance: "high", analyses: [{ aiSummary: "测试新闻已完成精读" }] }],
     analyzedNews: [{ title: "测试新闻", summary: "测试新闻已完成精读" }],
     lastNewsFetch: "2026-08-24T23:30:00+08:00",
@@ -779,6 +817,37 @@ function analyzeInput(evidence: ReturnType<typeof completeEvidence>): AnalyzeSto
     userCapital: 100_000,
     portfolioRiskContext,
     evidencePackage: evidence
+  };
+}
+
+function benchmarkMarketEnvironmentFixture() {
+  return {
+    schemaVersion: "benchmark-market-regime-v1" as const,
+    algorithmVersion: "csi300-raw-price-regime-v1" as const,
+    status: "available" as const,
+    regime: "risk_on" as const,
+    benchmarkSymbol: "000300.SH" as const,
+    provider: "fixture",
+    sourceUrl: "https://example.test/csi300",
+    priceBasis: "raw_unadjusted" as const,
+    fetchedAt: "2026-08-24T15:05:00+08:00",
+    asOf: "2026-08-24T15:00:00+08:00",
+    candleCount: 252,
+    features: {
+      featureVersion: "market-features-v1",
+      return5dPct: 2,
+      return20dPct: 5,
+      return60dPct: 8,
+      realizedVolatility20dPct: 18,
+      averageTrueRange14: 40,
+      atr14Pct: 1,
+      volumeRatio20: 1.1,
+      maxDrawdown60dPct: 5,
+      pricePosition60dPct: 70,
+      latestGapPct: 0
+    },
+    evidenceHash: "c".repeat(64),
+    failure: null
   };
 }
 

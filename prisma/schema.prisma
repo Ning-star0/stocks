@@ -186,6 +186,10 @@ model ShadowForecast {
   cohortKey             String
   priceRegime           String
   priceRegimeAlgorithmVersion String
+  marketRegime          String
+  marketRegimeAlgorithmVersion String
+  marketRegimeBenchmarkSymbol String
+  marketRegimeEvidenceHash String?
   benchmarkAlgorithmVersion String
   decisionMode          String
   analysisAsOf          DateTime

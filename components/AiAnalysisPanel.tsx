@@ -156,11 +156,14 @@ export function AiAnalysisPanel({
                 <ScopeLine label="新闻范围" value={dataScope.newsWindow ?? "--"} />
                 <ScopeLine label="新闻数量" value={`${dataScope.newsCount ?? 0} 条传入 AI`} />
                 <ScopeLine label="联网检索" value={dataScope.webSearchStatus ?? "--"} />
+                <ScopeLine label="宽基环境" value={`${dataScope.marketRegimeBenchmarkSymbol ?? "000300.SH"} · ${dataScope.marketRegime ?? "unknown"} · ${dataScope.marketRegimeStatus ?? "unavailable"}`} />
+                <ScopeLine label="宽基截止" value={formatTime(dataScope.marketRegimeAsOf)} />
                 <ScopeLine label="证据版本" value={analysis.evidenceSchemaVersion ?? "旧版分析"} />
                 <ScopeLine label="决策模式" value={decisionModeLabel(analysis.decisionMode)} />
                 <ScopeLine label="数据质量" value={dataQuality ? dataQualityStatusLabel(dataQuality.status) : "旧版未记录"} />
               </div>
             ) : null}
+            {dataScope?.marketRegimeSourceUrl ? <a href={dataScope.marketRegimeSourceUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">查看沪深 300 市场环境原始日线来源</a> : null}
             {analysis.webSearchSummary ? <p className="text-sm leading-6 text-muted-foreground">{analysis.webSearchSummary}</p> : null}
             <SearchResultList items={webSearchResults} />
           </div>
@@ -401,6 +404,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
       ) : null}
       {analysis.dataScope?.portfolioRiskFailure ? (
         <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-5 text-muted-foreground">组合风险预算失败：{analysis.dataScope.portfolioRiskFailure}</p>
+      ) : null}
+      {analysis.dataScope?.marketRegimeFailure ? (
+        <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-muted-foreground">宽基市场环境：{analysis.dataScope.marketRegimeFailure}</p>
       ) : null}
       {blockers.length ? (
         <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2">

@@ -5,6 +5,7 @@ import { assertNoUnexplainedCorporateActionGap } from "@/lib/stock-data/corporat
 import { getStockDataProvider } from "@/lib/stock-data";
 import type { ValuationPriceHistoryEvidence } from "@/lib/stock-data/types";
 import type { DeterministicMarketFeatures } from "@/lib/analysis/evidence";
+import type { BenchmarkMarketRegimeEvidence } from "@/lib/analysis/marketRegime";
 import type { AiAnalysisResult } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 import {
@@ -31,6 +32,7 @@ export type PersistAnalysisWithShadowForecastInput = {
   evidenceHash: string;
   analysisAsOf: string;
   marketFeatures: DeterministicMarketFeatures;
+  marketEnvironment: BenchmarkMarketRegimeEvidence;
   modelName: string | null;
 };
 
@@ -56,6 +58,7 @@ export type ForecastCalibrationSummary = {
     schemaVersion: string | null;
     algorithmVersion: string | null;
     priceRegimeAlgorithmVersion: string | null;
+    marketRegimeAlgorithmVersion: string | null;
     benchmarkAlgorithmVersion: string | null;
     resolvedSampleSize: number;
   };
@@ -78,7 +81,8 @@ export async function persistAnalysisWithShadowForecast(input: PersistAnalysisWi
     analysis: input.analysis,
     evidenceHash: input.evidenceHash,
     analysisAsOf: input.analysisAsOf,
-    marketFeatures: input.marketFeatures
+    marketFeatures: input.marketFeatures,
+    marketEnvironment: input.marketEnvironment
   });
 
   return prisma.$transaction(async (transaction) => {
@@ -274,6 +278,7 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       schemaVersion: true,
       algorithmVersion: true,
       priceRegimeAlgorithmVersion: true,
+      marketRegimeAlgorithmVersion: true,
       benchmarkAlgorithmVersion: true,
       modelName: true,
       analysisAsOf: true,
@@ -330,6 +335,7 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       schemaVersion: latestScopeRow?.schemaVersion ?? null,
       algorithmVersion: latestScopeRow?.algorithmVersion ?? null,
       priceRegimeAlgorithmVersion: latestScopeRow?.priceRegimeAlgorithmVersion ?? null,
+      marketRegimeAlgorithmVersion: latestScopeRow?.marketRegimeAlgorithmVersion ?? null,
       benchmarkAlgorithmVersion: latestScopeRow?.benchmarkAlgorithmVersion ?? null,
       resolvedSampleSize: resolved.length
     },
@@ -353,13 +359,14 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
 }
 
 function sameValidationScope(
-  left: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string },
-  right: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string }
+  left: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; marketRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string },
+  right: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; marketRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string }
 ) {
   return left.modelName === right.modelName
     && left.schemaVersion === right.schemaVersion
     && left.algorithmVersion === right.algorithmVersion
     && left.priceRegimeAlgorithmVersion === right.priceRegimeAlgorithmVersion
+    && left.marketRegimeAlgorithmVersion === right.marketRegimeAlgorithmVersion
     && left.benchmarkAlgorithmVersion === right.benchmarkAlgorithmVersion;
 }
 
@@ -370,6 +377,10 @@ function shadowForecastCreateData(snapshot: ShadowForecastSnapshot) {
     cohortKey: snapshot.cohortKey,
     priceRegime: snapshot.priceRegime,
     priceRegimeAlgorithmVersion: snapshot.priceRegimeAlgorithmVersion,
+    marketRegime: snapshot.marketRegime,
+    marketRegimeAlgorithmVersion: snapshot.marketRegimeAlgorithmVersion,
+    marketRegimeBenchmarkSymbol: snapshot.marketRegimeBenchmarkSymbol,
+    marketRegimeEvidenceHash: snapshot.marketRegimeEvidenceHash,
     benchmarkAlgorithmVersion: snapshot.benchmarkAlgorithmVersion,
     decisionMode: snapshot.decisionMode,
     analysisAsOf: new Date(snapshot.analysisAsOf),
