@@ -169,8 +169,10 @@ sudo bash update.sh
 部署后可在已配置且允许写入临时固定样本的数据库运行可选端到端验收；测试使用唯一邮箱和缓存键，并在结束时级联清理临时用户、分析、证据与用量记录：
 
 ```bash
-RUN_DB_E2E_TESTS=true npx tsx --test tests/apiQuotaDb.test.ts tests/analysisPersistenceDb.test.ts
+npm run test:db:isolated
 ```
+
+数据库端到端测试必须通过上述命令在一次性 PostgreSQL schema 中运行；脚本会迁移隔离 schema、执行额度锁/证据持久化/影子预测测试并在结束后清理。禁止直接把 `RUN_DB_E2E_TESTS=true` 指向生产 `public` schema，因为影子预测后台刷新会扫描待处理记录。
 
 该验收覆盖并发额度锁、持久化缓存、用户级分析复用隔离、交易记忆导致的上下文失效，以及持久化证据不足继续阻断条件买入。
 

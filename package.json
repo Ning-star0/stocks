@@ -17,6 +17,7 @@
     "refresh:quotes": "tsx scripts/refresh-quotes.ts",
     "refresh:news": "tsx scripts/refresh-news.ts",
     "strategy:repair": "tsx scripts/rebuild-strategy-state.ts",
+    "test:db:isolated": "tsx scripts/test-db-isolated.ts",
     "test": "tsx --test tests/*.test.ts",
     "auth:hash": "tsx scripts/hash-password.ts"
   },
