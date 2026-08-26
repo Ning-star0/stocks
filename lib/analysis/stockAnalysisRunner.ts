@@ -105,6 +105,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     analysis: outputJson,
     evidenceHash: context.aiInput.evidencePackage.evidenceHash,
     analysisAsOf: context.aiInput.analysisAsOf,
+    marketFeatures: context.aiInput.evidencePackage.deterministicFeatures.market,
     modelName: isFallback ? null : selectAiModel(aiConfig, "flagship")
   });
 

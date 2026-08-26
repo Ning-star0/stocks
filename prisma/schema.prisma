@@ -184,6 +184,9 @@ model ShadowForecast {
   schemaVersion         String
   algorithmVersion      String
   cohortKey             String
+  priceRegime           String
+  priceRegimeAlgorithmVersion String
+  benchmarkAlgorithmVersion String
   decisionMode          String
   analysisAsOf          DateTime
   evidenceHash          String
@@ -200,12 +203,19 @@ model ShadowForecast {
   status                String   @default("pending")
   entryAt               DateTime?
   entryPrice            Decimal? @db.Decimal(18, 4)
+  exitAt                DateTime?
+  exitPrice             Decimal? @db.Decimal(18, 4)
   outcome               String?
   outcomeValue          Int?
   observedTradingDays   Int      @default(0)
   maxFavorablePct       Decimal? @db.Decimal(12, 6)
   maxAdversePct         Decimal? @db.Decimal(12, 6)
   netReturnPct          Decimal? @db.Decimal(12, 6)
+  benchmarkStatus       String   @default("pending")
+  benchmarkExitAt       DateTime?
+  benchmarkExitPrice    Decimal? @db.Decimal(18, 4)
+  benchmarkNetReturnPct Decimal? @db.Decimal(12, 6)
+  excessNetReturnPct    Decimal? @db.Decimal(12, 6)
   priceDataThrough      DateTime?
   priceProvider         String?
   priceSourceUrl        String?
@@ -221,6 +231,7 @@ model ShadowForecast {
 
   @@index([status, nextCheckAt])
   @@index([userId, decisionMode, resolvedAt])
+  @@index([benchmarkStatus, nextCheckAt])
   @@index([symbol, analysisAsOf])
 }
 

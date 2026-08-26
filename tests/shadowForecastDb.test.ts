@@ -33,6 +33,7 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
       analysis: output,
       evidenceHash: "a".repeat(64),
       analysisAsOf,
+      marketFeatures: marketFeatures(),
       modelName: "fixture-model"
     });
     assert.equal(saved.shadowForecastCreated, true);
@@ -60,12 +61,32 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
     assert.equal(resolved?.priceProvider, "FIXTURE_RAW");
     assert.equal(resolved?.lastCheckFailure, null);
 
+    const fullHorizon = Array.from({ length: 20 }, (_, index) => candle(
+      new Date(Date.parse("2026-01-06T15:00:00+08:00") + index * 24 * 60 * 60 * 1000).toISOString(),
+      10 + index * 0.04,
+      index === 0 ? 11.2 : 10.5 + index * 0.08,
+      9.8 + index * 0.04,
+      10.8 + index * 0.06
+    ));
+    const benchmarkRefresh = await refreshPendingShadowForecasts({
+      now: new Date("2026-02-01T16:00:00+08:00"),
+      loadPriceHistory: async () => priceReceipt(fullHorizon)
+    });
+    assert.deepEqual(benchmarkRefresh, { checked: 1, pending: 0, resolved: 1, invalid: 0, failed: 0 });
+    const benchmarkResolved = await prisma.shadowForecast.findUnique({ where: { analysisId: saved.analysis.id } });
+    assert.equal(benchmarkResolved?.benchmarkStatus, "resolved");
+    assert.ok(Number.isFinite(Number(benchmarkResolved?.benchmarkNetReturnPct)));
+    assert.ok(Number(benchmarkResolved?.excessNetReturnPct) < 0);
+
     const summary = await getForecastCalibrationSummary(user.id);
-    assert.deepEqual(summary.counts, { pending: 0, resolved: 1, invalid: 0, failedChecks: 0 });
+    assert.deepEqual(summary.counts, { pending: 0, resolved: 1, invalid: 0, failedChecks: 0, benchmarkPending: 0 });
+    assert.equal(summary.benchmarkSampleSize, 1);
+    assert.ok((summary.averageBenchmarkNetReturnPct ?? 0) > 0);
+    assert.ok((summary.averageExcessNetReturnPct ?? 0) < 0);
     assert.equal(summary.overall.sampleSize, 1);
     assert.equal(summary.overall.brierScore, 0.09);
     assert.equal(summary.overall.decisionUseAllowed, false);
-    assert.equal(summary.cohorts[0]?.cohortKey, "swing_trade:bullish:20d");
+    assert.equal(summary.cohorts[0]?.cohortKey, "swing_trade:price_risk_on:20d");
   } finally {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => null);
   }
@@ -84,6 +105,7 @@ test("price provider failure stays pending and records a retryable audit failure
       analysis: analysisFixture(0.6),
       evidenceHash: "b".repeat(64),
       analysisAsOf: "2026-01-05T15:30:00+08:00",
+      marketFeatures: marketFeatures(),
       modelName: "fixture-model"
     });
     const refresh = await refreshPendingShadowForecasts({
@@ -140,5 +162,21 @@ function priceReceipt(candles: ReturnType<typeof candle>[]): ValuationPriceHisto
     adjustment: "none",
     candles,
     failure: null
+  };
+}
+
+function marketFeatures() {
+  return {
+    featureVersion: "market-features-v1",
+    return5dPct: 2,
+    return20dPct: 5,
+    return60dPct: 8,
+    realizedVolatility20dPct: 18,
+    averageTrueRange14: 0.4,
+    atr14Pct: 3,
+    volumeRatio20: 1.1,
+    maxDrawdown60dPct: 5,
+    pricePosition60dPct: 70,
+    latestGapPct: 0
   };
 }

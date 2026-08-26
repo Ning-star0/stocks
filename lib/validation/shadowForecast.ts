@@ -1,9 +1,12 @@
 import type { AiAnalysisResult, Candle } from "@/lib/types";
+import type { DeterministicMarketFeatures } from "@/lib/analysis/evidence";
 import { calculateTradingFee } from "@/lib/trading/rules";
 
 export const SHADOW_FORECAST_SCHEMA_VERSION = "shadow-forecast-v1" as const;
 export const SHADOW_FORECAST_ALGORITHM_VERSION = "next-session-open-target-before-stop-v1" as const;
 export const SHADOW_FORECAST_PRICE_BASIS = "raw_unadjusted" as const;
+export const SHADOW_PRICE_REGIME_ALGORITHM_VERSION = "instrument-price-regime-v1" as const;
+export const SHADOW_BENCHMARK_ALGORITHM_VERSION = "same-entry-fixed-horizon-buy-hold-v1" as const;
 export const FORECAST_CALIBRATION_SCHEMA_VERSION = "forecast-calibration-v1" as const;
 export const MIN_CALIBRATION_SAMPLE_SIZE = 100;
 
@@ -11,6 +14,9 @@ export type ShadowForecastSnapshot = {
   schemaVersion: typeof SHADOW_FORECAST_SCHEMA_VERSION;
   algorithmVersion: typeof SHADOW_FORECAST_ALGORITHM_VERSION;
   cohortKey: string;
+  priceRegime: "risk_on" | "neutral" | "risk_off" | "unknown";
+  priceRegimeAlgorithmVersion: typeof SHADOW_PRICE_REGIME_ALGORITHM_VERSION;
+  benchmarkAlgorithmVersion: typeof SHADOW_BENCHMARK_ALGORITHM_VERSION;
   decisionMode: "swing_trade" | "long_term";
   analysisAsOf: string;
   evidenceHash: string;
@@ -29,6 +35,8 @@ export type ShadowForecastEvaluation = {
   status: "pending" | "resolved" | "invalid";
   entryAt: string | null;
   entryPrice: number | null;
+  exitAt: string | null;
+  exitPrice: number | null;
   outcome: "target_before_stop" | "stop_before_target" | "ambiguous_same_session_stop_assumed" | "horizon_without_target" | null;
   outcomeValue: 0 | 1 | null;
   observedTradingDays: number;
@@ -37,6 +45,18 @@ export type ShadowForecastEvaluation = {
   netReturnPct: number | null;
   priceDataThrough: string | null;
   resolvedAt: string | null;
+  invalidReason: string | null;
+};
+
+export type ShadowBenchmarkEvaluation = {
+  status: "pending" | "resolved" | "invalid";
+  entryAt: string | null;
+  entryPrice: number | null;
+  exitAt: string | null;
+  exitPrice: number | null;
+  observedTradingDays: number;
+  netReturnPct: number | null;
+  priceDataThrough: string | null;
   invalidReason: string | null;
 };
 
@@ -70,6 +90,7 @@ export function buildShadowForecastSnapshot(input: {
   analysis: AiAnalysisResult;
   evidenceHash: string;
   analysisAsOf: string;
+  marketFeatures?: DeterministicMarketFeatures | null;
 }): ShadowForecastSnapshot | null {
   const mode = input.analysis.decisionMode;
   const forecast = input.analysis.entryOutcomeForecast;
@@ -91,11 +112,15 @@ export function buildShadowForecastSnapshot(input: {
   if (values.stopLossPrice! >= values.entryTriggerPrice! || values.takeProfitPrice! <= values.entryTriggerPrice!) return null;
   const analysisAsOf = normalizeTimestamp(input.analysisAsOf);
   if (!analysisAsOf || !/^[a-f0-9]{64}$/i.test(input.evidenceHash)) return null;
+  const priceRegime = classifyShadowPriceRegime(input.marketFeatures);
 
   return {
     schemaVersion: SHADOW_FORECAST_SCHEMA_VERSION,
     algorithmVersion: SHADOW_FORECAST_ALGORITHM_VERSION,
-    cohortKey: `${mode}:${input.analysis.trend}:${horizonTradingDays}d`,
+    cohortKey: `${mode}:price_${priceRegime}:${horizonTradingDays}d`,
+    priceRegime,
+    priceRegimeAlgorithmVersion: SHADOW_PRICE_REGIME_ALGORITHM_VERSION,
+    benchmarkAlgorithmVersion: SHADOW_BENCHMARK_ALGORITHM_VERSION,
     decisionMode: mode,
     analysisAsOf,
     evidenceHash: input.evidenceHash.toLowerCase(),
@@ -185,6 +210,61 @@ export function evaluateShadowForecast(input: {
   });
 }
 
+export function evaluateShadowBenchmark(input: {
+  forecast: Pick<ShadowForecastSnapshot, "analysisAsOf" | "horizonTradingDays" | "stopLossPrice" | "takeProfitPrice" | "plannedShares">;
+  candles: Candle[];
+  evaluationAsOf: string;
+}): ShadowBenchmarkEvaluation {
+  const usable = usablePostAnalysisCandles(input.forecast.analysisAsOf, input.candles, input.evaluationAsOf);
+  const entry = usable[0];
+  if (!entry) return pendingBenchmark(0, null);
+  if (entry.open <= input.forecast.stopLossPrice || entry.open >= input.forecast.takeProfitPrice) {
+    return {
+      ...pendingBenchmark(0, entry.timestamp),
+      status: "invalid",
+      entryAt: entry.timestamp,
+      entryPrice: round(entry.open, 4),
+      invalidReason: "下一完整交易日开盘价已经越过止损或止盈，基准与影子计划都无法使用统一入场事件。"
+    };
+  }
+  const horizon = usable.slice(0, input.forecast.horizonTradingDays);
+  if (horizon.length < input.forecast.horizonTradingDays) {
+    return {
+      ...pendingBenchmark(horizon.length, horizon.at(-1)?.timestamp ?? entry.timestamp),
+      entryAt: entry.timestamp,
+      entryPrice: round(entry.open, 4)
+    };
+  }
+  const exit = horizon.at(-1)!;
+  return {
+    status: "resolved",
+    entryAt: entry.timestamp,
+    entryPrice: round(entry.open, 4),
+    exitAt: exit.timestamp,
+    exitPrice: round(exit.close, 4),
+    observedTradingDays: horizon.length,
+    netReturnPct: netReturnPct(entry.open, exit.close, input.forecast.plannedShares),
+    priceDataThrough: exit.timestamp,
+    invalidReason: null
+  };
+}
+
+export function classifyShadowPriceRegime(features?: DeterministicMarketFeatures | null): ShadowForecastSnapshot["priceRegime"] {
+  if (!features) return "unknown";
+  const values = [features.return20dPct, features.return60dPct, features.maxDrawdown60dPct, features.pricePosition60dPct];
+  if (values.every((value) => value === null || !Number.isFinite(value))) return "unknown";
+  if ((features.return20dPct ?? 0) <= -5 || (features.maxDrawdown60dPct ?? 0) >= 12 || (features.pricePosition60dPct ?? 50) <= 25) {
+    return "risk_off";
+  }
+  if ((features.return20dPct ?? 0) >= 3
+    && (features.return60dPct ?? 0) >= 0
+    && (features.maxDrawdown60dPct ?? 100) < 10
+    && (features.pricePosition60dPct ?? 0) >= 55) {
+    return "risk_on";
+  }
+  return "neutral";
+}
+
 export function buildForecastCalibrationReport(observations: CalibrationObservation[]): ForecastCalibrationReport {
   const valid = observations.filter((item) => Number.isFinite(item.probability)
     && item.probability >= 0
@@ -222,7 +302,8 @@ export function buildForecastCalibrationReport(observations: CalibrationObservat
     decisionUseAllowed: false,
     limitations: [
       "当前报告只评估影子计划，不会解锁真实买入或放大仓位。",
-      "必须继续补充按市场环境分组、独立保留测试集、公司行动与现金分红口径后，才可评估是否用于扣费后期望值。",
+      "当前只按标的自身的确定性价格环境分组；仍需补充宽基市场环境、独立保留测试集、公司行动与现金分红口径后，才可评估是否用于扣费后期望值。",
+      "同期买入持有基准必须等待完整 20/63 个交易日，并按同样股数计入双边手续费，不能拿尚未走完的区间比较。",
       "同一交易日同时触及止损和止盈时按止损处理，避免用未知盘中顺序美化结果。"
     ],
     bins
@@ -241,19 +322,18 @@ function resolvedEvaluation(input: {
   outcome: NonNullable<ShadowForecastEvaluation["outcome"]>;
   outcomeValue: 0 | 1;
 }): ShadowForecastEvaluation {
-  const entryAmount = input.entryPrice * input.shares;
-  const exitAmount = input.exitPrice * input.shares;
-  const netPnl = exitAmount - calculateTradingFee(exitAmount) - entryAmount - calculateTradingFee(entryAmount);
   return {
     status: "resolved",
     entryAt: input.entry.timestamp,
     entryPrice: round(input.entryPrice, 4),
+    exitAt: input.exit.timestamp,
+    exitPrice: round(input.exitPrice, 4),
     outcome: input.outcome,
     outcomeValue: input.outcomeValue,
     observedTradingDays: input.observedTradingDays,
     maxFavorablePct: pct(input.maxHigh, input.entryPrice),
     maxAdversePct: pct(input.minLow, input.entryPrice),
-    netReturnPct: round((netPnl / (entryAmount + calculateTradingFee(entryAmount))) * 100, 6),
+    netReturnPct: netReturnPct(input.entryPrice, input.exitPrice, input.shares),
     priceDataThrough: input.exit.timestamp,
     resolvedAt: input.exit.timestamp,
     invalidReason: null
@@ -265,6 +345,8 @@ function pendingEvaluation(observedTradingDays: number, priceDataThrough: string
     status: "pending",
     entryAt: null,
     entryPrice: null,
+    exitAt: null,
+    exitPrice: null,
     outcome: null,
     outcomeValue: null,
     observedTradingDays,
@@ -275,6 +357,36 @@ function pendingEvaluation(observedTradingDays: number, priceDataThrough: string
     resolvedAt: null,
     invalidReason: null
   };
+}
+
+function pendingBenchmark(observedTradingDays: number, priceDataThrough: string | null): ShadowBenchmarkEvaluation {
+  return {
+    status: "pending",
+    entryAt: null,
+    entryPrice: null,
+    exitAt: null,
+    exitPrice: null,
+    observedTradingDays,
+    netReturnPct: null,
+    priceDataThrough,
+    invalidReason: null
+  };
+}
+
+function usablePostAnalysisCandles(analysisAsOf: string, candles: Candle[], evaluationAsOf: string) {
+  const evaluationAsOfMs = Date.parse(evaluationAsOf);
+  const analysisDate = shanghaiDateKey(analysisAsOf);
+  return candles
+    .filter((candle) => validCandle(candle) && (!Number.isFinite(evaluationAsOfMs) || Date.parse(candle.timestamp) <= evaluationAsOfMs))
+    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
+    .filter((candle) => shanghaiDateKey(candle.timestamp) > analysisDate);
+}
+
+function netReturnPct(entryPrice: number, exitPrice: number, shares: number) {
+  const entryAmount = entryPrice * shares;
+  const exitAmount = exitPrice * shares;
+  const netPnl = exitAmount - calculateTradingFee(exitAmount) - entryAmount - calculateTradingFee(entryAmount);
+  return round((netPnl / (entryAmount + calculateTradingFee(entryAmount))) * 100, 6);
 }
 
 function emptyCalibrationReport(): ForecastCalibrationReport {

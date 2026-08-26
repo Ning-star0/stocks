@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   buildForecastCalibrationReport,
   buildShadowForecastSnapshot,
+  classifyShadowPriceRegime,
+  evaluateShadowBenchmark,
   evaluateShadowForecast
 } from "@/lib/validation/shadowForecast";
 import type { AiAnalysisResult, Candle } from "@/lib/types";
@@ -12,13 +14,16 @@ test("shadow snapshot records a subjective probability without using it for sizi
   const snapshot = buildShadowForecastSnapshot({
     analysis: analysisFixture(0.73),
     evidenceHash: "a".repeat(64),
-    analysisAsOf: "2026-08-25T07:10:00.000Z"
+    analysisAsOf: "2026-08-25T07:10:00.000Z",
+    marketFeatures: riskOnFeatures()
   });
 
   assert.ok(snapshot);
   assert.equal(snapshot.modelProbability, 0.73);
   assert.equal(snapshot.horizonTradingDays, 20);
   assert.equal(snapshot.plannedShares, 100);
+  assert.equal(snapshot.priceRegime, "risk_on");
+  assert.equal(snapshot.cohortKey, "swing_trade:price_risk_on:20d");
   assert.equal(buildShadowForecastSnapshot({
     analysis: { ...analysisFixture(0.73), tradePlan: { ...analysisFixture(0.73).tradePlan!, entry: { ...analysisFixture(0.73).tradePlan!.entry, shadowEligible: false } } },
     evidenceHash: "a".repeat(64),
@@ -61,11 +66,37 @@ test("same-session target and stop is conservatively recorded as a loss", () => 
   assert.ok((result.netReturnPct ?? 0) < 0);
 });
 
+test("fixed-horizon buy-and-hold benchmark waits for the full horizon and includes fees", () => {
+  const candles = Array.from({ length: 20 }, (_, index) => candle(
+    new Date(Date.parse("2026-08-26T07:00:00.000Z") + index * 24 * 60 * 60 * 1000).toISOString(),
+    12 + index * 0.02,
+    12.4 + index * 0.02,
+    11.7 + index * 0.02,
+    12.1 + index * 0.04
+  ));
+  const pending = evaluateShadowBenchmark({ forecast: snapshotFixture(), candles, evaluationAsOf: candles[18].timestamp });
+  const resolved = evaluateShadowBenchmark({ forecast: snapshotFixture(), candles, evaluationAsOf: candles[19].timestamp });
+
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.observedTradingDays, 19);
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.observedTradingDays, 20);
+  assert.equal(resolved.exitAt, candles[19].timestamp);
+  assert.ok((resolved.netReturnPct ?? 0) < (candles[19].close / candles[0].open - 1) * 100);
+});
+
+test("price regime is deterministic and does not use AI trend text", () => {
+  assert.equal(classifyShadowPriceRegime(riskOnFeatures()), "risk_on");
+  assert.equal(classifyShadowPriceRegime({ ...riskOnFeatures(), return20dPct: -6 }), "risk_off");
+  assert.equal(classifyShadowPriceRegime({ ...riskOnFeatures(), return20dPct: 1, pricePosition60dPct: 50 }), "neutral");
+  assert.equal(classifyShadowPriceRegime(null), "unknown");
+});
+
 test("calibration report computes Brier score and remains shadow-only", () => {
   const observations = Array.from({ length: 100 }, (_, index) => ({
     probability: index < 50 ? 0.2 : 0.8,
     outcome: (index % 2 === 0 ? 1 : 0) as 0 | 1,
-    cohortKey: "swing_trade:bullish:20d"
+    cohortKey: "swing_trade:price_risk_on:20d"
   }));
   const report = buildForecastCalibrationReport(observations);
 
@@ -152,4 +183,20 @@ function snapshotFixture() {
 
 function candle(timestamp: string, open: number, high: number, low: number, close: number): Candle {
   return { symbol: "600000.SH", timestamp, open, high, low, close, volume: 1000 };
+}
+
+function riskOnFeatures() {
+  return {
+    featureVersion: "market-features-v1",
+    return5dPct: 2,
+    return20dPct: 5,
+    return60dPct: 9,
+    realizedVolatility20dPct: 20,
+    averageTrueRange14: 0.5,
+    atr14Pct: 3,
+    volumeRatio20: 1.1,
+    maxDrawdown60dPct: 6,
+    pricePosition60dPct: 75,
+    latestGapPct: 0.2
+  };
 }

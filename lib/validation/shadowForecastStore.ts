@@ -4,11 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { assertNoUnexplainedCorporateActionGap } from "@/lib/stock-data/corporateActions";
 import { getStockDataProvider } from "@/lib/stock-data";
 import type { ValuationPriceHistoryEvidence } from "@/lib/stock-data/types";
+import type { DeterministicMarketFeatures } from "@/lib/analysis/evidence";
 import type { AiAnalysisResult } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 import {
   buildForecastCalibrationReport,
   buildShadowForecastSnapshot,
+  evaluateShadowBenchmark,
   evaluateShadowForecast,
   type ForecastCalibrationReport,
   type ShadowForecastSnapshot
@@ -26,6 +28,7 @@ export type PersistAnalysisWithShadowForecastInput = {
   analysis: AiAnalysisResult;
   evidenceHash: string;
   analysisAsOf: string;
+  marketFeatures: DeterministicMarketFeatures;
   modelName: string | null;
 };
 
@@ -36,10 +39,14 @@ export type ForecastCalibrationSummary = {
     resolved: number;
     invalid: number;
     failedChecks: number;
+    benchmarkPending: number;
   };
   firstForecastAt: string | null;
   latestResolvedAt: string | null;
   averageNetReturnPct: number | null;
+  averageBenchmarkNetReturnPct: number | null;
+  averageExcessNetReturnPct: number | null;
+  benchmarkSampleSize: number;
   positiveNetReturnRate: number | null;
   recentFailures: Array<{ symbol: string; failure: string; checkedAt: string | null }>;
   overall: ForecastCalibrationReport;
@@ -47,6 +54,8 @@ export type ForecastCalibrationSummary = {
     cohortKey: string;
     decisionMode: string;
     averageNetReturnPct: number | null;
+    averageBenchmarkNetReturnPct: number | null;
+    averageExcessNetReturnPct: number | null;
     report: ForecastCalibrationReport;
   }>;
 };
@@ -57,7 +66,8 @@ export async function persistAnalysisWithShadowForecast(input: PersistAnalysisWi
   const snapshot = buildShadowForecastSnapshot({
     analysis: input.analysis,
     evidenceHash: input.evidenceHash,
-    analysisAsOf: input.analysisAsOf
+    analysisAsOf: input.analysisAsOf,
+    marketFeatures: input.marketFeatures
   });
 
   return prisma.$transaction(async (transaction) => {
@@ -92,7 +102,10 @@ export async function refreshPendingShadowForecasts(options: {
   const now = options.now ?? new Date();
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? DEFAULT_REFRESH_LIMIT)));
   const forecasts = await prisma.shadowForecast.findMany({
-    where: { status: "pending", nextCheckAt: { lte: now } },
+    where: {
+      nextCheckAt: { lte: now },
+      OR: [{ status: "pending" }, { benchmarkStatus: "pending" }]
+    },
     orderBy: [{ nextCheckAt: "asc" }, { createdAt: "asc" }],
     take: limit
   });
@@ -101,7 +114,11 @@ export async function refreshPendingShadowForecasts(options: {
   const claimed = [] as typeof forecasts;
   for (const forecast of forecasts) {
     const claim = await prisma.shadowForecast.updateMany({
-      where: { id: forecast.id, status: "pending", nextCheckAt: { lte: now } },
+      where: {
+        id: forecast.id,
+        nextCheckAt: { lte: now },
+        OR: [{ status: "pending" }, { benchmarkStatus: "pending" }]
+      },
       data: { nextCheckAt: addHours(now, FAILURE_RECHECK_HOURS) }
     });
     if (claim.count === 1) claimed.push(forecast);
@@ -127,7 +144,7 @@ export async function refreshPendingShadowForecasts(options: {
     } catch (error) {
       const failure = errorMessage(error);
       await prisma.shadowForecast.updateMany({
-        where: { id: { in: symbolForecasts.map((forecast) => forecast.id) }, status: "pending" },
+        where: { id: { in: symbolForecasts.map((forecast) => forecast.id) } },
         data: {
           lastCheckAt: now,
           lastCheckFailure: failure,
@@ -144,6 +161,7 @@ export async function refreshPendingShadowForecasts(options: {
           where: { id: forecast.id },
           data: {
             status: "invalid",
+            benchmarkStatus: "invalid",
             invalidReason: `不支持的影子观察周期：${forecast.horizonTradingDays} 个交易日。`,
             lastCheckAt: now,
             lastCheckFailure: null,
@@ -161,6 +179,7 @@ export async function refreshPendingShadowForecasts(options: {
           where: { id: forecast.id },
           data: {
             status: "invalid",
+            benchmarkStatus: "invalid",
             invalidReason: `观察期价格存在无法安全解释的公司行动：${errorMessage(error)}`,
             priceProvider: receipt.provider,
             priceSourceUrl: receipt.sourceUrl,
@@ -183,18 +202,40 @@ export async function refreshPendingShadowForecasts(options: {
         candles: receipt.candles,
         evaluationAsOf: now.toISOString()
       });
+      const benchmark = evaluateShadowBenchmark({
+        forecast: {
+          analysisAsOf: forecast.analysisAsOf.toISOString(),
+          horizonTradingDays: forecast.horizonTradingDays,
+          stopLossPrice: toNumber(forecast.stopLossPrice) ?? Number.NaN,
+          takeProfitPrice: toNumber(forecast.takeProfitPrice) ?? Number.NaN,
+          plannedShares: toNumber(forecast.plannedShares) ?? Number.NaN
+        },
+        candles: receipt.candles,
+        evaluationAsOf: now.toISOString()
+      });
+      const excessNetReturnPct = result.netReturnPct !== null && benchmark.netReturnPct !== null
+        ? round(result.netReturnPct - benchmark.netReturnPct, 6)
+        : null;
+      const needsRecheck = result.status === "pending" || benchmark.status === "pending";
       await prisma.shadowForecast.update({
         where: { id: forecast.id },
         data: {
           status: result.status,
           entryAt: asDate(result.entryAt),
           entryPrice: result.entryPrice,
+          exitAt: asDate(result.exitAt),
+          exitPrice: result.exitPrice,
           outcome: result.outcome,
           outcomeValue: result.outcomeValue,
           observedTradingDays: result.observedTradingDays,
           maxFavorablePct: result.maxFavorablePct,
           maxAdversePct: result.maxAdversePct,
           netReturnPct: result.netReturnPct,
+          benchmarkStatus: result.status === "invalid" ? "invalid" : benchmark.status,
+          benchmarkExitAt: asDate(benchmark.exitAt),
+          benchmarkExitPrice: benchmark.exitPrice,
+          benchmarkNetReturnPct: benchmark.netReturnPct,
+          excessNetReturnPct,
           priceDataThrough: asDate(result.priceDataThrough),
           priceProvider: receipt.provider,
           priceSourceUrl: receipt.sourceUrl,
@@ -202,7 +243,7 @@ export async function refreshPendingShadowForecasts(options: {
           invalidReason: result.invalidReason,
           lastCheckAt: now,
           lastCheckFailure: null,
-          nextCheckAt: result.status === "pending" ? addHours(now, SUCCESS_RECHECK_HOURS) : now
+          nextCheckAt: needsRecheck ? addHours(now, SUCCESS_RECHECK_HOURS) : now
         }
       });
       counts[result.status] += 1;
@@ -222,6 +263,9 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       modelProbability: true,
       outcomeValue: true,
       netReturnPct: true,
+      benchmarkStatus: true,
+      benchmarkNetReturnPct: true,
+      excessNetReturnPct: true,
       createdAt: true,
       resolvedAt: true,
       lastCheckAt: true,
@@ -246,14 +290,18 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       pending: rows.filter((row) => row.status === "pending").length,
       resolved: resolved.length,
       invalid: rows.filter((row) => row.status === "invalid").length,
-      failedChecks: rows.filter((row) => row.status === "pending" && Boolean(row.lastCheckFailure)).length
+      failedChecks: rows.filter((row) => (row.status === "pending" || row.benchmarkStatus === "pending") && Boolean(row.lastCheckFailure)).length,
+      benchmarkPending: rows.filter((row) => row.benchmarkStatus === "pending").length
     },
     firstForecastAt: rows[0]?.createdAt.toISOString() ?? null,
     latestResolvedAt: maxTimestamp(resolved.map((row) => row.resolvedAt)),
     averageNetReturnPct: roundedAverage(netReturns),
+    averageBenchmarkNetReturnPct: roundedAverage(rows.map((row) => toNumber(row.benchmarkNetReturnPct)).filter((value): value is number => value !== null)),
+    averageExcessNetReturnPct: roundedAverage(rows.map((row) => toNumber(row.excessNetReturnPct)).filter((value): value is number => value !== null)),
+    benchmarkSampleSize: rows.filter((row) => row.benchmarkStatus === "resolved" && toNumber(row.benchmarkNetReturnPct) !== null).length,
     positiveNetReturnRate: netReturns.length ? round(netReturns.filter((value) => value > 0).length / netReturns.length, 4) : null,
     recentFailures: rows
-      .filter((row): row is typeof row & { lastCheckFailure: string } => row.status === "pending" && Boolean(row.lastCheckFailure))
+      .filter((row): row is typeof row & { lastCheckFailure: string } => (row.status === "pending" || row.benchmarkStatus === "pending") && Boolean(row.lastCheckFailure))
       .sort((left, right) => (right.lastCheckAt?.getTime() ?? 0) - (left.lastCheckAt?.getTime() ?? 0))
       .slice(0, 5)
       .map((row) => ({ symbol: row.symbol, failure: row.lastCheckFailure, checkedAt: row.lastCheckAt?.toISOString() ?? null })),
@@ -261,10 +309,14 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
     cohorts: cohortKeys.map((cohortKey) => {
       const cohortRows = resolved.filter((row) => row.cohortKey === cohortKey);
       const cohortReturns = cohortRows.map((row) => toNumber(row.netReturnPct)).filter((value): value is number => value !== null);
+      const cohortBenchmarkReturns = cohortRows.map((row) => toNumber(row.benchmarkNetReturnPct)).filter((value): value is number => value !== null);
+      const cohortExcessReturns = cohortRows.map((row) => toNumber(row.excessNetReturnPct)).filter((value): value is number => value !== null);
       return {
         cohortKey,
         decisionMode: cohortRows[0]?.decisionMode ?? "unknown",
         averageNetReturnPct: roundedAverage(cohortReturns),
+        averageBenchmarkNetReturnPct: roundedAverage(cohortBenchmarkReturns),
+        averageExcessNetReturnPct: roundedAverage(cohortExcessReturns),
         report: buildForecastCalibrationReport(observations.filter((item) => item.cohortKey === cohortKey))
       };
     })
@@ -276,6 +328,9 @@ function shadowForecastCreateData(snapshot: ShadowForecastSnapshot) {
     schemaVersion: snapshot.schemaVersion,
     algorithmVersion: snapshot.algorithmVersion,
     cohortKey: snapshot.cohortKey,
+    priceRegime: snapshot.priceRegime,
+    priceRegimeAlgorithmVersion: snapshot.priceRegimeAlgorithmVersion,
+    benchmarkAlgorithmVersion: snapshot.benchmarkAlgorithmVersion,
     decisionMode: snapshot.decisionMode,
     analysisAsOf: new Date(snapshot.analysisAsOf),
     evidenceHash: snapshot.evidenceHash,

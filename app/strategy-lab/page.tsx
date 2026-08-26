@@ -146,14 +146,17 @@ function ForecastCalibrationPanel({ summary }: { summary: ForecastCalibrationSum
         <Badge variant={enoughSamples ? "warning" : "secondary"}>{enoughSamples ? "样本达标，仍仅观察" : `样本 ${report.sampleSize}/${report.minimumSampleSize}`}</Badge>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid sm:grid-cols-2 xl:grid-cols-7">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric label="等待结算" value={String(summary.counts.pending)} />
           <SummaryMetric label="已结算" value={String(summary.counts.resolved)} />
           <SummaryMetric label="无效样本" value={String(summary.counts.invalid)} />
           <SummaryMetric label="追踪失败" value={String(summary.counts.failedChecks)} hint="保持等待并重试" />
+          <SummaryMetric label="基准待满周期" value={String(summary.counts.benchmarkPending)} />
           <SummaryMetric label="Brier Score" value={formatDecimal(report.brierScore)} hint="越低越好" />
           <SummaryMetric label="基准 Brier" value={formatDecimal(report.baselineBrierScore)} hint="与样本平均胜率比较" />
           <SummaryMetric label="扣费后平均收益" value={formatSignedPercent(summary.averageNetReturnPct)} positive={(summary.averageNetReturnPct ?? 0) > 0} />
+          <SummaryMetric label="同期持有基准" value={formatSignedPercent(summary.averageBenchmarkNetReturnPct)} positive={(summary.averageBenchmarkNetReturnPct ?? 0) > 0} hint={`${summary.benchmarkSampleSize} 个完整周期`} />
+          <SummaryMetric label="平均超额收益" value={formatSignedPercent(summary.averageExcessNetReturnPct)} positive={(summary.averageExcessNetReturnPct ?? 0) > 0} />
         </div>
         <div className="grid gap-4 border-t border-border/70 p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]">
           <div className="space-y-2 text-xs leading-5 text-muted-foreground">
