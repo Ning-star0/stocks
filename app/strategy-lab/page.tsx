@@ -135,6 +135,7 @@ export default function StrategyLabPage() {
 
 function ForecastCalibrationPanel({ summary }: { summary: ForecastCalibrationSummary }) {
   const report = summary.overall;
+  const timeSplit = summary.chronologicalValidation;
   const enoughSamples = report.sampleSize >= report.minimumSampleSize;
   return (
     <Card className="performance-card overflow-hidden">
@@ -163,10 +164,14 @@ function ForecastCalibrationPanel({ summary }: { summary: ForecastCalibrationSum
             <div className="flex justify-between gap-3"><span>实际目标先达率</span><b className="text-foreground">{report.observedWinRate === null ? "--" : formatPercent(report.observedWinRate * 100)}</b></div>
             <div className="flex justify-between gap-3"><span>正净收益比例</span><b className="text-foreground">{summary.positiveNetReturnRate === null ? "--" : formatPercent(summary.positiveNetReturnRate * 100)}</b></div>
             <div className="flex justify-between gap-3"><span>校准误差 ECE</span><b className="text-foreground">{formatDecimal(report.expectedCalibrationError)}</b></div>
+            <div className="flex justify-between gap-3"><span>时间留出 Brier</span><b className="text-foreground">{formatDecimal(timeSplit.validation.brierScore)}</b></div>
+            <div className="flex justify-between gap-3"><span>留出集 / 同版本样本</span><b className="text-foreground">{timeSplit.validationSampleSize} / {summary.validationScope.resolvedSampleSize}</b></div>
+            <div className="flex justify-between gap-3"><span>模型 / 影子算法</span><b className="max-w-48 truncate text-foreground" title={`${summary.validationScope.modelName ?? "--"} / ${summary.validationScope.algorithmVersion ?? "--"}`}>{summary.validationScope.modelName ?? "--"} / {summary.validationScope.algorithmVersion ?? "--"}</b></div>
             <div className="flex justify-between gap-3"><span>最近结算</span><b className="text-foreground">{summary.latestResolvedAt ? formatDateTime(summary.latestResolvedAt) : "--"}</b></div>
           </div>
           <div className="space-y-1.5">
             {report.limitations.map((limitation) => <div key={limitation} className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />{limitation}</div>)}
+            {timeSplit.limitations.slice(0, 2).map((limitation) => <div key={limitation} className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />{limitation}</div>)}
           </div>
         </div>
         {report.bins.length ? (

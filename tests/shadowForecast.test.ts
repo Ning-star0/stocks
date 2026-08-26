@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildForecastCalibrationReport,
+  buildChronologicalForecastValidationReport,
   buildShadowForecastSnapshot,
   classifyShadowPriceRegime,
   evaluateShadowBenchmark,
@@ -107,6 +108,24 @@ test("calibration report computes Brier score and remains shadow-only", () => {
   assert.equal(report.baselineBrierScore, 0.25);
   assert.equal(report.decisionUseAllowed, false);
   assert.equal(report.bins.length, 2);
+});
+
+test("chronological validation fixes the latest 30 percent as a shadow-only holdout", () => {
+  const observations = Array.from({ length: 100 }, (_, index) => ({
+    probability: index < 50 ? 0.2 : 0.8,
+    outcome: (index % 2 === 0 ? 1 : 0) as 0 | 1,
+    cohortKey: "swing_trade:price_risk_on:20d",
+    forecastAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString()
+  })).reverse();
+  const report = buildChronologicalForecastValidationReport(observations);
+
+  assert.equal(report.status, "shadow_only");
+  assert.equal(report.trainingSampleSize, 70);
+  assert.equal(report.validationSampleSize, 30);
+  assert.equal(report.validation.brierScore, 0.34);
+  assert.equal(report.validation.baselineBrierScore, 0.25);
+  assert.equal(report.validationBrierImprovementVsBaseline, -0.09);
+  assert.equal(report.decisionUseAllowed, false);
 });
 
 function analysisFixture(probability: number): AiAnalysisResult {

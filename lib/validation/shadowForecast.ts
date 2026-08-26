@@ -8,7 +8,9 @@ export const SHADOW_FORECAST_PRICE_BASIS = "raw_unadjusted" as const;
 export const SHADOW_PRICE_REGIME_ALGORITHM_VERSION = "instrument-price-regime-v1" as const;
 export const SHADOW_BENCHMARK_ALGORITHM_VERSION = "same-entry-fixed-horizon-buy-hold-v1" as const;
 export const FORECAST_CALIBRATION_SCHEMA_VERSION = "forecast-calibration-v1" as const;
+export const CHRONOLOGICAL_VALIDATION_SCHEMA_VERSION = "forecast-time-split-validation-v1" as const;
 export const MIN_CALIBRATION_SAMPLE_SIZE = 100;
+export const MIN_VALIDATION_SAMPLE_SIZE = 30;
 
 export type ShadowForecastSnapshot = {
   schemaVersion: typeof SHADOW_FORECAST_SCHEMA_VERSION;
@@ -66,6 +68,10 @@ export type CalibrationObservation = {
   cohortKey: string;
 };
 
+export type TimestampedCalibrationObservation = CalibrationObservation & {
+  forecastAt: string;
+};
+
 export type ForecastCalibrationReport = {
   schemaVersion: typeof FORECAST_CALIBRATION_SCHEMA_VERSION;
   status: "insufficient" | "shadow_only";
@@ -84,6 +90,22 @@ export type ForecastCalibrationReport = {
     averageForecast: number;
     observedWinRate: number;
   }>;
+};
+
+export type ChronologicalForecastValidationReport = {
+  schemaVersion: typeof CHRONOLOGICAL_VALIDATION_SCHEMA_VERSION;
+  status: "insufficient" | "shadow_only";
+  splitPolicy: "earliest_70_latest_30";
+  totalSampleSize: number;
+  trainingSampleSize: number;
+  validationSampleSize: number;
+  minimumTotalSampleSize: number;
+  minimumValidationSampleSize: number;
+  validationBrierImprovementVsBaseline: number | null;
+  decisionUseAllowed: false;
+  training: ForecastCalibrationReport;
+  validation: ForecastCalibrationReport;
+  limitations: string[];
 };
 
 export function buildShadowForecastSnapshot(input: {
@@ -307,6 +329,40 @@ export function buildForecastCalibrationReport(observations: CalibrationObservat
       "同一交易日同时触及止损和止盈时按止损处理，避免用未知盘中顺序美化结果。"
     ],
     bins
+  };
+}
+
+export function buildChronologicalForecastValidationReport(observations: TimestampedCalibrationObservation[]): ChronologicalForecastValidationReport {
+  const ordered = observations
+    .filter((item) => Number.isFinite(Date.parse(item.forecastAt)))
+    .sort((left, right) => Date.parse(left.forecastAt) - Date.parse(right.forecastAt));
+  const splitIndex = ordered.length <= 1 ? ordered.length : Math.max(1, Math.floor(ordered.length * 0.7));
+  const trainingRows = ordered.slice(0, splitIndex);
+  const validationRows = ordered.slice(splitIndex);
+  const training = buildForecastCalibrationReport(trainingRows);
+  const validation = buildForecastCalibrationReport(validationRows);
+  const enough = ordered.length >= MIN_CALIBRATION_SAMPLE_SIZE && validationRows.length >= MIN_VALIDATION_SAMPLE_SIZE;
+  const validationBrierImprovementVsBaseline = validation.brierScore !== null && validation.baselineBrierScore !== null
+    ? round(validation.baselineBrierScore - validation.brierScore, 6)
+    : null;
+  return {
+    schemaVersion: CHRONOLOGICAL_VALIDATION_SCHEMA_VERSION,
+    status: enough ? "shadow_only" : "insufficient",
+    splitPolicy: "earliest_70_latest_30",
+    totalSampleSize: ordered.length,
+    trainingSampleSize: trainingRows.length,
+    validationSampleSize: validationRows.length,
+    minimumTotalSampleSize: MIN_CALIBRATION_SAMPLE_SIZE,
+    minimumValidationSampleSize: MIN_VALIDATION_SAMPLE_SIZE,
+    validationBrierImprovementVsBaseline,
+    decisionUseAllowed: false,
+    training,
+    validation,
+    limitations: [
+      "时间留出集按预测发生时间固定切分，不能在看到后 30% 结果后调整切分边界。",
+      "当前验证的是模型原始主观概率，不是已经训练完成的概率校准器。",
+      "即使时间留出结果优于基准，仍需宽基市场环境、版本稳定性和独立保留测试后才可讨论用于真实期望值。"
+    ]
   };
 }
 

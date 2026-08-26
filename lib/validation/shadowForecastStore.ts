@@ -9,10 +9,12 @@ import type { AiAnalysisResult } from "@/lib/types";
 import { toNumber } from "@/lib/utils";
 import {
   buildForecastCalibrationReport,
+  buildChronologicalForecastValidationReport,
   buildShadowForecastSnapshot,
   evaluateShadowBenchmark,
   evaluateShadowForecast,
   type ForecastCalibrationReport,
+  type ChronologicalForecastValidationReport,
   type ShadowForecastSnapshot
 } from "@/lib/validation/shadowForecast";
 
@@ -49,7 +51,16 @@ export type ForecastCalibrationSummary = {
   benchmarkSampleSize: number;
   positiveNetReturnRate: number | null;
   recentFailures: Array<{ symbol: string; failure: string; checkedAt: string | null }>;
+  validationScope: {
+    modelName: string | null;
+    schemaVersion: string | null;
+    algorithmVersion: string | null;
+    priceRegimeAlgorithmVersion: string | null;
+    benchmarkAlgorithmVersion: string | null;
+    resolvedSampleSize: number;
+  };
   overall: ForecastCalibrationReport;
+  chronologicalValidation: ChronologicalForecastValidationReport;
   cohorts: Array<{
     cohortKey: string;
     decisionMode: string;
@@ -260,6 +271,12 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       symbol: true,
       cohortKey: true,
       decisionMode: true,
+      schemaVersion: true,
+      algorithmVersion: true,
+      priceRegimeAlgorithmVersion: true,
+      benchmarkAlgorithmVersion: true,
+      modelName: true,
+      analysisAsOf: true,
       modelProbability: true,
       outcomeValue: true,
       netReturnPct: true,
@@ -273,13 +290,16 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
     },
     orderBy: { createdAt: "asc" }
   });
-  const resolved = rows.filter((row): row is typeof row & { outcomeValue: 0 | 1 } => (
+  const allResolved = rows.filter((row): row is typeof row & { outcomeValue: 0 | 1 } => (
     row.status === "resolved" && (row.outcomeValue === 0 || row.outcomeValue === 1)
   ));
+  const latestScopeRow = allResolved.at(-1) ?? null;
+  const resolved = latestScopeRow ? allResolved.filter((row) => sameValidationScope(row, latestScopeRow)) : [];
   const observations = resolved.map((row) => ({
     probability: toNumber(row.modelProbability) ?? Number.NaN,
     outcome: row.outcomeValue,
-    cohortKey: row.cohortKey
+    cohortKey: row.cohortKey,
+    forecastAt: row.analysisAsOf.toISOString()
   }));
   const cohortKeys = [...new Set(resolved.map((row) => row.cohortKey))].sort();
   const netReturns = resolved.map((row) => toNumber(row.netReturnPct)).filter((value): value is number => value !== null);
@@ -288,13 +308,13 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
     generatedAt: new Date().toISOString(),
     counts: {
       pending: rows.filter((row) => row.status === "pending").length,
-      resolved: resolved.length,
+      resolved: allResolved.length,
       invalid: rows.filter((row) => row.status === "invalid").length,
       failedChecks: rows.filter((row) => (row.status === "pending" || row.benchmarkStatus === "pending") && Boolean(row.lastCheckFailure)).length,
       benchmarkPending: rows.filter((row) => row.benchmarkStatus === "pending").length
     },
     firstForecastAt: rows[0]?.createdAt.toISOString() ?? null,
-    latestResolvedAt: maxTimestamp(resolved.map((row) => row.resolvedAt)),
+    latestResolvedAt: maxTimestamp(allResolved.map((row) => row.resolvedAt)),
     averageNetReturnPct: roundedAverage(netReturns),
     averageBenchmarkNetReturnPct: roundedAverage(rows.map((row) => toNumber(row.benchmarkNetReturnPct)).filter((value): value is number => value !== null)),
     averageExcessNetReturnPct: roundedAverage(rows.map((row) => toNumber(row.excessNetReturnPct)).filter((value): value is number => value !== null)),
@@ -305,7 +325,16 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       .sort((left, right) => (right.lastCheckAt?.getTime() ?? 0) - (left.lastCheckAt?.getTime() ?? 0))
       .slice(0, 5)
       .map((row) => ({ symbol: row.symbol, failure: row.lastCheckFailure, checkedAt: row.lastCheckAt?.toISOString() ?? null })),
+    validationScope: {
+      modelName: latestScopeRow?.modelName ?? null,
+      schemaVersion: latestScopeRow?.schemaVersion ?? null,
+      algorithmVersion: latestScopeRow?.algorithmVersion ?? null,
+      priceRegimeAlgorithmVersion: latestScopeRow?.priceRegimeAlgorithmVersion ?? null,
+      benchmarkAlgorithmVersion: latestScopeRow?.benchmarkAlgorithmVersion ?? null,
+      resolvedSampleSize: resolved.length
+    },
     overall: buildForecastCalibrationReport(observations),
+    chronologicalValidation: buildChronologicalForecastValidationReport(observations),
     cohorts: cohortKeys.map((cohortKey) => {
       const cohortRows = resolved.filter((row) => row.cohortKey === cohortKey);
       const cohortReturns = cohortRows.map((row) => toNumber(row.netReturnPct)).filter((value): value is number => value !== null);
@@ -321,6 +350,17 @@ export async function getForecastCalibrationSummary(userId: string): Promise<For
       };
     })
   };
+}
+
+function sameValidationScope(
+  left: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string },
+  right: { modelName: string | null; schemaVersion: string; algorithmVersion: string; priceRegimeAlgorithmVersion: string; benchmarkAlgorithmVersion: string }
+) {
+  return left.modelName === right.modelName
+    && left.schemaVersion === right.schemaVersion
+    && left.algorithmVersion === right.algorithmVersion
+    && left.priceRegimeAlgorithmVersion === right.priceRegimeAlgorithmVersion
+    && left.benchmarkAlgorithmVersion === right.benchmarkAlgorithmVersion;
 }
 
 function shadowForecastCreateData(snapshot: ShadowForecastSnapshot) {

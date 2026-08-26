@@ -81,6 +81,9 @@ test("analysis and shadow forecast persist atomically, resolve from later raw ca
     const summary = await getForecastCalibrationSummary(user.id);
     assert.deepEqual(summary.counts, { pending: 0, resolved: 1, invalid: 0, failedChecks: 0, benchmarkPending: 0 });
     assert.equal(summary.benchmarkSampleSize, 1);
+    assert.equal(summary.validationScope.modelName, "fixture-model");
+    assert.equal(summary.validationScope.resolvedSampleSize, 1);
+    assert.equal(summary.chronologicalValidation.status, "insufficient");
     assert.ok((summary.averageBenchmarkNetReturnPct ?? 0) > 0);
     assert.ok((summary.averageExcessNetReturnPct ?? 0) < 0);
     assert.equal(summary.overall.sampleSize, 1);
