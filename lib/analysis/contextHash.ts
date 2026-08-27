@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v17";
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v18";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -54,6 +54,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
       evidenceHash: input.evidence.marketEnvironment.evidenceHash,
       failure: input.evidence.marketEnvironment.failure
     },
+    etfEvidenceState: input.evidence.etfEvidence,
     fundamentalsState: {
       schemaVersion: input.evidence.fundamentals.schemaVersion,
       status: input.evidence.fundamentals.status,

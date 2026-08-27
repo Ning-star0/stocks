@@ -1,4 +1,5 @@
 import type { FundamentalCoverageSummary } from "@/lib/analysis/fundamentalCoverage";
+import type { EtfEvidence } from "@/lib/instruments/etfEvidence";
 
 export type Trend = "bullish" | "neutral" | "bearish";
 export type NewsSentiment = "positive" | "neutral" | "negative";
@@ -240,6 +241,12 @@ export interface AiAnalysisResult {
     instrumentClassificationSource: "exchange_symbol" | "unknown";
     instrumentEvidencePolicyVersion: string;
     instrumentEvidenceComplete: boolean;
+    etfProductIdentityStatus?: "available" | "partial" | "unavailable";
+    etfLiquidityStatus?: "available" | "partial" | "unavailable";
+    etfTrackingStatus?: "available" | "partial" | "unavailable";
+    etfPremiumDiscountStatus?: "available" | "partial" | "unavailable";
+    etfManagerDisclosuresStatus?: "available" | "partial" | "unavailable";
+    etfEvidence?: EtfEvidence;
     quoteFresh: boolean;
     klineFresh: boolean;
     latestDisclosureChecked: boolean;

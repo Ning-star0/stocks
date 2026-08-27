@@ -395,6 +395,7 @@ function buildOutputDataQuality(evidencePackage: AnalyzeStockInput["evidencePack
   const news = evidencePackage.news;
   return {
     ...evidencePackage.dataQuality,
+    etfEvidence: evidencePackage.etfEvidence ?? undefined,
     newsCoverage: {
       fetchedCount: news.fetchedCount,
       savedCount: news.savedCount,

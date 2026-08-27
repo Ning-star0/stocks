@@ -70,7 +70,7 @@ function analysisInput() {
     userMemory: "不追高",
     analysisAsOf: "2026-08-27T10:45:00+08:00",
     evidencePackage: {
-      schemaVersion: "1.11.0",
+      schemaVersion: "1.12.0",
       decisionPolicyVersion: "north-star-v2",
       marketDataRevision: "fixture",
       analysisAsOf: "2026-08-27T10:45:00+08:00",

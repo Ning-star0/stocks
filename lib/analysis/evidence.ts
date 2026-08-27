@@ -10,8 +10,9 @@ import { buildNewsEventTimeline, type NewsEventTimeline, type NewsTimelineArticl
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 import { buildInstrumentProfile, type InstrumentProfile } from "@/lib/instruments/profile";
+import { buildEtfEvidence, type EtfEvidence, type EtfSubEvidenceStatus } from "@/lib/instruments/etfEvidence";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.11.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.12.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v2";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -34,6 +35,11 @@ export type DataQualityReport = {
   instrumentClassificationSource: InstrumentProfile["classificationSource"];
   instrumentEvidencePolicyVersion: string;
   instrumentEvidenceComplete: boolean;
+  etfProductIdentityStatus?: EtfSubEvidenceStatus;
+  etfLiquidityStatus?: EtfSubEvidenceStatus;
+  etfTrackingStatus?: EtfSubEvidenceStatus;
+  etfPremiumDiscountStatus?: EtfSubEvidenceStatus;
+  etfManagerDisclosuresStatus?: EtfSubEvidenceStatus;
   quoteFresh: boolean;
   klineFresh: boolean;
   latestDisclosureChecked: boolean;
@@ -105,6 +111,7 @@ export type AnalysisEvidencePackage = {
     recentCandles: MarketCandleEvidence[];
   };
   marketEnvironment: BenchmarkMarketRegimeEvidence;
+  etfEvidence: EtfEvidence | null;
   fundamentals: FundamentalEvidence;
   disclosures: DisclosureEvidence;
   news: {
@@ -142,7 +149,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "instrument_profile" | "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
+    kind: "instrument_profile" | "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure" | "etf_product" | "etf_liquidity" | "etf_tracking" | "etf_manager_disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -227,6 +234,13 @@ export function buildAnalysisEvidencePackage(input: {
   const fundamentals = input.fundamentals ?? unavailableFundamentals();
   const disclosures = input.disclosures ?? uncheckedDisclosures();
   const marketEnvironment = input.marketEnvironment ?? unavailableMarketEnvironment();
+  const etfEvidence = buildEtfEvidence({
+    instrument,
+    quote: input.quote,
+    history,
+    quoteProvider: input.quoteSource,
+    analysisAsOf
+  });
   const disclosureOcrCount = disclosures.items.filter((item) => item.contentExtraction?.method === "ocr" || item.contentExtraction?.method === "hybrid_ocr").length;
   const fundamentalsAvailable = fundamentals.status !== "unavailable";
   const fundamentalsComplete = fundamentals.status === "available";
@@ -244,7 +258,7 @@ export function buildAnalysisEvidencePackage(input: {
     ...(requiresCompanyEvidence && !fundamentalsAvailable ? ["fundamentals"] : []),
     ...(requiresCompanyEvidence && !latestDisclosureChecked ? ["latestDisclosures"] : []),
     ...(requiresCompanyEvidence && criticalDisclosureUnread ? ["criticalDisclosureContent"] : []),
-    ...(requiresEtfEvidence ? ["etfProductProfile", "etfManagerDisclosures", "etfTrackingEvidence", "etfLiquidityAndPremiumEvidence"] : []),
+    ...(requiresEtfEvidence ? etfEvidence?.missingFields ?? ["etfEvidenceUnavailable"] : []),
     ...(instrument.instrumentType === "index" ? ["nonTradableIndex"] : []),
     ...(instrument.instrumentType === "unknown" ? ["instrumentType"] : []),
     ...(!portfolioRiskEvaluated ? ["portfolioRiskBudget"] : []),
@@ -277,7 +291,7 @@ export function buildAnalysisEvidencePackage(input: {
     ...(requiresCompanyEvidence && !fundamentalsAvailable ? ["缺少上市公司基本面风险过滤证据"] : []),
     ...(requiresCompanyEvidence && fundamentalsAvailable && !fundamentalsFresh ? ["基本面证据抓取时间已经过期"] : []),
     ...(requiresCompanyEvidence && decisionMode === "long_term" && !fundamentalsComplete ? ["长期模式的财务与估值证据尚不完整"] : []),
-    ...(requiresEtfEvidence ? ["ETF 产品资料、管理人公告、跟踪质量及流动性/折溢价证据链尚未接入完整，禁止新增仓位"] : []),
+    ...(requiresEtfEvidence ? etfEvidence?.entryBlockers ?? ["ETF 专属证据包未生成，禁止新增仓位"] : []),
     ...(instrument.instrumentType === "index" ? ["指数只作为研究或市场基准，不能生成可执行买入计划"] : []),
     ...(instrument.instrumentType === "unknown" ? ["标的类型尚未由交易所代码或证券主数据确认"] : []),
     ...(!portfolioRiskEvaluated ? ["尚未完成组合风险预算，不能生成执行仓位"] : []),
@@ -307,7 +321,14 @@ export function buildAnalysisEvidencePackage(input: {
     instrumentEvidencePolicyVersion: instrument.evidencePolicyVersion,
     instrumentEvidenceComplete: requiresCompanyEvidence
       ? fundamentalsAvailable && fundamentalsFresh && latestDisclosureChecked && criticalDisclosuresRead
-      : false,
+      : requiresEtfEvidence
+        ? etfEvidence?.status === "complete"
+        : false,
+    etfProductIdentityStatus: etfEvidence?.productIdentity.status,
+    etfLiquidityStatus: etfEvidence?.liquidity.status,
+    etfTrackingStatus: etfEvidence?.tracking.status,
+    etfPremiumDiscountStatus: etfEvidence?.premiumDiscount.status,
+    etfManagerDisclosuresStatus: etfEvidence?.managerDisclosures.status,
     quoteFresh,
     klineFresh,
     latestDisclosureChecked,
@@ -353,6 +374,7 @@ export function buildAnalysisEvidencePackage(input: {
       recentCandles
     },
     marketEnvironment,
+    etfEvidence,
     fundamentals,
     disclosures: analysisDisclosures,
     news: {
@@ -448,7 +470,33 @@ export function buildAnalysisEvidencePackage(input: {
         provider: disclosures.provider,
         asOf: disclosures.checkedAt,
         status: disclosures.status === "checked" ? "available" as const : disclosures.status === "partial" ? "partial" as const : "unavailable" as const
-      }
+      },
+      ...(etfEvidence ? [
+        {
+          kind: "etf_product" as const,
+          provider: `${instrument.classificationSource}+${input.quoteSource}`,
+          asOf: etfEvidence.productIdentity.quoteAsOf,
+          status: etfEvidence.productIdentity.status
+        },
+        {
+          kind: "etf_liquidity" as const,
+          provider: input.quoteSource,
+          asOf: etfEvidence.liquidity.asOf,
+          status: etfEvidence.liquidity.status
+        },
+        {
+          kind: "etf_tracking" as const,
+          provider: "not_configured",
+          asOf: null,
+          status: "unavailable" as const
+        },
+        {
+          kind: "etf_manager_disclosure" as const,
+          provider: "not_configured",
+          asOf: null,
+          status: "unavailable" as const
+        }
+      ] : [])
     ]
   };
 

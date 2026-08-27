@@ -213,6 +213,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
         {quality?.instrumentType === "etf" ? <Badge variant={quality.instrumentEvidenceComplete ? "success" : "danger"}>ETF 产品证据{quality.instrumentEvidenceComplete ? "完整" : "未闭合"}</Badge> : null}
         {quality ? <Badge variant={quality.portfolioRiskEvaluated ? "success" : "danger"}>组合风险{quality.portfolioRiskEvaluated ? "已核算" : "未核算"}</Badge> : null}
       </div>
+      {quality?.etfEvidence ? <EtfEvidencePanel evidence={quality.etfEvidence} /> : null}
       {newsCoverage ? (
         <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <ScopeLine label="抓取 / 保存" value={`${newsCoverage.fetchedCount} / ${newsCoverage.savedCount}`} />
@@ -686,6 +687,42 @@ function EntryAdviceDetails({ advice }: { advice: AiAnalysisResult["entryAdvice"
       ) : null}
     </>
   );
+}
+
+function EtfEvidencePanel({ evidence }: { evidence: NonNullable<NonNullable<AiAnalysisResult["dataQuality"]>["etfEvidence"]> }) {
+  const liquidity = evidence.liquidity;
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="mr-1 text-xs font-medium text-foreground">ETF 专属证据链</div>
+        <Badge variant={etfEvidenceVariant(evidence.productIdentity.status)}>产品身份{etfEvidenceStatusLabel(evidence.productIdentity.status)}</Badge>
+        <Badge variant={etfEvidenceVariant(liquidity.status)}>流动性代理{etfEvidenceStatusLabel(liquidity.status)}</Badge>
+        <Badge variant="danger">跟踪质量缺失</Badge>
+        <Badge variant="danger">折溢价缺失</Badge>
+        <Badge variant="danger">管理人公告缺失</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <ScopeLine label="基金名称" value={evidence.productIdentity.name ?? "未确认"} />
+        <ScopeLine label="交易所" value={evidence.productIdentity.exchange ?? "未确认"} />
+        <ScopeLine label="流动性样本" value={`${liquidity.sampleTradingDays} 个完成交易日`} />
+        <ScopeLine label="20 日平均成交量" value={liquidity.averageDailyVolume20 === null ? "--" : liquidity.averageDailyVolume20.toLocaleString("zh-CN")} />
+        <ScopeLine label="20 日成交额代理" value={liquidity.averageDailyValueProxy20 === null ? "--" : liquidity.averageDailyValueProxy20.toLocaleString("zh-CN")} />
+        <ScopeLine label="最新量比" value={liquidity.latestVolumeRatio20 === null ? "--" : `${liquidity.latestVolumeRatio20.toFixed(2)}x`} />
+        <ScopeLine label="未来 K 线排除" value={`${liquidity.futureCandleExcludedCount} 根`} />
+        <ScopeLine label="证据截止" value={liquidity.asOf ? formatTime(liquidity.asOf) : "--"} />
+      </div>
+      <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">成交额代理 = 收盘价 × 提供方原始成交量，仅用于同源比较，不等同于已核验人民币成交额，也不能替代盘口价差、IOPV 或申赎状态。</p>
+      <div className="mt-2 text-xs text-muted-foreground">仍缺：{evidence.missingFields.join("、")}</div>
+    </div>
+  );
+}
+
+function etfEvidenceVariant(status: "available" | "partial" | "unavailable") {
+  return status === "available" ? "success" as const : status === "partial" ? "warning" as const : "danger" as const;
+}
+
+function etfEvidenceStatusLabel(status: "available" | "partial" | "unavailable") {
+  return status === "available" ? "可用" : status === "partial" ? "部分" : "缺失";
 }
 
 function Block({ title, children }: { title: string; children: ReactNode }) {

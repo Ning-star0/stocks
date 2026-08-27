@@ -113,6 +113,7 @@ function materialEvidenceProjection(input: unknown) {
     decisionPolicyVersion: evidence.decisionPolicyVersion ?? null,
     marketDataRevision: evidence.marketDataRevision ?? null,
     instrument: evidence.instrument ?? null,
+    etfEvidence: omitVolatileTimestamps(evidence.etfEvidence),
     marketEnvironment: omitVolatileTimestamps(marketEnvironment),
     fundamentals: omitVolatileTimestamps(fundamentals),
     disclosures: omitVolatileTimestamps(disclosures),

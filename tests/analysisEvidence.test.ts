@@ -82,9 +82,31 @@ test("ETF uses an explicit fund evidence gate instead of company fundamental blo
   assert.equal(evidence.dataQuality.instrumentType, "etf");
   assert.equal(evidence.dataQuality.instrumentEvidenceComplete, false);
   assert.equal(evidence.dataQuality.status, "insufficient");
-  assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("ETF 产品资料")));
+  assert.equal(evidence.etfEvidence?.schemaVersion, "etf-evidence-v1");
+  assert.equal(evidence.etfEvidence?.productIdentity.name, "通信ETF");
+  assert.equal(evidence.etfEvidence?.liquidity.sampleTradingDays, 20);
+  assert.equal(evidence.dataQuality.etfLiquidityStatus, "partial");
+  assert.ok(evidence.dataQuality.missingFields.includes("etfBenchmarkIndex"));
+  assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("跟踪指数")));
+  assert.equal(evidence.sourceManifest.find((source) => source.kind === "etf_liquidity")?.status, "partial");
   assert.ok(!evidence.dataQuality.entryBlockers.some((item) => item.includes("上市公司基本面")));
   assert.ok(!evidence.dataQuality.entryBlockers.includes("尚未核对最新法定公告"));
+
+  const changedEtfEvidence = structuredClone(evidence);
+  changedEtfEvidence.etfEvidence!.tracking.missingReason = "新的可追溯跟踪指数证据已经到达";
+  const hashInput = {
+    symbol: etfQuote.symbol,
+    quote: etfQuote,
+    indicators,
+    importantNewsIds: ["news-1"],
+    userCapital: 100_000,
+    userMemory: "",
+    userContext: { isHolding: false, timeHorizon: "swing_trade", riskLevel: "medium" }
+  };
+  assert.notEqual(
+    createAnalysisContextHash({ ...hashInput, evidence }),
+    createAnalysisContextHash({ ...hashInput, evidence: changedEtfEvidence })
+  );
 });
 
 test("missing disclosure and current news refresh become deterministic entry blockers", () => {

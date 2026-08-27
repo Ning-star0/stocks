@@ -297,12 +297,58 @@ const newsEventTimelineSummarySchema = z.object({
   }))
 });
 
+const etfSubEvidenceStatusSchema = z.enum(["available", "partial", "unavailable"]);
+
+const etfEvidenceSchema = z.object({
+  schemaVersion: z.literal("etf-evidence-v1"),
+  status: z.enum(["complete", "partial", "insufficient"]),
+  symbol: z.string(),
+  analysisAsOf: z.string(),
+  productIdentity: z.object({
+    status: etfSubEvidenceStatusSchema,
+    exchange: z.enum(["SH", "SZ"]).nullable(),
+    name: z.string().nullable(),
+    classificationSource: z.enum(["exchange_symbol", "unknown"]),
+    quoteProvider: z.string(),
+    quoteAsOf: z.string().nullable(),
+    limitations: z.array(z.string())
+  }),
+  liquidity: z.object({
+    status: etfSubEvidenceStatusSchema,
+    algorithmVersion: z.literal("provider-volume-proxy-v1"),
+    asOf: z.string().nullable(),
+    sampleTradingDays: z.number().int().nonnegative(),
+    averageDailyVolume20: z.number().nullable(),
+    medianDailyVolume20: z.number().nullable(),
+    zeroVolumeDays20: z.number().int().nonnegative(),
+    averageDailyValueProxy20: z.number().nullable(),
+    latestVolumeRatio20: z.number().nullable(),
+    providerVolumeUnit: z.literal("provider_raw_unit"),
+    valueProxyFormula: z.literal("close_x_provider_volume"),
+    futureCandleExcludedCount: z.number().int().nonnegative(),
+    limitations: z.array(z.string())
+  }),
+  tracking: z.object({ status: z.literal("unavailable"), benchmarkSymbol: z.null(), trackingError: z.null(), missingReason: z.string() }),
+  premiumDiscount: z.object({ status: z.literal("unavailable"), nav: z.null(), iopv: z.null(), premiumDiscountPct: z.null(), missingReason: z.string() }),
+  fundSize: z.object({ status: z.literal("unavailable"), assetsUnderManagement: z.null(), sharesOutstanding: z.null(), missingReason: z.string() }),
+  holdingsExposure: z.object({ status: z.literal("unavailable"), asOf: z.null(), topHoldings: z.array(z.unknown()), industryExposure: z.array(z.unknown()), missingReason: z.string() }),
+  managerDisclosures: z.object({ status: z.literal("unavailable"), checkedAt: z.null(), items: z.array(z.unknown()), missingReason: z.string() }),
+  missingFields: z.array(z.string()),
+  entryBlockers: z.array(z.string())
+});
+
 const dataQualityReportSchema = z.object({
   status: z.enum(["complete", "partial", "insufficient", "conflicted"]),
   instrumentType: z.enum(["a_share_stock", "etf", "index", "unknown"]),
   instrumentClassificationSource: z.enum(["exchange_symbol", "unknown"]),
   instrumentEvidencePolicyVersion: z.string(),
   instrumentEvidenceComplete: z.boolean(),
+  etfProductIdentityStatus: etfSubEvidenceStatusSchema.optional(),
+  etfLiquidityStatus: etfSubEvidenceStatusSchema.optional(),
+  etfTrackingStatus: etfSubEvidenceStatusSchema.optional(),
+  etfPremiumDiscountStatus: etfSubEvidenceStatusSchema.optional(),
+  etfManagerDisclosuresStatus: etfSubEvidenceStatusSchema.optional(),
+  etfEvidence: etfEvidenceSchema.optional(),
   quoteFresh: z.boolean(),
   klineFresh: z.boolean(),
   latestDisclosureChecked: z.boolean(),
