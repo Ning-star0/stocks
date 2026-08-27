@@ -115,6 +115,15 @@ export function FocusDecisionPanel({
           <span className="text-foreground">核心原因：</span>
           <HighlightedText text={decision.summary} highlights={highlightNames} />
         </p>
+        {!hasBuy && !shouldSell && decision.waitReasons?.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {decision.waitReasons.slice(0, 5).map((reason) => (
+              <Badge key={reason.category} variant="secondary">
+                {waitReasonLabel(reason.category)} {reason.candidateCount} 只
+              </Badge>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {decision.generatedAt ? <span>生成时间：{formatDateTime(decision.generatedAt)}</span> : null}
@@ -274,6 +283,7 @@ export function FocusDecisionPanel({
           ))}
         </div>
       ) : null}
+      {decision.shadowPlans?.length ? <ShadowPlanPanel items={decision.shadowPlans} /> : null}
       {decision.nearMisses?.length ? <NearMissPanel items={decision.nearMisses} /> : null}
       <DecisionFeedbackPanel
         decisionId={decision.decisionId}
@@ -286,6 +296,54 @@ export function FocusDecisionPanel({
       />
       {decision.strategyHealthGates?.length ? <StrategyHealthGatePanel decision={decision} /> : null}
       <p className="border-t border-border pt-3 text-xs text-muted-foreground">{decision.disclaimer}</p>
+    </div>
+  );
+}
+
+function waitReasonLabel(category: NonNullable<FocusDecision["waitReasons"]>[number]["category"]) {
+  const labels = {
+    data: "证据不足",
+    calibration: "尚未校准",
+    market: "行情条件",
+    quant: "量化门槛",
+    risk: "风险限制",
+    execution: "执行约束",
+    analysis: "分析状态"
+  } as const;
+  return labels[category];
+}
+
+function ShadowPlanPanel({ items }: { items: NonNullable<FocusDecision["shadowPlans"]> }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-sky-500/30 bg-sky-500/10">
+      <div className="flex items-start gap-3 border-b border-sky-500/20 px-4 py-3">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" />
+        <div>
+          <div className="text-sm font-semibold">影子观察计划（不可执行）</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">数值与风险情景可用于积累验证样本，但概率和扣费后期望值尚未完成独立样本外校准；不占用资金、不进入订单、不会推送为买入建议。</p>
+        </div>
+      </div>
+      <div className="grid gap-px bg-border/65 lg:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => (
+          <div key={`shadow:${item.symbol}`} className="bg-card/95 p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <StockIdentity symbol={item.symbol} name={item.name} compact />
+              <Badge variant="secondary">尚未校准</Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <DecisionNumber label="观察触发价" value={formatMoney(item.triggerPrice)} />
+              <DecisionNumber label="失效/止损" value={formatMoney(item.stopLossPrice)} />
+              <DecisionNumber label="目标情景" value={formatMoney(item.takeProfitPrice)} />
+              <DecisionNumber label="净风险收益比" value={formatRatio(item.netRiskRewardRatio)} />
+              <DecisionNumber label="模拟股数" value={`${formatShares(item.shares)} 股/份`} />
+              <DecisionNumber label="模拟总成本" value={formatMoney(item.totalCost)} />
+              <DecisionNumber label="双边手续费" value={formatMoney(item.roundTripFees)} />
+              <DecisionNumber label="最大净损失" value={formatMoney(item.netMaxLossAmount)} />
+            </div>
+            {item.blockers.length ? <p className="mt-3 text-xs leading-5 text-muted-foreground">阻断：{item.blockers.join("；")}</p> : null}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

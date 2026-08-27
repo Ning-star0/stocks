@@ -2,12 +2,18 @@ import type { Prisma } from "@prisma/client";
 import type { ApiQuotaPriority } from "@/lib/apiQuota";
 import type { NewsBatchContext } from "@/lib/news/batchCoordinator";
 
-import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
-import { analyzeStock } from "@/lib/ai/analyzeStock";
+import { estimateAiCost, getAiConfig, type AiModelTier } from "@/lib/ai/config";
+import { analyzeStockWithExecution, type AiProviderTokenUsage } from "@/lib/ai/analyzeStock";
 import { createAnalysisCacheKey, createAnalysisContextHash } from "@/lib/analysis/contextHash";
 import { buildAnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import { summarizeFundamentalCoverage } from "@/lib/analysis/fundamentalCoverage";
 import { loadBenchmarkMarketRegimeEvidence } from "@/lib/analysis/marketRegime";
+import {
+  extractPreviousHighImpactNewsIds,
+  hasDecisionContextChanged,
+  hasMaterialEvidenceChanged,
+  shouldRunStockAnalysis
+} from "@/lib/analysis/shouldAnalyze";
 import {
   getStoredStockCompanyEvidence,
   prepareStockCompanyEvidence,
@@ -86,18 +92,74 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
       inputHash,
       cacheHit: true,
       reason: `${input.reason}:cache_hit`,
-      promptTokens: context.estimatedTokens
+      model: "application-cache",
+      modelTier: "standard",
+      routingReason: "analysis-context-hash-cache-hit",
+      promptTokens: 0,
+      completionTokens: 0
     });
     return { fromCache: true, analysisId: cached.analysisId, outputJson: cached.outputJson, inputHash, durationMs: Date.now() - startedAt, timings: context.timings };
   }
 
+  const latestAnalysis = input.forceRefresh
+    ? null
+    : await prisma.aiAnalysis.findFirst({
+        where: { userId: input.userId, symbol: { in: stockSymbolVariants(canonicalSymbol) } },
+        orderBy: { createdAt: "desc" }
+      });
+  if (latestAnalysis) {
+    const gate = shouldRunStockAnalysis({
+      latestAnalysis,
+      currentQuote: context.quote,
+      currentIndicators: context.indicators,
+      highImpactNewsIds: context.highImpactNewsIds,
+      previousHighImpactNewsIds: extractPreviousHighImpactNewsIds(latestAnalysis.inputJson),
+      userContextHashChanged: hasDecisionContextChanged(latestAnalysis.inputJson, context.aiInput),
+      materialEvidenceChanged: hasMaterialEvidenceChanged(latestAnalysis.inputJson, context.aiInput),
+      importantAlertTriggered: await hasImportantAlertTriggered(input.userId, canonicalSymbol)
+    });
+    if (!gate.shouldRun) {
+      await logAiUsage({
+        userId: input.userId,
+        symbol: canonicalSymbol,
+        jobType: "stock_analysis",
+        inputHash,
+        cacheHit: true,
+        reason: `${input.reason}:gate_reuse:${gate.reason}`,
+        model: "application-cache",
+        modelTier: "standard",
+        routingReason: "material-change-gate-reuse",
+        promptTokens: 0,
+        completionTokens: 0
+      });
+      return {
+        fromCache: true,
+        analysisId: latestAnalysis.id,
+        outputJson: latestAnalysis.outputJson,
+        inputHash,
+        durationMs: Date.now() - startedAt,
+        timings: context.timings
+      };
+    }
+  }
+
   const aiStartedAt = Date.now();
-  const outputJson = await analyzeStock(context.aiInput);
+  const execution = await analyzeStockWithExecution(context.aiInput);
+  const outputJson = execution.analysis;
   const aiDurationMs = Date.now() - aiStartedAt;
   const isFallback = Boolean(outputJson.isFallback);
-  const jsonSafeInput = JSON.parse(JSON.stringify({ ...context.aiInput, contextHash: inputHash, highImpactNewsIds: context.highImpactNewsIds }));
+  const jsonSafeInput = JSON.parse(JSON.stringify({
+    ...context.aiInput,
+    contextHash: inputHash,
+    highImpactNewsIds: context.highImpactNewsIds,
+    modelRouting: {
+      policyVersion: execution.route.policyVersion,
+      tier: execution.route.tier,
+      reason: execution.route.reason,
+      model: execution.model
+    }
+  }));
   const jsonSafeOutput = JSON.parse(JSON.stringify(outputJson)) as Prisma.InputJsonValue;
-  const aiConfig = await getAiConfig();
   const { analysis } = await persistAnalysisWithShadowForecast({
     userId: input.userId,
     symbol: canonicalSymbol,
@@ -108,7 +170,7 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     analysisAsOf: context.aiInput.analysisAsOf,
     marketFeatures: context.aiInput.evidencePackage.deterministicFeatures.market,
     marketEnvironment: context.aiInput.evidencePackage.marketEnvironment,
-    modelName: isFallback ? null : selectAiModel(aiConfig, "flagship")
+    modelName: isFallback ? null : execution.model
   });
 
   if (!isFallback) {
@@ -121,8 +183,12 @@ export async function runStockAnalysis(input: StockAnalysisRunInput) {
     inputHash,
     cacheHit: false,
     reason: isFallback ? `${input.reason}:fallback` : input.reason,
-    promptTokens: context.estimatedTokens,
-    completionTokens: estimateTokens(JSON.stringify(outputJson))
+    model: execution.model,
+    modelTier: execution.route.tier,
+    routingReason: `${execution.route.policyVersion}:${execution.route.reason}`,
+    usage: execution.usage,
+    promptTokens: execution.usage?.promptTokens ?? context.estimatedTokens,
+    completionTokens: execution.usage?.completionTokens ?? estimateTokens(JSON.stringify(outputJson))
   });
 
   return { fromCache: false, analysisId: analysis.id, outputJson, inputHash, durationMs: Date.now() - startedAt, timings: { ...context.timings, aiDurationMs } };
@@ -422,6 +488,18 @@ async function getRelevantNewsForStock(symbol: string, sectors: string[]) {
   });
 }
 
+async function hasImportantAlertTriggered(userId: string, symbol: string) {
+  const recent = await prisma.alert.findFirst({
+    where: {
+      userId,
+      symbol: { in: stockSymbolVariants(symbol) },
+      triggeredAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }
+    },
+    select: { id: true }
+  });
+  return Boolean(recent);
+}
+
 function dedupeAnalysisNews<T extends { title: string; url?: string | null }>(items: T[]) {
   const seen = new Set<string>();
   const output: T[] = [];
@@ -458,6 +536,10 @@ async function logAiUsage(input: {
   inputHash?: string | null;
   cacheHit: boolean;
   reason: string;
+  model?: string;
+  modelTier?: AiModelTier;
+  routingReason?: string;
+  usage?: AiProviderTokenUsage | null;
   promptTokens?: number;
   completionTokens?: number;
 }) {
@@ -470,11 +552,15 @@ async function logAiUsage(input: {
       symbol: input.symbol ?? null,
       jobType: input.jobType,
       provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
-      model: selectAiModel(config, "flagship"),
+      model: input.model ?? config.standardModel,
       inputHash: input.inputHash ?? null,
       promptTokens,
       completionTokens,
-      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: "flagship", promptTokens, completionTokens }),
+      promptCacheHitTokens: input.usage?.cacheHitTokens ?? null,
+      promptCacheMissTokens: input.usage?.cacheMissTokens ?? null,
+      modelTier: input.modelTier ?? null,
+      routingReason: input.routingReason ?? null,
+      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: input.modelTier ?? "standard", promptTokens, completionTokens }),
       cacheHit: input.cacheHit,
       reason: input.reason
     }

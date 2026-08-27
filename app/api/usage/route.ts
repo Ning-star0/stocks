@@ -31,6 +31,10 @@ type ModelUsageItem = {
   promptTokensMonth: number;
   completionTokensToday: number;
   completionTokensMonth: number;
+  cacheHitTokensToday: number;
+  cacheHitTokensMonth: number;
+  cacheMissTokensToday: number;
+  cacheMissTokensMonth: number;
   estimatedCostToday: number;
   estimatedCostMonth: number;
 };
@@ -55,7 +59,7 @@ export async function GET() {
     ]);
 
     const items: UsageItem[] = [
-      buildAiCallsItem(aiToday.length, aiMonth.length),
+      buildAiCallsItem(aiToday.filter((row) => !row.cacheHit).length, aiMonth.filter((row) => !row.cacheHit).length),
       buildAiTokensItem(sumTokens(aiToday), sumTokens(aiMonth)),
       buildApiItem({
         key: "quote",
@@ -187,8 +191,8 @@ function sumAmount(rows: Array<{ amount: number }>) {
 }
 
 function buildAiModelItems(
-  todayRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; estimatedCost: unknown }>,
-  monthRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; estimatedCost: unknown }>
+  todayRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; promptCacheHitTokens: number | null; promptCacheMissTokens: number | null; estimatedCost: unknown }>,
+  monthRows: Array<{ model: string; promptTokens: number | null; completionTokens: number | null; promptCacheHitTokens: number | null; promptCacheMissTokens: number | null; estimatedCost: unknown }>
 ): ModelUsageItem[] {
   const byModel = new Map<string, ModelUsageItem>();
   const ensure = (model: string) => {
@@ -205,6 +209,10 @@ function buildAiModelItems(
       promptTokensMonth: 0,
       completionTokensToday: 0,
       completionTokensMonth: 0,
+      cacheHitTokensToday: 0,
+      cacheHitTokensMonth: 0,
+      cacheMissTokensToday: 0,
+      cacheMissTokensMonth: 0,
       estimatedCostToday: 0,
       estimatedCostMonth: 0
     };
@@ -219,6 +227,8 @@ function buildAiModelItems(
     item.callsMonth += 1;
     item.promptTokensMonth += prompt;
     item.completionTokensMonth += completion;
+    item.cacheHitTokensMonth += row.promptCacheHitTokens ?? 0;
+    item.cacheMissTokensMonth += row.promptCacheMissTokens ?? 0;
     item.usedMonth += prompt + completion;
     item.estimatedCostMonth += decimalToNumber(row.estimatedCost);
   }
@@ -230,6 +240,8 @@ function buildAiModelItems(
     item.callsToday += 1;
     item.promptTokensToday += prompt;
     item.completionTokensToday += completion;
+    item.cacheHitTokensToday += row.promptCacheHitTokens ?? 0;
+    item.cacheMissTokensToday += row.promptCacheMissTokens ?? 0;
     item.usedToday += prompt + completion;
     item.estimatedCostToday += decimalToNumber(row.estimatedCost);
   }

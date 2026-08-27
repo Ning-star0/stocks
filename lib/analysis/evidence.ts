@@ -9,9 +9,10 @@ import type { StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEviden
 import { buildNewsEventTimeline, type NewsEventTimeline, type NewsTimelineArticle } from "@/lib/news/eventTimeline";
 import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/types";
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
+import { buildInstrumentProfile, type InstrumentProfile } from "@/lib/instruments/profile";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.10.0";
-export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v1";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.11.0";
+export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v2";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
 
@@ -29,6 +30,10 @@ export type DataQualityStatus = "complete" | "partial" | "insufficient" | "confl
 
 export type DataQualityReport = {
   status: DataQualityStatus;
+  instrumentType: InstrumentProfile["instrumentType"];
+  instrumentClassificationSource: InstrumentProfile["classificationSource"];
+  instrumentEvidencePolicyVersion: string;
+  instrumentEvidenceComplete: boolean;
   quoteFresh: boolean;
   klineFresh: boolean;
   latestDisclosureChecked: boolean;
@@ -79,6 +84,7 @@ export type AnalysisEvidencePackage = {
   schemaVersion: string;
   decisionPolicyVersion: string;
   symbol: string;
+  instrument: InstrumentProfile;
   decisionMode: DecisionMode;
   analysisAsOf: string;
   marketDataRevision: string;
@@ -136,7 +142,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
+    kind: "instrument_profile" | "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -186,6 +192,9 @@ export function buildAnalysisEvidencePackage(input: {
 }): AnalysisEvidencePackage {
   const now = input.now ?? new Date();
   const analysisAsOf = input.analysisAsOf ?? now.toISOString();
+  const instrument = buildInstrumentProfile(input.symbol);
+  const requiresCompanyEvidence = instrument.instrumentType === "a_share_stock";
+  const requiresEtfEvidence = instrument.instrumentType === "etf";
   const decisionMode = resolveDecisionMode(input.userContext);
   const history = [...input.history].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const recentCandles = buildRecentCandleEvidence(history);
@@ -231,10 +240,13 @@ export function buildAnalysisEvidencePackage(input: {
   const portfolioRiskBlocked = input.portfolioRiskContext?.riskBudget.status === "blocked"
     || input.portfolioRiskContext?.riskBudget.status === "breached_stop";
   const missingFields = [
-    ...fundamentals.missingFields,
-    ...(!fundamentalsAvailable ? ["fundamentals"] : []),
-    ...(!latestDisclosureChecked ? ["latestDisclosures"] : []),
-    ...(criticalDisclosureUnread ? ["criticalDisclosureContent"] : []),
+    ...(requiresCompanyEvidence ? fundamentals.missingFields : []),
+    ...(requiresCompanyEvidence && !fundamentalsAvailable ? ["fundamentals"] : []),
+    ...(requiresCompanyEvidence && !latestDisclosureChecked ? ["latestDisclosures"] : []),
+    ...(requiresCompanyEvidence && criticalDisclosureUnread ? ["criticalDisclosureContent"] : []),
+    ...(requiresEtfEvidence ? ["etfProductProfile", "etfManagerDisclosures", "etfTrackingEvidence", "etfLiquidityAndPremiumEvidence"] : []),
+    ...(instrument.instrumentType === "index" ? ["nonTradableIndex"] : []),
+    ...(instrument.instrumentType === "unknown" ? ["instrumentType"] : []),
     ...(!portfolioRiskEvaluated ? ["portfolioRiskBudget"] : []),
     ...(!newsRefreshCompleted ? ["currentNewsRefresh"] : []),
     ...(newsQuotaStatus === "quota_exhausted" ? ["newsApiQuota"] : []),
@@ -247,11 +259,11 @@ export function buildAnalysisEvidencePackage(input: {
   const staleFields = [
     ...(!quoteFresh ? ["quote"] : []),
     ...(!klineFresh ? ["dailyKline"] : []),
-    ...(fundamentalsAvailable && !fundamentalsFresh ? ["fundamentalsFetch"] : []),
-    ...(disclosures.status === "checked" && !disclosuresFresh ? ["disclosureCheck"] : []),
+    ...(requiresCompanyEvidence && fundamentalsAvailable && !fundamentalsFresh ? ["fundamentalsFetch"] : []),
+    ...(requiresCompanyEvidence && disclosures.status === "checked" && !disclosuresFresh ? ["disclosureCheck"] : []),
     ...(marketEnvironment.status === "stale" ? ["benchmarkMarketRegime"] : [])
   ];
-  const conflictingFields: string[] = [...fundamentals.conflictingFields];
+  const conflictingFields: string[] = requiresCompanyEvidence ? [...fundamentals.conflictingFields] : [];
   const criticalNewsAnalyzed = pendingCriticalCount === 0;
   const highExpectationUnclosedCount = newsTimeline.events.filter(
     (event) => event.importance === "high" && event.eventContext.expectation.status !== "explicit"
@@ -260,11 +272,14 @@ export function buildAnalysisEvidencePackage(input: {
     ...(!quoteFresh ? ["行情不是最新可交易状态"] : []),
     ...(!klineFresh ? ["日 K 线未更新到最近交易阶段"] : []),
     ...(history.length < MIN_DAILY_HISTORY_CANDLES ? [`日 K 线不足 ${MIN_DAILY_HISTORY_CANDLES} 根`] : []),
-    ...(!latestDisclosureChecked ? ["尚未核对最新法定公告"] : []),
-    ...(criticalDisclosureUnread ? [`仍有 ${disclosures.criticalUnreadCount} 条关键公告仅有元数据，尚未阅读原文`] : []),
-    ...(!fundamentalsAvailable ? ["缺少基本面风险过滤证据"] : []),
-    ...(fundamentalsAvailable && !fundamentalsFresh ? ["基本面证据抓取时间已经过期"] : []),
-    ...(decisionMode === "long_term" && !fundamentalsComplete ? ["长期模式的财务与估值证据尚不完整"] : []),
+    ...(requiresCompanyEvidence && !latestDisclosureChecked ? ["尚未核对最新法定公告"] : []),
+    ...(requiresCompanyEvidence && criticalDisclosureUnread ? [`仍有 ${disclosures.criticalUnreadCount} 条关键公告仅有元数据，尚未阅读原文`] : []),
+    ...(requiresCompanyEvidence && !fundamentalsAvailable ? ["缺少上市公司基本面风险过滤证据"] : []),
+    ...(requiresCompanyEvidence && fundamentalsAvailable && !fundamentalsFresh ? ["基本面证据抓取时间已经过期"] : []),
+    ...(requiresCompanyEvidence && decisionMode === "long_term" && !fundamentalsComplete ? ["长期模式的财务与估值证据尚不完整"] : []),
+    ...(requiresEtfEvidence ? ["ETF 产品资料、管理人公告、跟踪质量及流动性/折溢价证据链尚未接入完整，禁止新增仓位"] : []),
+    ...(instrument.instrumentType === "index" ? ["指数只作为研究或市场基准，不能生成可执行买入计划"] : []),
+    ...(instrument.instrumentType === "unknown" ? ["标的类型尚未由交易所代码或证券主数据确认"] : []),
     ...(!portfolioRiskEvaluated ? ["尚未完成组合风险预算，不能生成执行仓位"] : []),
     ...(portfolioRiskBlocked ? [input.portfolioRiskContext?.riskBudget.reason ?? "组合风险预算禁止新增风险"] : []),
     ...(!newsRefreshCompleted ? ["本轮分析前未确认完成最新新闻刷新"] : []),
@@ -287,6 +302,12 @@ export function buildAnalysisEvidencePackage(input: {
         : "complete";
   const dataQuality: DataQualityReport = {
     status,
+    instrumentType: instrument.instrumentType,
+    instrumentClassificationSource: instrument.classificationSource,
+    instrumentEvidencePolicyVersion: instrument.evidencePolicyVersion,
+    instrumentEvidenceComplete: requiresCompanyEvidence
+      ? fundamentalsAvailable && fundamentalsFresh && latestDisclosureChecked && criticalDisclosuresRead
+      : false,
     quoteFresh,
     klineFresh,
     latestDisclosureChecked,
@@ -314,6 +335,7 @@ export function buildAnalysisEvidencePackage(input: {
     schemaVersion: ANALYSIS_EVIDENCE_SCHEMA_VERSION,
     decisionPolicyVersion: ANALYSIS_DECISION_POLICY_VERSION,
     symbol: input.symbol.toUpperCase(),
+    instrument,
     decisionMode,
     analysisAsOf,
     marketDataRevision: MARKET_DATA_REVISION,
@@ -368,6 +390,12 @@ export function buildAnalysisEvidencePackage(input: {
     },
     dataQuality,
     sourceManifest: [
+      {
+        kind: "instrument_profile" as const,
+        provider: instrument.classificationSource,
+        asOf: null,
+        status: instrument.instrumentType === "unknown" ? "unavailable" as const : "available" as const
+      },
       {
         kind: "quote" as const,
         provider: input.quoteSource,

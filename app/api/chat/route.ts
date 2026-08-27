@@ -53,10 +53,14 @@ export async function POST(request: Request) {
 
 服务器会自动维护用户记忆。你只需要自然回答，不要输出 [MEMORY:...]、工具调用文本或任何隐藏标记。
 如果用户本轮明确要求“记住”某个信息，系统已经在回复前尝试保存；你可以自然确认。
+`;
+    const userPrompt = `当前时间：${new Date().toLocaleString("zh-CN")}
 
-当前时间：${new Date().toLocaleString("zh-CN")}
+投资组合与证据上下文：
+${context}
 
-${context}`;
+用户问题：
+${message}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000);
@@ -69,11 +73,11 @@ ${context}`;
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: selectAiModel(config, "flagship"),
+          model: selectAiModel(config, "standard"),
           temperature: 0.5,
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: message }
+            { role: "user", content: userPrompt }
           ],
           stream: true,
           thinking: { type: "disabled" }

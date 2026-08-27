@@ -54,6 +54,10 @@ type ModelUsageItem = {
   promptTokensMonth: number;
   completionTokensToday: number;
   completionTokensMonth: number;
+  cacheHitTokensToday: number;
+  cacheHitTokensMonth: number;
+  cacheMissTokensToday: number;
+  cacheMissTokensMonth: number;
   estimatedCostToday: number;
   estimatedCostMonth: number;
 };
@@ -196,11 +200,11 @@ function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currenc
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium">AI 模型 Token 明细</div>
-          <p className="mt-1 text-xs text-muted-foreground">按实际记录模型统计，包括 Pro / Flash 等不同模型。</p>
+          <p className="mt-1 text-xs text-muted-foreground">按实际记录模型统计；缓存命中/未命中来自 DeepSeek 返回值，应用缓存不会计为模型调用。</p>
         </div>
       </div>
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead className="text-xs text-muted-foreground">
             <tr className="border-b border-border/70">
               <th className="py-2 pr-3 text-left font-medium">模型</th>
@@ -211,6 +215,7 @@ function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currenc
               <th className="px-3 py-2 text-right font-medium">今日费用</th>
               <th className="px-3 py-2 text-right font-medium">本月费用</th>
               <th className="pl-3 py-2 text-right font-medium">输入 / 输出</th>
+              <th className="pl-3 py-2 text-right font-medium">缓存命中 / 未命中</th>
             </tr>
           </thead>
           <tbody>
@@ -225,6 +230,9 @@ function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currenc
                 <td className="px-3 py-2 text-right tabular-nums">{formatCost(row.estimatedCostMonth, currency)}</td>
                 <td className="pl-3 py-2 text-right tabular-nums text-muted-foreground">
                   {row.promptTokensMonth.toLocaleString("zh-CN")} / {row.completionTokensMonth.toLocaleString("zh-CN")}
+                </td>
+                <td className="pl-3 py-2 text-right tabular-nums text-muted-foreground">
+                  {row.cacheHitTokensMonth.toLocaleString("zh-CN")} / {row.cacheMissTokensMonth.toLocaleString("zh-CN")}
                 </td>
               </tr>
             ))}

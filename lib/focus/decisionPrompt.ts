@@ -2,7 +2,7 @@ import type { DecisionInput } from "@/lib/focus/decisionTypes";
 import { TRADING_FEE_RULE } from "@/lib/focus/trading";
 
 export const FOCUS_DECISION_SYSTEM_PROMPT =
-  "你是一个谨慎的股票组合策略观察助手。你必须基于给定候选股票、最新单股分析、价格、持仓状态和手续费规则，生成今日策略观察、候选排序、条件触发型买入计划和卖出/减仓计划。策略框架参考成熟量化系统的做法：先用趋势过滤确认大方向，再用 RSI/MACD/均线/关键价位确认动量和风险，最后用止损、止盈、仓位和手续费约束控制执行。不能保证收益，不能编造数据，不能把观察计划写成确定性指令。输出必须是严格 JSON，所有自然语言字段使用简体中文。";
+  "你是股票组合研究解释助手。你可以比较候选、概括支持与反对证据并解释结构化计划，但不得从趋势、置信度或自然语言建议自行决定买卖。最终买卖资格只由给定的 decisionStatus、dataQuality、tradePlan、确定性量化信号、行情、费用和风险预算决定；不得把影子观察计划写成可执行指令。不能保证收益，不能编造数据。输出必须是严格 JSON，所有自然语言字段使用简体中文。";
 
 export function buildDecisionPrompt(input: DecisionInput) {
   return `请基于今日关注股票生成“今日 AI 策略观察”。返回严格 JSON，不要 Markdown。
@@ -34,11 +34,11 @@ ${JSON.stringify(input.riskBudget, null, 2)}
 决策要求：
 1. 必须明确 recommendedAction，只能是 buy、sell、mixed 或 wait。buy 表示只有买入/增持计划；sell 表示只有卖出/减仓计划；mixed 表示同时有买入和卖出/减仓计划；wait 表示今日只观察。
 2. 每个候选都有 isHolding、holdingPrice、holdingShares。isHolding=true 表示用户已经持仓，买入只能代表“增持/加仓”，卖出只能代表“减仓/止盈/止损/离场”；isHolding=false 不能生成 sellOrders。
-3. 未持仓股票必须主要依据 entryAdvice 判断。若 entryAdvice 是“条件入场、小仓试探、分批观察、触发后建仓”，且价格、风险和手续费性价比合理，可以生成 buy；若 entryAdvice 明确等待、不建议入场、回避、观望，则不能买。
-4. 已持仓股票必须主要依据 holdAdvice 判断。若 holdAdvice 出现“减仓、止损、离场、回避、跌破止损、趋势转弱、止盈、分批兑现”，必须在 sellOrders 中给出减仓或卖出计划；若 holdAdvice 明确“继续持有、逢低加仓、增持”，才允许保留或生成增持计划。
-5. 先判断“市场/行业动态上下文”，再判断单股/ETF。marketContext 是系统根据今日候选、新闻情绪、行业线索和走势生成的动态策略环境：risk_on 可以降低买入阈值并允许小仓试探；risk_off 必须提高买入阈值、降低减仓阈值、控制仓位；sectorBias=overheated 时不能追高，只能等待回调或突破确认。
+3. 未持仓股票只有在 decisionStatus=conditional_entry、dataQuality 不为 insufficient/conflicted、tradePlan.entry.status=conditional、expectedValueStatus=positive 且结构化数值完整时，才允许进入 orders。entryAdvice 只能用于解释，不能改变资格。
+4. 已持仓股票的卖出/减仓只能依据 tradePlan.exit 的结构化动作、用户止损/目标或本地确定性量化风控。holdAdvice 只能用于解释，不能从中文关键词生成卖单。
+5. marketContext 来自确定性市场基准和量价特征，不是 AI 新闻/趋势投票。risk_on/risk_off 只调整本地阈值和仓位；模型不得自行改写 marketContext。
 6. 使用“市场/行业上下文 + 趋势过滤 + 动量确认 + 风险边界 + 风险收益比 + 仓位控制”的策略框架：趋势偏多且 RSI 未明显过热、MACD/均线未恶化、价格靠近支撑或入场区间、riskRewardRatio 不差时，才考虑小仓买入；趋势转弱、跌破支撑/止损、RSI 过热后放量回落、MACD 死叉、riskRewardRatio 偏低或达到目标压力位时，优先考虑减仓/止盈/止损。
-7. 每个候选都带有 quantSignal，这是本地量化规则结合市场/行业上下文计算出的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；quantSignal.action=sell/reduce 才能进入 sellOrders；quantSignal.action=avoid/watch/hold 通常只排序观察，除非单股分析给出更强且合理的相反证据。
+7. 每个候选都带有 quantSignal，这是本地量化规则结合市场/行业上下文计算出的硬约束和仓位建议。quantSignal.action=buy/add 才能进入 orders；sell/reduce 才能进入 sellOrders。AI 不得以相反观点覆盖量化动作或结构化状态。
 8. quantSignal 中的 buyScore、sellScore、riskScore、riskRewardRatio、stopDistancePct、takeProfitDistancePct、holdingReturnPct、adjustedBuyThreshold、adjustedReduceThreshold、adjustedSellThreshold、marketRegime、sectorBias、newPositionProtection、suggestedBuyCapitalPct、suggestedSellRatioPct、suggestedSellShares、entryPlan、exitPlan、tradeConstraints 必须进入 reasoning。候选若带有 tradeFeedback，也必须说明最近买入、卖出、亏损卖出、未采纳或冷却原因。不要只写“等待”，必须说明分数、动态阈值、入场区间、交易约束或触发条件。
 9. newPositionProtection=true 表示新建仓保护期内。除非已经触发硬止损、严重利空或卖出分达到强制卖出级别，否则不要直接卖出刚买入的仓位，只能写继续观察、移动止损或不加仓。
 10. tradeFeedback.buyBlockedUntil 或 addBlockedUntil 尚未过期时，通常不能生成买入/增持计划，只能在 ranking 解释冷却原因；除非 buyScore 明显高于 adjustedBuyThreshold、riskScore 明显下降且 riskRewardRatio 很好，才允许小仓条件触发。
@@ -51,10 +51,10 @@ ${JSON.stringify(input.riskBudget, null, 2)}
 16. 手续费按 max(amount, 10000) * 0.0005 计算。不足 10000 元的交易也要按 10000 元计费，即最低手续费 5 元；买入必须同时估算未来卖出手续费。大账户买入计划若成交金额低于 ${TRADING_FEE_RULE.minimumFeeBase / 2} 元，通常会被系统视为手续费效率不足。若当前可用现金本身低于 ${TRADING_FEE_RULE.minimumFeeBase / 2} 元，可以给出整手小仓计划，但预计双边手续费占成交额不得超过 2%，且扣费后的净风险收益比不得低于 1.25 : 1。
 17. 买入分析必须回答四件事：为什么现在可以买或不能买；如果可以买，触发价、止损、止盈、买入金额和股数是多少；如果不能买，缺的是分数、趋势、动量、价格位置、净风险收益比、资金效率还是行情新鲜度；这笔交易扣除买入和未来卖出双边手续费后，目标情景净收益、盈亏平衡涨幅和净风险收益比是否仍然合理。目标情景净收益不等于统计期望值；没有同类计划的样本外校准时，不得声称本单具有正期望。系统会在模型输出后再次执行本地硬校验，不符合条件的订单会被取消。
 18. 卖出分析必须回答四件事：卖出触发属于止损、止盈、盈利保护还是风险再平衡；卖出比例和股数是否符合整手规则；卖出后净回收现金是否扣除卖出手续费；已实现盈亏是否按卖出成交额 - 卖出手续费 - 对应持仓成本（含买入手续费分摊）估算。
-19. 不要机械保守。如果候选趋势偏多、置信度不低、价格接近入场区间且风险控制清晰，可以给出小仓条件触发型计划；如果持仓风险已触发，不能只写观察，必须在 sellOrders 写明卖出/减仓数量、比例和触发依据。
+19. 不要机械复述“等待”，要准确区分证据不足、概率未校准、量化门槛、行情条件、风险限制和执行约束。但不得因为趋势偏多或 AI 置信度较高而生成买单。结构化持仓风险已触发时，必须解释 sellOrders 的确定性依据。
 20. 历史交易绩效只用于风险收缩，不能用于降低单股硬阈值。closedTrades 少于 5 时视为样本不足；样本足够后若 profitFactor 低于 1、expectancy 为负、maxDrawdownPct 扩大或 currentLossStreak 达到 2-3 笔，必须提高现金储备并缩小新单，不能用“翻本”逻辑放大仓位。绩效良好也不能突破单股最大仓位、整手、止损和风险收益比约束。
 21. riskBudget 是按现有持仓止损、市场状态和历史绩效计算的硬风险额度。每笔新单扣除手续费后的最大风险不得超过 singleTradeRiskLimitAmount，全部新单风险与 openRiskAmount 之和不得超过 portfolioRiskLimitAmount；status=breached_stop 时必须先处理已跌破止损的持仓，不能新增买入。缺少有效止损的订单不能执行，系统会按风险额度重新缩减整手股数。
-22. 不要机械平均分配资金，要按 quantSignal.buyScore、quantSignal.sellScore、趋势、置信度、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias、strategyHealth、tradeFeedback、tradePerformance、riskBudget 和手续费性价比排序。
+22. 不要机械平均分配资金，要按结构化 decisionStatus/tradePlan、quantSignal.buyScore、quantSignal.sellScore、风险、持仓状态、已有持仓计划、浮盈亏、riskRewardRatio、marketRegime、sectorBias、strategyHealth、tradeFeedback、tradePerformance、riskBudget 和手续费性价比排序。AI trend/confidence 只可作为解释性信息，不得改变资格或仓位。
 23. ranking 必须覆盖所有候选，并在 reason 里体现“市场/行业上下文 + 量化信号 + 交易反馈 + 已持仓/未持仓 + 持仓建议/入场建议/退出建议 + 手续费/整手约束 + 风险预算 + 卖出或减仓比例”。
 24. JSON 示例中的枚举字段只能返回一个合法值，例如 recommendedAction 只能返回 "buy"、"sell"、"mixed" 或 "wait" 其中之一，orders.action 只能返回 "buy" 或 "add"，sellOrders.action 只能返回 "sell" 或 "reduce"，不能返回说明文字。
 

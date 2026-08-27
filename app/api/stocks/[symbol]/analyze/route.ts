@@ -5,7 +5,12 @@ import { buildStockAnalysisContext } from "@/lib/analysis/stockAnalysisRunner";
 import { createAnalysisCacheKey } from "@/lib/analysis/contextHash";
 import { findReusableAnalysisByContextHash } from "@/lib/analysis/reusableAnalysis";
 import { getAiConfig } from "@/lib/ai/config";
-import { shouldRunStockAnalysis } from "@/lib/analysis/shouldAnalyze";
+import {
+  extractPreviousHighImpactNewsIds,
+  hasDecisionContextChanged,
+  hasMaterialEvidenceChanged,
+  shouldRunStockAnalysis
+} from "@/lib/analysis/shouldAnalyze";
 import { getCache } from "@/lib/cache";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
@@ -111,7 +116,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
       currentIndicators: analysisContext.indicators,
       highImpactNewsIds: analysisContext.highImpactNewsIds,
       previousHighImpactNewsIds,
-      userContextHashChanged: latestAnalysis ? contextHash !== extractPreviousContextHash(latestAnalysis.inputJson) : true,
+      userContextHashChanged: latestAnalysis ? hasDecisionContextChanged(latestAnalysis.inputJson, analysisContext.aiInput) : true,
+      materialEvidenceChanged: latestAnalysis ? hasMaterialEvidenceChanged(latestAnalysis.inputJson, analysisContext.aiInput) : true,
       importantAlertTriggered: await hasImportantAlertTriggered(user.id, canonicalSymbol)
     });
 
@@ -174,16 +180,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sy
   }
 }
 
-function extractPreviousHighImpactNewsIds(inputJson: unknown) {
-  const value = inputJson as { highImpactNewsIds?: string[] } | null;
-  return value?.highImpactNewsIds ?? [];
-}
-
-function extractPreviousContextHash(inputJson: unknown) {
-  const value = inputJson as { contextHash?: string } | null;
-  return value?.contextHash ?? null;
-}
-
 async function hasImportantAlertTriggered(userId: string, symbol: string) {
   const recent = await prisma.alert.findFirst({
     where: {
@@ -214,11 +210,15 @@ async function logCacheHit(userId: string, symbol: string, inputHash: string, re
       symbol,
       jobType: JOB_TYPES.STOCK_ANALYSIS,
       provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
-      model: config.model,
+      model: "application-cache",
       inputHash,
-      promptTokens: null,
-      completionTokens: null,
-      estimatedCost: null,
+      promptTokens: 0,
+      completionTokens: 0,
+      promptCacheHitTokens: 0,
+      promptCacheMissTokens: 0,
+      modelTier: "standard",
+      routingReason: "analysis-context-hash-cache-hit",
+      estimatedCost: "0",
       cacheHit: true,
       reason
     }

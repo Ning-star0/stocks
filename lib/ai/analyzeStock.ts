@@ -3,6 +3,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 
 import { getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createChatCompletion } from "@/lib/ai/deepseek";
+import { routeStockAnalysisModel, type StockAnalysisModelRoute } from "@/lib/ai/modelRouting";
 import { buildUserPrompt, STOCK_ANALYSIS_SYSTEM_PROMPT } from "@/lib/ai/stockAnalysisPrompt";
 import type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
 import { AppError } from "@/lib/errors";
@@ -21,10 +22,35 @@ import type { AiAnalysisResult } from "@/lib/types";
 
 export type { AnalyzeStockInput } from "@/lib/ai/stockAnalysisTypes";
 
+export type AiProviderTokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  cacheHitTokens: number;
+  cacheMissTokens: number;
+};
+
+export type StockAnalysisExecution = {
+  analysis: AiAnalysisResult;
+  model: string;
+  route: StockAnalysisModelRoute;
+  usage: AiProviderTokenUsage | null;
+};
+
 export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysisResult> {
+  return (await analyzeStockWithExecution(input)).analysis;
+}
+
+export async function analyzeStockWithExecution(input: AnalyzeStockInput): Promise<StockAnalysisExecution> {
   const config = await getAiConfig();
+  const route = routeStockAnalysisModel(input);
+  const model = selectAiModel(config, route.tier);
   if (!config.apiKey) {
-    return buildFallbackAnalysis(input, "API key 未配置，系统已改用本地规则生成临时分析。");
+    return {
+      analysis: buildFallbackAnalysis(input, "API key 未配置，系统已改用本地规则生成临时分析。"),
+      model,
+      route,
+      usage: null
+    };
   }
 
   const client = new OpenAI({
@@ -34,11 +60,13 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
 
   const userPrompt = buildUserPrompt(input);
   let lastError: unknown;
+  let usage: AiProviderTokenUsage | null = null;
+  let invalidOutput: string | null = null;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const request: ChatCompletionCreateParamsNonStreaming = {
-        model: selectAiModel(config, "flagship"),
+        model,
         temperature: 0.2,
         max_tokens: numberEnv("AI_STOCK_MAX_TOKENS", 4000),
         response_format: { type: "json_object" },
@@ -47,18 +75,25 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
           {
             role: "user",
             content:
-              attempt === 0
+              attempt === 0 || !invalidOutput
                 ? userPrompt
-                : `${userPrompt}\n\n上一次输出没有通过 JSON/schema 校验。请只返回一个 JSON 对象，枚举值必须严格使用 schema 中的英文值，不能输出 Markdown。`
+                : buildRepairPrompt(invalidOutput, lastError)
           }
         ]
       };
       const completion = await createChatCompletion(client, request);
+      usage = addTokenUsage(usage, readAiProviderTokenUsage(completion));
 
       const text = completion.choices[0]?.message?.content;
       if (!text) throw new Error("AI 返回了空内容。");
+      invalidOutput = text;
       const parsed = parseJsonObject(text);
-      return aiAnalysisSchema.parse(normalizeStockAnalysis(parsed, input));
+      return {
+        analysis: aiAnalysisSchema.parse(normalizeStockAnalysis(parsed, input)),
+        model,
+        route,
+        usage
+      };
     } catch (error) {
       lastError = error;
       if (error instanceof AppError && (error.code === "DATA_PROVIDER_ERROR" || error.code === "RATE_LIMIT")) break;
@@ -66,13 +101,60 @@ export async function analyzeStock(input: AnalyzeStockInput): Promise<AiAnalysis
   }
 
   if (lastError instanceof AppError) {
-    return buildFallbackAnalysis(input, `AI 服务请求失败，系统已改用本地规则生成临时分析。原因：${lastError.message}`);
+    return {
+      analysis: buildFallbackAnalysis(input, `AI 服务请求失败，系统已改用本地规则生成临时分析。原因：${lastError.message}`),
+      model,
+      route,
+      usage
+    };
   }
 
-  return buildFallbackAnalysis(
-    input,
-    `AI 返回内容多次未通过 JSON/schema 校验，系统已改用本地规则生成临时分析。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
-  );
+  return {
+    analysis: buildFallbackAnalysis(
+      input,
+      `AI 返回内容多次未通过 JSON/schema 校验，系统已改用本地规则生成临时分析。原因：${lastError instanceof Error ? lastError.message : "未知错误"}`
+    ),
+    model,
+    route,
+    usage
+  };
+}
+
+function buildRepairPrompt(invalidOutput: string, error: unknown) {
+  const errorSummary = error instanceof Error ? error.message.slice(0, 1200) : "JSON/schema 校验失败";
+  return `你只负责修复上一份股票分析 JSON 的格式和 schema，不重新分析股票，也不得添加上一份输出中不存在的新事实。\n\n校验错误：\n${errorSummary}\n\n待修复输出：\n${invalidOutput.slice(0, 16000)}\n\n请只返回一个可被 JSON.parse 解析的 JSON 对象；枚举使用合法英文值，缺失且无法从原输出恢复的自然语言字段使用空字符串或空数组。`;
+}
+
+export function readAiProviderTokenUsage(completion: { usage?: unknown }): AiProviderTokenUsage | null {
+  const usage = completion.usage && typeof completion.usage === "object" ? completion.usage as Record<string, unknown> : null;
+  if (!usage) return null;
+  const promptTokens = nonNegativeInteger(usage.prompt_tokens);
+  const completionTokens = nonNegativeInteger(usage.completion_tokens);
+  const cacheHitTokens = nonNegativeInteger(usage.prompt_cache_hit_tokens);
+  const cacheMissTokens = nonNegativeInteger(usage.prompt_cache_miss_tokens);
+  if (promptTokens === 0 && completionTokens === 0 && cacheHitTokens === 0 && cacheMissTokens === 0) return null;
+  return {
+    promptTokens: promptTokens || cacheHitTokens + cacheMissTokens,
+    completionTokens,
+    cacheHitTokens,
+    cacheMissTokens: cacheMissTokens || Math.max(0, promptTokens - cacheHitTokens)
+  };
+}
+
+function addTokenUsage(current: AiProviderTokenUsage | null, next: AiProviderTokenUsage | null) {
+  if (!next) return current;
+  if (!current) return next;
+  return {
+    promptTokens: current.promptTokens + next.promptTokens,
+    completionTokens: current.completionTokens + next.completionTokens,
+    cacheHitTokens: current.cacheHitTokens + next.cacheHitTokens,
+    cacheMissTokens: current.cacheMissTokens + next.cacheMissTokens
+  };
+}
+
+function nonNegativeInteger(value: unknown) {
+  const number = Math.floor(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 function numberEnv(name: string, fallback: number) {
@@ -678,6 +760,7 @@ function buildEntryTradePlan(input: {
     calibratedWinProbability: null,
     expectedValue: null,
     validationSampleSize: null,
+    calibrationVersion: null,
     reason: buildEntryTradeReason(input.analysis.entryAdvice?.reason, status, input.isHolding),
     constraints
   };

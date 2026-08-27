@@ -330,6 +330,10 @@ model AiUsageLog {
   inputHash        String?
   promptTokens     Int?
   completionTokens Int?
+  promptCacheHitTokens  Int?
+  promptCacheMissTokens Int?
+  modelTier             String?
+  routingReason         String?
   estimatedCost    Decimal? @db.Decimal(18, 8)
   cacheHit         Boolean  @default(false)
   reason           String

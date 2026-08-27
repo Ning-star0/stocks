@@ -205,7 +205,7 @@ export async function createDecisionHistoryFromAnalysis(input: {
   });
   const strategyDirection = normalizeTrend(output.trend);
   const keyReasons = normalizeReasons(output.riskFactors, output.summary);
-  const model = await getModelName();
+  const model = await getAnalysisModelName(input.analysisId);
 
   return prisma.decisionHistory.create({
     data: {
@@ -252,7 +252,7 @@ export async function createDecisionHistoryFromFocusDecision(input: {
   const ranking = Array.isArray(decision.ranking) ? decision.ranking.filter(asRecord) : [];
   const orders = Array.isArray(decision.orders) ? decision.orders.filter(asRecord) : [];
   const sellOrders = Array.isArray(decision.sellOrders) ? decision.sellOrders.filter(asRecord) : [];
-  const model = await getModelName();
+  const model = await getModelName("standard");
   const created = [];
 
   for (const row of ranking) {
@@ -404,11 +404,24 @@ function decimalToNumber(value?: Prisma.Decimal | number | null) {
   return typeof value === "number" ? value : Number(value);
 }
 
-async function getModelName() {
+async function getAnalysisModelName(analysisId?: string | null) {
+  if (!analysisId) return null;
+  const analysis = await prisma.aiAnalysis.findUnique({
+    where: { id: analysisId },
+    select: { inputJson: true, shadowForecast: { select: { modelName: true } } }
+  }).catch(() => null);
+  const input = asRecord(analysis?.inputJson);
+  const routing = asRecord(input.modelRouting);
+  return stringValue(routing.model) || analysis?.shadowForecast?.modelName || null;
+}
+
+async function getModelName(tier: "flagship" | "standard" = "flagship") {
   try {
     const config = await getAiConfig();
-    return config.flagshipModel || config.model || null;
+    return tier === "standard" ? config.standardModel || null : config.flagshipModel || config.model || null;
   } catch {
-    return process.env.OPENAI_MODEL || "deepseek-v4-pro";
+    return tier === "standard"
+      ? process.env.OPENAI_STANDARD_MODEL || "deepseek-v4-flash"
+      : process.env.OPENAI_MODEL || "deepseek-v4-pro";
   }
 }

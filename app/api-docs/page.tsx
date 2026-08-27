@@ -89,8 +89,8 @@ const apiGroups: Array<{ title: string; icon: ReactNode; description: string; en
     endpoints: [
       { method: "GET", path: "/api/focus", description: "读取今日关注配置。", cost: "只读" },
       { method: "PUT", path: "/api/focus", description: "保存关注股票、总本金、新闻抓取时间、AI 分析时间。", cost: "写库" },
-      { method: "GET", path: "/api/focus/decision", description: "读取最近一次已保存的策略观察。", cost: "只读" },
-      { method: "POST", path: "/api/focus/decision", description: "手动强制生成并保存策略观察。", cost: "AI" }
+      { method: "GET", path: "/api/focus/decision", description: "读取最近一次结构化策略观察；waitReasons 分类解释等待原因，shadowPlans 为不可执行影子计划，orders/sellOrders 才是通过确定性门控的计划。", cost: "只读" },
+      { method: "POST", path: "/api/focus/decision", description: "刷新证据并生成或复用结构化策略观察；默认应用实质变化门控，只有需要重算时才产生 AI 费用。", body: "{ forceRefresh?: boolean }", cost: "AI" }
     ]
   },
   {

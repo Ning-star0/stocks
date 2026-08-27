@@ -299,6 +299,10 @@ const newsEventTimelineSummarySchema = z.object({
 
 const dataQualityReportSchema = z.object({
   status: z.enum(["complete", "partial", "insufficient", "conflicted"]),
+  instrumentType: z.enum(["a_share_stock", "etf", "index", "unknown"]),
+  instrumentClassificationSource: z.enum(["exchange_symbol", "unknown"]),
+  instrumentEvidencePolicyVersion: z.string(),
+  instrumentEvidenceComplete: z.boolean(),
   quoteFresh: z.boolean(),
   klineFresh: z.boolean(),
   latestDisclosureChecked: z.boolean(),

@@ -2,6 +2,15 @@ import type { QuantSignal, QuantStrategyContext } from "@/lib/quant/strategy";
 import type { TradePerformanceSummary } from "@/lib/trades/performance";
 import type { PortfolioRiskBudget } from "@/lib/trading/riskBudget";
 import type { StrategyHealthGate } from "@/lib/strategy/gate";
+import type { AiAnalysisResult } from "@/lib/types";
+
+export type DecisionBlockerCategory = "data" | "calibration" | "market" | "quant" | "risk" | "execution" | "analysis";
+
+export type DecisionBlocker = {
+  code: string;
+  category: DecisionBlockerCategory;
+  message: string;
+};
 
 export type Candidate = {
   symbol: string;
@@ -28,18 +37,24 @@ export type Candidate = {
   positionOpenedAt?: Date | null;
   targetPrice?: number | null;
   stopLoss?: number | null;
-  latestAnalysis?: {
-    trend?: string;
-    confidence?: number;
-    summary?: string;
-    newsSummary?: string;
-    newsSentiment?: string;
-    newsReferences?: unknown;
-    sectorRisks?: unknown;
-    holdAdvice?: unknown;
-    entryAdvice?: unknown;
-    riskFactors?: unknown;
-  } | null;
+  latestAnalysis?: Partial<Pick<
+    AiAnalysisResult,
+    | "trend"
+    | "confidence"
+    | "summary"
+    | "newsSummary"
+    | "newsSentiment"
+    | "newsReferences"
+    | "sectorRisks"
+    | "holdAdvice"
+    | "entryAdvice"
+    | "riskFactors"
+    | "decisionStatus"
+    | "dataQuality"
+    | "tradePlan"
+    | "isFallback"
+    | "dataScope"
+  >> | null;
   quantSignal?: QuantSignal | null;
   tradeFeedback?: CandidateTradeFeedback | null;
   strategyHealth?: StrategyHealthGate | null;
@@ -66,6 +81,31 @@ export type DecisionNearMiss = {
   threshold: number;
   scoreGap: number;
   entryPermission: "allow" | "reduce_size" | "pause" | null;
+  blockers: string[];
+  blockerDetails: DecisionBlocker[];
+};
+
+export type DecisionWaitReason = {
+  category: DecisionBlockerCategory;
+  candidateCount: number;
+  codes: string[];
+  message: string;
+};
+
+export type DecisionShadowPlan = {
+  symbol: string;
+  name: string | null;
+  action: "buy" | "add";
+  triggerPrice: number;
+  stopLossPrice: number;
+  takeProfitPrice: number;
+  shares: number;
+  amount: number;
+  totalCost: number;
+  roundTripFees: number | null;
+  netMaxLossAmount: number;
+  netRiskRewardRatio: number;
+  expectedValueStatus: "not_calibrated";
   blockers: string[];
 };
 

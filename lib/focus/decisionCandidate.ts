@@ -1,56 +1,110 @@
-import type { Candidate } from "@/lib/focus/decisionTypes";
+import type { Candidate, DecisionBlocker, DecisionBlockerCategory } from "@/lib/focus/decisionTypes";
 import type { QuantSignal } from "@/lib/quant/strategy";
 
 export function candidateSupportsBuy(candidate: Candidate) {
   return assessCandidateBuy(candidate).supported;
 }
-
 export function assessCandidateBuy(candidate: Candidate) {
-  const blockers: string[] = [];
-  if (!candidate.price || candidate.price <= 0) blockers.push("行情价格不可用");
-  if (!candidateHasFreshQuote(candidate)) blockers.push("行情不是最新状态");
+  const details: DecisionBlocker[] = [];
+  const block = (code: string, category: DecisionBlockerCategory, message: string) => {
+    if (!details.some((item) => item.code === code && item.message === message)) details.push({ code, category, message });
+  };
+  if (!candidate.price || candidate.price <= 0) block("quote_unavailable", "data", "行情价格不可用");
+  if (!candidateHasFreshQuote(candidate)) block("quote_not_fresh", "data", "行情不是最新状态");
+
+  const analysis = candidate.latestAnalysis;
+  if (!analysis) {
+    block("analysis_missing", "analysis", "缺少最新结构化单股分析");
+  } else {
+    if (analysis.isFallback) block("analysis_fallback", "data", "单股分析使用了 fallback，不能作为买入证据");
+    if (analysis.decisionStatus !== "conditional_entry") {
+      block(
+        "analysis_status_not_entry",
+        analysis.decisionStatus === "insufficient_data" ? "data" : "analysis",
+        `单股结构化状态为${decisionStatusLabel(analysis.decisionStatus)}，不是条件入场`
+      );
+    }
+    if (!analysis.dataQuality) {
+      block("data_quality_missing", "data", "缺少结构化证据质量报告");
+    } else if (analysis.dataQuality.status === "insufficient" || analysis.dataQuality.status === "conflicted") {
+      block("data_quality_blocks_entry", "data", `证据质量为 ${analysis.dataQuality.status}，禁止新增仓位`);
+      analysis.dataQuality.entryBlockers.slice(0, 3).forEach((message, index) =>
+        block(`evidence_gate_${index}`, "data", message)
+      );
+    }
+
+    const entry = analysis.tradePlan?.entry;
+    if (!entry) {
+      block("structured_entry_plan_missing", "analysis", "缺少服务端重算的结构化入场计划");
+    } else {
+      if (entry.status !== "conditional" || (entry.action !== "buy" && entry.action !== "add")) {
+        block("structured_entry_plan_blocked", "analysis", "结构化入场计划尚不可执行");
+      }
+      if (entry.expectedValueStatus !== "positive" || entry.expectedValue === null || entry.expectedValue === undefined || entry.expectedValue <= 0) {
+        block(
+          entry.expectedValueStatus === "not_calibrated" ? "expected_value_not_calibrated" : "expected_value_not_positive",
+          "calibration",
+          entry.expectedValueStatus === "not_calibrated"
+            ? "尚未完成独立样本外概率校准，扣费后期望值未知"
+            : "扣费后统计期望值尚未证明为正"
+        );
+      }
+      if (entry.calibratedWinProbability === null || entry.calibratedWinProbability === undefined || (entry.validationSampleSize ?? 0) <= 0) {
+        block("calibration_evidence_missing", "calibration", "缺少可追溯的校准概率或验证样本量");
+      }
+      if (!entry.calibrationVersion) {
+        block("calibration_version_missing", "calibration", "缺少可追溯的概率校准版本");
+      }
+      if (!validEntryLevels(entry.triggerPrice, entry.stopLossPrice, entry.takeProfitPrice)) {
+        block("invalid_entry_levels", "execution", "触发价、止损价或目标价不完整/顺序无效");
+      }
+      if ((entry.shares ?? 0) < 100 || (entry.shares ?? 0) % 100 !== 0) {
+        block("invalid_entry_lot", "execution", "结构化入场股数不满足 100 股/份整数手");
+      }
+      if ((entry.netRiskRewardRatio ?? 0) < 1.25) {
+        block("net_risk_reward_too_low", "execution", "扣费后净风险收益比低于 1.25");
+      }
+      if ((entry.netMaxLossAmount ?? 0) <= 0 || (entry.totalCost ?? 0) <= 0) {
+        block("entry_economics_incomplete", "execution", "总成本或扣费最大风险未完成确定性测算");
+      }
+    }
+  }
 
   const signal = candidate.quantSignal;
-  if (!signal) blockers.push("缺少量化信号");
+  if (!signal) block("quant_signal_missing", "quant", "缺少量化信号");
   if (signal) {
-    if (signal.action !== "buy" && signal.action !== "add") blockers.push(`量化动作仍为${actionLabel(signal.action)}`);
-    if (signal.buyScore < signal.adjustedBuyThreshold) blockers.push(`买入分还差 ${formatScoreGap(signal.adjustedBuyThreshold - signal.buyScore)} 分`);
-    if (signal.sellScore >= signal.adjustedReduceThreshold) blockers.push("卖出风险分已达到减仓阈值");
-    if (signal.riskScore >= 68) blockers.push(`风险分 ${signal.riskScore} 过高`);
-    if (signal.riskRewardRatio !== null && signal.riskRewardRatio < 1.25) blockers.push(`风险收益比 ${signal.riskRewardRatio} 低于 1.25`);
-    if (signal.volumeRatio !== null && signal.volumeRatio < 0.75) blockers.push(`量比 ${signal.volumeRatio} 低于 0.75`);
+    if (signal.action !== "buy" && signal.action !== "add") block("quant_action_not_buy", "quant", `量化动作仍为${actionLabel(signal.action)}`);
+    if (signal.buyScore < signal.adjustedBuyThreshold) block("buy_score_below_threshold", "quant", `买入分还差 ${formatScoreGap(signal.adjustedBuyThreshold - signal.buyScore)} 分`);
+    if (signal.sellScore >= signal.adjustedReduceThreshold) block("sell_risk_triggered", "risk", "卖出风险分已达到减仓阈值");
+    if (signal.riskScore >= 68) block("risk_score_too_high", "risk", `风险分 ${signal.riskScore} 过高`);
+    if (signal.riskRewardRatio !== null && signal.riskRewardRatio < 1.25) block("gross_risk_reward_too_low", "execution", `风险收益比 ${signal.riskRewardRatio} 低于 1.25`);
+    if (signal.volumeRatio !== null && signal.volumeRatio < 0.75) block("volume_ratio_too_low", "market", `量比 ${signal.volumeRatio} 低于 0.75`);
   }
-  if (tradeFeedbackBlocksBuy(candidate)) blockers.push("近期交易反馈仍在冷静期");
-  if (candidate.strategyHealth?.entryPermission === "pause") blockers.push("足量样本显示策略严重失效，健康门控暂停");
+  if (tradeFeedbackBlocksBuy(candidate)) block("trade_feedback_cooldown", "risk", "近期交易反馈仍在冷静期");
+  if (candidate.strategyHealth?.entryPermission === "pause") block("strategy_health_paused", "risk", "足量样本显示策略严重失效，健康门控暂停");
 
   const strongQuantConfirmation = Boolean(signal &&
     signal.buyScore >= signal.adjustedBuyThreshold + 6 &&
     signal.riskScore < 55 &&
     (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.6) &&
     (signal.volumeRatio === null || signal.volumeRatio >= 0.9));
-  if (candidate.latestAnalysis?.trend === "bearish" && !strongQuantConfirmation) blockers.push("AI 趋势判断仍偏空");
-  if ((candidate.latestAnalysis?.confidence ?? 0) < 0.55 && !strongQuantConfirmation) blockers.push("AI 分析置信度不足 55%");
-
-  const advice = candidate.isHolding ? candidate.latestAnalysis?.holdAdvice : candidate.latestAnalysis?.entryAdvice;
-  const text = stringifyAdvice(advice);
-  if (/减仓|止损|离场|回避|不建议/.test(text)) blockers.push("AI 入场建议明确要求回避或降低仓位");
-  if (candidate.isHolding) {
-    if (!/加仓|增持|逢低|提高仓位/.test(text)) blockers.push("AI 尚未给出增持条件");
-  } else if (!/买入|建仓|入场|轻仓|试探|逢低|条件触发|分批观察/.test(text) || /仅观察|继续观察|观望/.test(text)) {
-    blockers.push("AI 尚未给出可执行入场条件");
-  }
-
-  return { supported: blockers.length === 0, blockers: [...new Set(blockers)], strongQuantConfirmation };
+  return {
+    supported: details.length === 0,
+    blockers: details.map((item) => item.message),
+    blockerDetails: details,
+    strongQuantConfirmation
+  };
 }
 
-export function candidateSupportsSell(candidate: Candidate) {
-  if (!candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
+export function candidateSupportsSell(candidate?: Candidate | null) {
+  if (!candidate || !candidate.isHolding || !candidate.price || candidate.price <= 0 || !candidate.holdingShares || candidate.holdingShares <= 0) return false;
   if (!candidateHasFreshQuote(candidate)) return false;
   if (quantAllowsSell(candidate)) return true;
-  const text = stringifyAdvice(candidate.latestAnalysis?.holdAdvice);
-  const hardExit = /止损|离场|清仓|全部卖出|跌破止损|破位|重大利空/.test(text);
-  if (candidate.quantSignal?.newPositionProtection && !hardExit) return false;
-  return /减仓|止损|离场|回避|风险规避|止盈|分批兑现|降低仓位/.test(text);
+  const analysis = candidate.latestAnalysis;
+  const exit = analysis?.tradePlan?.exit;
+  if (analysis?.isFallback || !exit) return false;
+  if (analysis?.decisionStatus === "exit_risk" && exit.status === "conditional" && (exit.action === "sell" || exit.action === "reduce")) return true;
+  return exit.status === "conditional" && (exit.action === "sell" || exit.action === "reduce");
 }
 
 export function quantView(candidate: Candidate) {
@@ -113,22 +167,10 @@ export function candidateHasFreshQuote(candidate?: Candidate | null) {
   return true;
 }
 
-export function stringifyAdvice(value: unknown) {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (isRecord(value)) return Object.values(value).filter((item) => typeof item === "string").join(" ");
-  return "";
-}
-
 function tradeFeedbackBlocksBuy(candidate: Candidate) {
   const feedback = candidate.tradeFeedback;
   const signal = candidate.quantSignal;
   if (!feedback || !signal) return false;
-  const strongOverride =
-    signal.buyScore >= signal.adjustedBuyThreshold + 10 &&
-    signal.riskScore < 55 &&
-    (signal.riskRewardRatio === null || signal.riskRewardRatio >= 1.8);
-  if (strongOverride) return false;
   if (isFuture(feedback.buyBlockedUntil)) return true;
   if (candidate.isHolding && isFuture(feedback.addBlockedUntil)) return true;
   return false;
@@ -142,6 +184,23 @@ function isFuture(value?: string | null) {
 
 function formatPct(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "--";
+}
+
+function validEntryLevels(trigger: number | null, stop: number | null, target: number | null) {
+  return Boolean(trigger && stop && target && stop < trigger && trigger < target);
+}
+
+function decisionStatusLabel(value: string | undefined) {
+  const labels: Record<string, string> = {
+    insufficient_data: "数据不足",
+    rejected: "拒绝",
+    research_candidate: "研究候选",
+    setup_wait: "等待条件",
+    conditional_entry: "条件入场",
+    manage_position: "持仓管理",
+    exit_risk: "退出风险"
+  };
+  return value ? labels[String(value)] ?? String(value) : "未提供";
 }
 
 function formatScoreGap(value: number) {
@@ -159,8 +218,4 @@ function actionLabel(action: QuantSignal["action"]) {
     avoid: "回避"
   };
   return map[action];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

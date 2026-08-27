@@ -4,7 +4,6 @@ export const STOCK_ANALYSIS_SYSTEM_PROMPT =
   "你是一个谨慎但不过度保守的股票研究与纪律执行助手。你只能基于用户提供的版本化证据包给出条件触发型研究情景，不能声称能预测市场，不能保证收益，不能给出确定性买卖指令。你的核心任务是为用户回答两个问题：1）如果已持仓，现在该怎么办？2）如果尚未持仓，证据是否足以支持条件入场，还是必须继续研究、等待或回避？你需要从持有周期、趋势、量价、波动、风险、关键价位、用户持仓、新闻预期差、公告、基本面和宏观/行业风险角度综合判断。数据质量、价格、指标、费用、股数和硬门控由服务端确定，不能擅自越过 dataQuality.entryBlockers。若证据和风险控制同时支持，不要机械写“等待回调”；若证据缺失、短线超买、价格远离支撑或风险回报不佳，应明确降级。无论新闻原文是英文、繁体中文或其他语言，所有自然语言分析字段必须使用简体中文。输出必须是严格 JSON，不要输出 Markdown，不要编造新闻链接。";
 
 export function buildUserPrompt(input: AnalyzeStockInput) {
-  const positionStatus = describePositionStatus(input.userContext);
   const modeInstructions = decisionModeInstructions(input.evidencePackage?.decisionMode);
   return `请分析以下股票数据，并给出投资建议。返回必须能被 JSON.parse 解析的严格 JSON 对象。
 
@@ -37,58 +36,25 @@ export function buildUserPrompt(input: AnalyzeStockInput) {
 26. entryOutcomeForecast 只是用于影子观察的模型主观概率，不得据此放大仓位或声称已经校准。波段模式估计“从分析后的下一完整交易日开盘模拟入场后，20 个交易日内是否先触及程序最终采用的止盈位而非止损位”；长期模式使用 63 个交易日；持仓管理或无法形成有效止损/目标时返回 unavailable。概率不得使用 0 或 1，reasoning 必须列出最重要的支持、反对和未知因素。最终事件定义、期限、价格路径、费用和校准状态均由程序覆盖。
 27. 市场环境只能引用 evidencePackage.marketEnvironment 中沪深 300 的确定性结果、来源和截止时间。status 不是 available 时必须说明宽基环境缺失或过期，禁止根据模型常识、新闻情绪或个股趋势自行补成 risk_on/risk_off。
 
+固定输出结构（这是稳定 schema，必须严格遵守）：
+${JSON.stringify(ANALYSIS_RESPONSE_TEMPLATE, null, 2)}
+
 本次决策模式专用约束：
 ${modeInstructions}
-
-股票代码：
-${input.symbol}
-
-分析生成时间：
-${input.analysisAsOf ?? new Date().toISOString()}
-
-数据覆盖范围：
-${JSON.stringify(input.dataScope ?? {}, null, 2)}
-
-当前报价：
-${JSON.stringify(input.quote, null, 2)}
-
-技术指标：
-${JSON.stringify(input.indicators, null, 2)}
-
-历史价格摘要：
-${JSON.stringify(input.historySummary, null, 2)}
-
-用户持仓和风险上下文：
-${JSON.stringify(input.userContext, null, 2)}
-
-系统自动持仓判断：
-${positionStatus}
 
 用户的交易记忆（交易习惯、偏好、历史总结等）：
 ${input.userMemory || "暂无记录"}
 
-用户的可用本金：
-${input.userCapital ? `${input.userCapital} 元。请基于总本金计算 entryAdvice.firstPositionSize 为具体股数或百分比（如"约100股，占总本金8%"），不要写"轻仓"这种模糊表述。` : "用户未填写。仓位建议用百分比表述，不要写模糊词。"}
-
-服务端组合风险预算（模型不得扩大额度）：
-${JSON.stringify(input.portfolioRiskContext ?? null, null, 2)}
-
 交易手续费规则：
 ${input.tradingFeeRule ? JSON.stringify(input.tradingFeeRule, null, 2) : "未提供。"}
 
-版本化分析证据包（数据质量和硬门控不能由模型覆盖）：
+版本化分析证据包（本次动态事实只在这里提供一次；数据质量和硬门控不能由模型覆盖）：
 ${JSON.stringify(input.evidencePackage ?? {}, null, 2)}
-
-
-
-已精读相关新闻摘要：
-${JSON.stringify(input.recentNews ?? [], null, 2)}
 
 联网检索补充结果：
 ${JSON.stringify(input.webSearchResults ?? [], null, 2)}
 
-请只返回以下 JSON 结构，不要 Markdown，不要解释：
-${JSON.stringify(ANALYSIS_RESPONSE_TEMPLATE, null, 2)}`;
+请只返回一个符合上述固定结构的 JSON 对象，不要 Markdown，不要解释。`;
 }
 
 export function decisionModeInstructions(mode: "long_term" | "swing_trade" | "position_management" | undefined) {
@@ -186,25 +152,3 @@ const ANALYSIS_RESPONSE_TEMPLATE = {
   ],
   disclaimer: "本内容由 AI 生成，仅供研究参考，不构成投资建议。"
 };
-
-function describePositionStatus(userContext: unknown) {
-  if (!isRecord(userContext)) return "未持仓（用户未标记已购买）。";
-  const explicitHolding = typeof userContext.isHolding === "boolean" ? userContext.isHolding : null;
-  const holdingPrice = typeof userContext.holdingPrice === "number" ? userContext.holdingPrice : Number(userContext.holdingPrice);
-  const holdingShares = typeof userContext.holdingShares === "number" ? userContext.holdingShares : Number(userContext.holdingShares);
-  const openedAt = typeof userContext.positionOpenedAt === "string" ? userContext.positionOpenedAt : "";
-  const priceText = Number.isFinite(holdingPrice) && holdingPrice > 0 ? holdingPrice : "未设置";
-  const sharesText = Number.isFinite(holdingShares) && holdingShares > 0 ? `${holdingShares} 股/份` : "未设置";
-  if (explicitHolding === false) return "未持仓（用户明确标记为未购买）。";
-  if (explicitHolding === true) {
-    return `已持仓（用户明确标记已购买；持仓价：${priceText}，持仓数量：${sharesText}，建仓日期：${openedAt || "未设置"}）。`;
-  }
-  if ((Number.isFinite(holdingPrice) && holdingPrice > 0) || openedAt) {
-    return `已持仓（持仓价：${priceText}，持仓数量：${sharesText}，建仓日期：${openedAt || "未设置"}）。`;
-  }
-  return "未持仓（用户未标记已购买）。";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}

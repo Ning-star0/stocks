@@ -155,7 +155,11 @@ export default function FocusPage() {
       setDecisionNotice(null);
     }
     try {
-      const response = await fetch("/api/focus/decision", { method });
+      const response = await fetch("/api/focus/decision", {
+        method,
+        headers: method === "POST" ? { "Content-Type": "application/json" } : undefined,
+        body: method === "POST" ? JSON.stringify({ forceRefresh: false }) : undefined
+      });
       const json = await readJsonResponse<FocusDecision & { decisionUnavailable?: boolean; message?: string }>(response);
       if (json.decisionUnavailable) {
         if (!options.silent) {

@@ -142,7 +142,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
           source: "scheduled",
           runId: payload?.runId ?? null,
           runItemId: runItem?.id ?? null,
-          forceRefresh: true,
+          forceRefresh: false,
           refreshNewsBeforeAnalysis: true,
           refreshCompanyEvidenceBeforeAnalysis: true,
           forceQuoteRefresh: false,
@@ -184,7 +184,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
         source: payload?.reason?.includes("定时") ? "scheduled" : "manual",
         runId: payload?.runId ?? null,
         runItemId: runItem?.id ?? null,
-        forceRefresh: Boolean(payload?.forceRefresh) || (payload?.reason?.includes("关注板块定时分析") ?? false),
+        forceRefresh: Boolean(payload?.forceRefresh),
         refreshNewsBeforeAnalysis: true,
         refreshCompanyEvidenceBeforeAnalysis: true,
         forceQuoteRefresh: true,
@@ -282,7 +282,7 @@ async function runJob(job: NonNullable<Awaited<ReturnType<typeof lockNextQueuedJ
     if (waitResult) return waitResult;
     const decision = await generateAndStoreFocusDecision({
       userId: job.userId,
-      forceRefresh: true,
+      forceRefresh: false,
       source: "scheduled",
       scheduledFor: payload?.scheduledFor ?? null,
       runId: payload?.runId ?? null

@@ -128,6 +128,33 @@ export type FocusDecision = {
     scoreGap: number;
     entryPermission: "allow" | "reduce_size" | "pause" | null;
     blockers: string[];
+    blockerDetails?: Array<{
+      code: string;
+      category: "data" | "calibration" | "market" | "quant" | "risk" | "execution" | "analysis";
+      message: string;
+    }>;
+  }>;
+  waitReasons?: Array<{
+    category: "data" | "calibration" | "market" | "quant" | "risk" | "execution" | "analysis";
+    candidateCount: number;
+    codes: string[];
+    message: string;
+  }>;
+  shadowPlans?: Array<{
+    symbol: string;
+    name?: string | null;
+    action: "buy" | "add";
+    triggerPrice: number;
+    stopLossPrice: number;
+    takeProfitPrice: number;
+    shares: number;
+    amount: number;
+    totalCost: number;
+    roundTripFees: number | null;
+    netMaxLossAmount: number;
+    netRiskRewardRatio: number;
+    expectedValueStatus: "not_calibrated";
+    blockers: string[];
   }>;
   feedback?: {
     feedbackAction: string;

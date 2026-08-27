@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+
 import { getCurrentUser } from "@/lib/currentUser";
 import { createAnalysisRun, createDecisionHistoryFromAnalysis, finishAnalysisRunItem, startAnalysisRunItem } from "@/lib/analysis/runRecords";
 import { getFocusStockAnalysisConcurrency } from "@/lib/ai/config";
@@ -7,6 +9,7 @@ import { apiError, AppError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
 import { createNewsBatchContext, type NewsBatchContext } from "@/lib/news/batchCoordinator";
 import { prisma } from "@/lib/prisma";
+import { readOptionalRequestJson } from "@/lib/serverApi";
 
 export async function GET() {
   try {
@@ -24,9 +27,11 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
+    const body = await readOptionalRequestJson<Record<string, unknown>>(request);
+    const forceRefresh = body.forceRefresh === true;
     const focus = await prisma.focusGroup.findUnique({ where: { userId: user.id } });
     const symbols = focus?.symbols ?? [];
     if (!symbols.length) throw new AppError("BAD_REQUEST", "请先在今日关注中选择股票。");
@@ -37,10 +42,12 @@ export async function POST() {
       totalSymbols: symbols.length
     });
     const newsBatch = createNewsBatchContext(run.id);
-    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) => analyzeFocusSymbol(user.id, run.id, symbol, newsBatch));
+    await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) =>
+      analyzeFocusSymbol(user.id, run.id, symbol, newsBatch, forceRefresh)
+    );
     const decision = await generateAndStoreFocusDecision({
       userId: user.id,
-      forceRefresh: true,
+      forceRefresh,
       source: "manual",
       runId: run.id,
       createRunItems: false
@@ -51,7 +58,7 @@ export async function POST() {
   }
 }
 
-async function analyzeFocusSymbol(userId: string, runId: string, symbol: string, newsBatch: NewsBatchContext) {
+async function analyzeFocusSymbol(userId: string, runId: string, symbol: string, newsBatch: NewsBatchContext, forceRefresh: boolean) {
   const item = await startAnalysisRunItem({ runId, symbol }).catch(() => null);
   try {
     const result = await runStockAnalysis({
@@ -59,7 +66,7 @@ async function analyzeFocusSymbol(userId: string, runId: string, symbol: string,
       symbol,
       reason: "今日关注手动重新分析",
       inputHash: null,
-      forceRefresh: true,
+      forceRefresh,
       refreshNewsBeforeAnalysis: true,
       refreshCompanyEvidenceBeforeAnalysis: true,
       forceQuoteRefresh: true,

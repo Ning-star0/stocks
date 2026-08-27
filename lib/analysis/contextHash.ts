@@ -32,6 +32,7 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
     decisionPolicyVersion: input.evidence.decisionPolicyVersion,
     marketDataRevision: input.evidence.marketDataRevision,
     symbol: input.symbol.toUpperCase(),
+    instrumentState: input.evidence.instrument,
     decisionMode: input.evidence.decisionMode,
     priceBucket: priceBucket(input.quote.price),
     trendState: trendState(input.quote.price, input.indicators),

@@ -198,6 +198,7 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
     <Block title="证据覆盖与反方检查">
       <div className="flex flex-wrap gap-2">
         {quality ? <Badge variant={dataQualityVariant(quality.status)}>数据质量：{dataQualityStatusLabel(quality.status)}</Badge> : null}
+        {quality?.instrumentType ? <Badge variant="secondary">标的类型：{instrumentTypeLabel(quality.instrumentType)}</Badge> : null}
         {quality ? <Badge variant={quality.quoteFresh ? "success" : "danger"}>报价{quality.quoteFresh ? "新鲜" : "过期"}</Badge> : null}
         {quality ? <Badge variant={quality.klineFresh ? "success" : "danger"}>K 线{quality.klineFresh ? "新鲜" : "过期"}</Badge> : null}
         {quality ? <Badge variant={quality.newsRefreshCompleted ? "success" : "warning"}>新闻{quality.newsRefreshCompleted ? "已刷新" : "待刷新"}</Badge> : null}
@@ -207,8 +208,9 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           </Badge>
         ) : null}
         {quality ? <Badge variant={quality.criticalNewsAnalyzed ? "success" : "danger"}>关键新闻{quality.criticalNewsAnalyzed ? "已精读" : "未闭合"}</Badge> : null}
-        {quality ? <Badge variant={quality.disclosuresFresh && quality.criticalDisclosuresRead ? "success" : "danger"}>公告{quality.disclosuresFresh ? (quality.criticalDisclosuresRead ? "已核对" : "待读原文") : "已过期"}</Badge> : null}
-        {quality ? <Badge variant={quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "success" : "warning") : "danger"}>基本面{quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "完整" : "部分") : "不可用"}</Badge> : null}
+        {quality?.instrumentType === "a_share_stock" ? <Badge variant={quality.disclosuresFresh && quality.criticalDisclosuresRead ? "success" : "danger"}>公司公告{quality.disclosuresFresh ? (quality.criticalDisclosuresRead ? "已核对" : "待读原文") : "已过期"}</Badge> : null}
+        {quality?.instrumentType === "a_share_stock" ? <Badge variant={quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "success" : "warning") : "danger"}>公司基本面{quality.fundamentalsFresh ? (quality.fundamentalsComplete ? "完整" : "部分") : "不可用"}</Badge> : null}
+        {quality?.instrumentType === "etf" ? <Badge variant={quality.instrumentEvidenceComplete ? "success" : "danger"}>ETF 产品证据{quality.instrumentEvidenceComplete ? "完整" : "未闭合"}</Badge> : null}
         {quality ? <Badge variant={quality.portfolioRiskEvaluated ? "success" : "danger"}>组合风险{quality.portfolioRiskEvaluated ? "已核算" : "未核算"}</Badge> : null}
       </div>
       {newsCoverage ? (
@@ -423,6 +425,13 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
       </div>
     </Block>
   );
+}
+
+function instrumentTypeLabel(value: NonNullable<AiAnalysisResult["dataQuality"]>["instrumentType"]) {
+  if (value === "a_share_stock") return "A 股公司";
+  if (value === "etf") return "ETF";
+  if (value === "index") return "指数";
+  return "未知";
 }
 
 function EvidenceColumn({ title, values, empty }: { title: string; values: string[]; empty: string }) {

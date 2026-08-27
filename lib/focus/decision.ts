@@ -7,6 +7,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { estimateAiCost, getAiConfig, selectAiModel } from "@/lib/ai/config";
 import { createDecisionHistoryFromFocusDecision, refreshAnalysisRun } from "@/lib/analysis/runRecords";
 import { createChatCompletion } from "@/lib/ai/deepseek";
+import { readAiProviderTokenUsage, type AiProviderTokenUsage } from "@/lib/ai/analyzeStock";
 import { getCache, setCache } from "@/lib/cache";
 import { AppError } from "@/lib/errors";
 import {
@@ -16,12 +17,11 @@ import {
   assessCandidateBuy,
   quantAllowsSell,
   quantReason,
-  quantView,
-  stringifyAdvice
+  quantView
 } from "@/lib/focus/decisionCandidate";
 import { buildDecisionPrompt, FOCUS_DECISION_SYSTEM_PROMPT } from "@/lib/focus/decisionPrompt";
 import { decisionSchema, type DecisionSchemaValue } from "@/lib/focus/decisionSchema";
-import type { Candidate, CandidateTradeFeedback, DecisionInput, DecisionNearMiss, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
+import type { Candidate, CandidateTradeFeedback, DecisionInput, DecisionNearMiss, DecisionShadowPlan, DecisionWaitReason, GenerateFocusDecisionOptions } from "@/lib/focus/decisionTypes";
 import {
   buildPortfolioSnapshot,
   calculatePositionCostBasisBySymbol,
@@ -37,7 +37,6 @@ import {
 import {
   calculateFocusTradeFee,
   calculateSellPnl,
-  fallbackSellShares,
   isFeeEfficientTrade,
   minimumFeeEfficientAmount,
   normalizeBuyShares as normalizeShares,
@@ -57,6 +56,7 @@ import { ensureStrategyHealthGatesForFocus, loadStrategyHealthGates } from "@/li
 import { toNumber } from "@/lib/utils";
 
 const TRADE_FEEDBACK_LOOKBACK_DAYS = 45;
+type GeneratedFocusDecision = ReturnType<typeof normalizeDecision>;
 
 export async function getLatestStoredFocusDecision(userId: string) {
   await prisma.$transaction((tx) => reconcileAndRebuildUserPositions(tx, userId));
@@ -99,18 +99,21 @@ export async function generateAndStoreFocusDecision(options: GenerateFocusDecisi
       return attachStoredMetadata(stored, { fromCache: true, stale: false }, portfolioSnapshot);
     }
 
-    const cached = await getCache<Awaited<ReturnType<typeof generateFocusDecision>>>(cacheKey);
+    const cached = await getCache<GeneratedFocusDecision>(cacheKey);
     if (cached) return { ...cached, fromCache: true, stale: false };
   }
 
   const input = await loadDecisionInput(seed);
-  const decision = await generateFocusDecision(input);
+  const execution = await generateFocusDecision(input);
+  const decision = execution.decision;
   await logFocusDecisionAiUsage({
     userId: options.userId,
     source,
     inputHash,
     input,
     decision,
+    model: execution.model,
+    usage: execution.usage,
     cacheHit: false
   }).catch(() => null);
   await setCache(cacheKey, decision, numberEnv("FOCUS_DECISION_CACHE_TTL_SECONDS", 900));
@@ -165,23 +168,29 @@ async function logFocusDecisionAiUsage(input: {
   source: string;
   inputHash: string;
   input: DecisionInput;
-  decision: Awaited<ReturnType<typeof generateFocusDecision>>;
+  decision: GeneratedFocusDecision;
+  model: string;
+  usage: AiProviderTokenUsage | null;
   cacheHit: boolean;
 }) {
   const config = await getAiConfig();
-  const promptTokens = Math.ceil(buildDecisionPrompt(input.input).length / 4);
-  const completionTokens = Math.ceil(JSON.stringify(input.decision).length / 4);
+  const promptTokens = input.usage?.promptTokens ?? Math.ceil(buildDecisionPrompt(input.input).length / 4);
+  const completionTokens = input.usage?.completionTokens ?? Math.ceil(JSON.stringify(input.decision).length / 4);
   await prisma.aiUsageLog.create({
     data: {
       userId: input.userId,
       symbol: null,
       jobType: "focus_decision",
       provider: config.baseUrl.includes("deepseek.com") ? "deepseek" : "openai-compatible",
-      model: selectAiModel(config, "flagship"),
+      model: input.model,
       inputHash: input.inputHash,
       promptTokens,
       completionTokens,
-      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: "flagship", promptTokens, completionTokens }),
+      promptCacheHitTokens: input.usage?.cacheHitTokens ?? null,
+      promptCacheMissTokens: input.usage?.cacheMissTokens ?? null,
+      modelTier: "standard",
+      routingReason: "cost-aware-routing-v1:focus-explanation-standard",
+      estimatedCost: input.cacheHit ? "0" : estimateAiCost({ config, tier: "standard", promptTokens, completionTokens }),
       cacheHit: input.cacheHit,
       reason: input.source
     }
@@ -193,7 +202,7 @@ async function upsertStoredDecision(input: {
   inputHash: string;
   source: "manual" | "scheduled";
   scheduledFor: Date | null;
-  decision: Awaited<ReturnType<typeof generateFocusDecision>>;
+  decision: GeneratedFocusDecision;
 }) {
   const decisionJson = JSON.parse(JSON.stringify(input.decision)) as Prisma.InputJsonValue;
   return prisma.focusDecision.upsert({
@@ -218,7 +227,7 @@ async function upsertStoredDecision(input: {
   });
 }
 
-async function updateStoredDecisionJson(id: string, decision: Awaited<ReturnType<typeof generateFocusDecision>> & { notification?: unknown }) {
+async function updateStoredDecisionJson(id: string, decision: GeneratedFocusDecision & { notification?: unknown }) {
   return prisma.focusDecision.update({
     where: { id },
     data: {
@@ -561,13 +570,18 @@ async function loadDecisionInput(seed: Awaited<ReturnType<typeof loadDecisionSee
             trend: output.trend,
             confidence: output.confidence,
             summary: output.summary,
-            newsSummary: typeof asRecord(output).newsSummary === "string" ? String(asRecord(output).newsSummary) : undefined,
-            newsSentiment: typeof asRecord(output).newsSentiment === "string" ? String(asRecord(output).newsSentiment) : undefined,
-            newsReferences: asRecord(output).newsReferences,
-            sectorRisks: asRecord(output).sectorRisks,
+            newsSummary: output.newsSummary,
+            newsSentiment: output.newsSentiment,
+            newsReferences: output.newsReferences,
+            sectorRisks: output.sectorRisks,
             holdAdvice: output.holdAdvice,
             entryAdvice: output.entryAdvice,
-            riskFactors: output.riskFactors
+            riskFactors: output.riskFactors,
+            decisionStatus: output.decisionStatus,
+            dataQuality: output.dataQuality,
+            tradePlan: output.tradePlan,
+            isFallback: output.isFallback,
+            dataScope: output.dataScope
           }
         : null,
       quantSignal: null,
@@ -646,52 +660,38 @@ function buildDecisionDataScope(candidates: Candidate[]): DecisionInput["dataSco
 function buildDecisionMarketContext(candidates: Array<Candidate & { quantInput?: QuantInput }>): QuantStrategyContext {
   const usable = candidates.filter((candidate) => candidate.price && candidate.price > 0);
   const avgChange = average(usable.map((candidate) => candidate.changePct).filter(isFiniteNumber));
-  const bullishCount = candidates.filter((candidate) => candidate.latestAnalysis?.trend === "bullish").length;
-  const bearishCount = candidates.filter((candidate) => candidate.latestAnalysis?.trend === "bearish").length;
-  const positiveNewsCount = candidates.filter((candidate) => isPositiveSentiment(candidate.latestAnalysis?.newsSentiment)).length;
-  const negativeNewsCount = candidates.filter((candidate) => isNegativeSentiment(candidate.latestAnalysis?.newsSentiment)).length;
-  const overheatedCount = candidates.filter((candidate) => {
-    const text = stringifyAdvice(candidate.latestAnalysis?.summary) + stringifyAdvice(candidate.latestAnalysis?.riskFactors);
-    return /超买|追高|过热|短期涨幅|获利回吐|泡沫|兑现/.test(text);
-  }).length;
-
-  const marketRegime =
-    negativeNewsCount >= positiveNewsCount + 2 || (avgChange !== null && avgChange <= -2) || bearishCount > bullishCount + 1
-      ? "risk_off"
-      : bullishCount >= bearishCount + 2 && positiveNewsCount >= negativeNewsCount && (avgChange === null || avgChange >= -0.8)
-        ? "risk_on"
-        : "neutral";
+  const auditedRegimes = candidates
+    .map((candidate) => candidate.latestAnalysis?.dataScope?.marketRegime)
+    .filter((value): value is "risk_on" | "neutral" | "risk_off" => value === "risk_on" || value === "neutral" || value === "risk_off");
+  const regimeCounts = {
+    risk_on: auditedRegimes.filter((value) => value === "risk_on").length,
+    neutral: auditedRegimes.filter((value) => value === "neutral").length,
+    risk_off: auditedRegimes.filter((value) => value === "risk_off").length
+  };
+  const marketRegime = selectAuditedMarketRegime(regimeCounts);
+  const overheatedCount = candidates.filter(isDeterministicallyOverheated).length;
 
   const sectorBiases: Record<string, QuantSectorBias> = {};
   const bySector = groupBy(candidates, (candidate) => candidate.sectorKey ?? "unknown");
   for (const [sector, rows] of Object.entries(bySector)) {
     const sectorChange = average(rows.map((candidate) => candidate.changePct).filter(isFiniteNumber));
-    const sectorBullish = rows.filter((candidate) => candidate.latestAnalysis?.trend === "bullish").length;
-    const sectorBearish = rows.filter((candidate) => candidate.latestAnalysis?.trend === "bearish").length;
-    const sectorPositive = rows.filter((candidate) => isPositiveSentiment(candidate.latestAnalysis?.newsSentiment)).length;
-    const sectorNegative = rows.filter((candidate) => isNegativeSentiment(candidate.latestAnalysis?.newsSentiment)).length;
-    const sectorOverheated = rows.some((candidate) => {
-      const text = [
-        candidate.latestAnalysis?.summary,
-        candidate.latestAnalysis?.newsSummary,
-        stringifyAdvice(candidate.latestAnalysis?.riskFactors)
-      ].filter(Boolean).join(" ");
-      return /超买|过热|追高|大涨|短期涨幅|获利回吐|兑现/.test(text);
-    });
+    const sectorOverheated = rows.some(isDeterministicallyOverheated);
     sectorBiases[sector] =
-      sectorNegative > sectorPositive || sectorBearish > sectorBullish
+      sectorChange !== null && sectorChange <= -1.2
         ? "bearish"
-        : sectorOverheated && sectorBullish >= sectorBearish
+        : sectorOverheated
           ? "overheated"
-          : sectorBullish > sectorBearish || sectorPositive > sectorNegative || (sectorChange !== null && sectorChange >= 1.2)
+          : sectorChange !== null && sectorChange >= 1.2
             ? "bullish"
             : "neutral";
   }
 
   const notes = [
-    `市场环境：${marketRegimeLabel(marketRegime)}，候选平均涨跌幅 ${avgChange === null ? "--" : `${avgChange.toFixed(2)}%`}。`,
-    `趋势分布：偏多 ${bullishCount}，偏空 ${bearishCount}；新闻情绪：正面 ${positiveNewsCount}，负面 ${negativeNewsCount}。`,
-    overheatedCount ? `有 ${overheatedCount} 只标的出现追高/过热/兑现风险，买入需等待回调或突破确认。` : "未检测到明显集中过热风险。"
+    auditedRegimes.length
+      ? `市场环境来自 ${auditedRegimes.length} 份单股证据包内的确定性基准快照：${marketRegimeLabel(marketRegime)}。`
+      : "缺少可复用的确定性基准市场状态，组合层按中性处理，不使用 AI 趋势或新闻文本补造。",
+    `候选平均涨跌幅 ${avgChange === null ? "--" : `${avgChange.toFixed(2)}%`}，只用于候选横截面说明，不替代市场基准。`,
+    overheatedCount ? `有 ${overheatedCount} 只标的被 RSI/布林带等确定性指标标记为过热。` : "确定性指标未检测到集中过热。"
   ];
 
   if (marketRegime === "risk_off") {
@@ -730,8 +730,22 @@ function buildDecisionMarketContext(candidates: Array<Candidate & { quantInput?:
   };
 }
 
+function selectAuditedMarketRegime(counts: Record<"risk_on" | "neutral" | "risk_off", number>): QuantStrategyContext["marketRegime"] {
+  const max = Math.max(counts.risk_on, counts.neutral, counts.risk_off);
+  if (max <= 0) return "neutral";
+  if (counts.risk_off === max) return "risk_off";
+  if (counts.neutral === max) return "neutral";
+  return "risk_on";
+}
+
+function isDeterministicallyOverheated(candidate: Candidate & { quantInput?: QuantInput }) {
+  const rsi = candidate.quantInput?.indicators?.rsi14;
+  const upper = candidate.quantInput?.indicators?.bollingerUpper;
+  return Boolean((rsi !== null && rsi !== undefined && rsi >= 72) || (candidate.price && upper && candidate.price >= upper));
+}
+
 function inferSectorKey(input: { symbol: string; name?: string | null; note?: string | null; latestAnalysis?: unknown }) {
-  const text = `${input.symbol} ${input.name ?? ""} ${input.note ?? ""} ${JSON.stringify(input.latestAnalysis ?? {})}`;
+  const text = `${input.symbol} ${input.name ?? ""} ${input.note ?? ""}`;
   if (/半导体|芯片|集成电路|晶圆|存储|AI芯片|中韩/.test(text)) return "semiconductor";
   if (/纳指|NASDAQ|纳斯达克|美股|QDII/i.test(text)) return "nasdaq";
   if (/通信|5G|光模块|光通信|算力网络|数据中心/.test(text)) return "telecom_ai";
@@ -746,14 +760,6 @@ function marketRegimeLabel(value: QuantStrategyContext["marketRegime"]) {
   if (value === "risk_on") return "偏进攻";
   if (value === "risk_off") return "偏防守";
   return "中性";
-}
-
-function isPositiveSentiment(value?: string | null) {
-  return /positive|bullish|利好|正面|偏正/.test(String(value ?? ""));
-}
-
-function isNegativeSentiment(value?: string | null) {
-  return /negative|bearish|利空|负面|偏负/.test(String(value ?? ""));
 }
 
 function average(values: number[]) {
@@ -924,7 +930,6 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
         capital: input.capital,
         symbols: input.symbols,
         focusUpdatedAt: input.focusUpdatedAt,
-        focusLastAnalysis: input.focusLastAnalysis,
         positionSignature: input.positionSignature,
         portfolioSignature: input.portfolioSignature,
         ledgerSignature: input.ledgerSignature,
@@ -939,11 +944,16 @@ function createDecisionSignature(input: Awaited<ReturnType<typeof loadDecisionSe
 
 async function generateFocusDecision(input: DecisionInput) {
   const config = await getAiConfig();
-  if (!config.apiKey) return buildFallbackDecision(input, "AI API key 未配置，已使用本地规则生成临时决策。");
+  const model = selectAiModel(config, "standard");
+  if (!config.apiKey) return {
+    decision: buildFallbackDecision(input, "AI API key 未配置，已使用本地规则生成临时决策。"),
+    model,
+    usage: null
+  };
 
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl || undefined });
   const request: ChatCompletionCreateParamsNonStreaming = {
-    model: selectAiModel(config, "flagship"),
+    model,
     temperature: 0.2,
     max_tokens: numberEnv("AI_FOCUS_DECISION_MAX_TOKENS", 1400),
     response_format: { type: "json_object" },
@@ -961,10 +971,18 @@ async function generateFocusDecision(input: DecisionInput) {
     const text = completion.choices[0]?.message?.content;
     if (!text) throw new Error("AI 返回了空内容。");
     const parsed = decisionSchema.parse(parseJsonObject(text));
-    return normalizeDecision(parsed, input, null);
+    return {
+      decision: normalizeDecision(parsed, input, null),
+      model,
+      usage: readAiProviderTokenUsage(completion)
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
-    return buildFallbackDecision(input, `AI 决策生成失败，已使用本地规则生成临时决策。原因：${message}`);
+    return {
+      decision: buildFallbackDecision(input, `AI 决策生成失败，已使用本地规则生成临时决策。原因：${message}`),
+      model,
+      usage: null
+    };
   }
 }
 
@@ -975,7 +993,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
   let spent = 0;
   let plannedRisk = 0;
   let acceptedBuyOrders = 0;
-  const orders = value.orders
+  const buyOrderCandidates = withRequiredStructuredBuyOrders(value.orders, input);
+  const orders = buyOrderCandidates
     .filter((order) => order.action === "buy" || order.action === "add")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
@@ -986,9 +1005,10 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       if (acceptedBuyOrders >= 2) return null;
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
-      const executionPrice = normalizedPrice(order.triggerPrice) ?? normalizedPrice(price) ?? 0;
+      const structuredEntry = candidate?.latestAnalysis?.tradePlan?.entry;
+      const executionPrice = normalizedPrice(structuredEntry?.triggerPrice) ?? normalizedPrice(order.triggerPrice) ?? normalizedPrice(price) ?? 0;
       const remainingCash = Math.max(0, spendableCash - spent);
-      const requestedShares = order.shares || sharesFromAmount(order.amount, executionPrice);
+      const requestedShares = structuredEntry?.shares ?? (order.shares || sharesFromAmount(order.amount, executionPrice));
       const maxShares = sharesFromAmount(maxBuyAmountForCandidate(candidate, input, remainingCash), executionPrice);
       const cashLimitedShares = normalizeShares(Math.min(requestedShares, maxShares), executionPrice, remainingCash);
       const draftPlanMeta = buildBuyPlanMeta({ order, candidate, price, shares: cashLimitedShares });
@@ -1061,21 +1081,23 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
       };
     })
     .filter((order): order is NonNullable<typeof order> => Boolean(order && order.shares > 0 && order.amount > 0));
-  const sellOrderCandidates = withRequiredQuantSellOrders(value.sellOrders, input, value.ranking);
+  const sellOrderCandidates = withRequiredStructuredSellOrders(value.sellOrders, input);
   const sellOrders = sellOrderCandidates
     .filter((order) => order.action === "sell" || order.action === "reduce")
     .filter((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
-      return quantAllowsSell(candidate) || aiRankingClaimsSell(value.ranking, candidate);
+      return candidateSupportsSell(candidate);
     })
     .sort((a, b) => sellOrderRisk(b, input) - sellOrderRisk(a, input))
     .map((order) => {
       const candidate = candidatesBySymbol.get(order.symbol) ?? input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
       const price = candidate?.price ?? 0;
       const holdingShares = candidate?.isHolding ? candidate.holdingShares ?? 0 : 0;
-      const requestedShares = order.shares || sharesFromAmount(order.amount, price) || 0;
+      const structuredExitShares = candidate?.latestAnalysis?.tradePlan?.exit.status === "conditional"
+        ? candidate.latestAnalysis.tradePlan.exit.shares ?? 0
+        : 0;
       const quantShares = candidate?.quantSignal?.suggestedSellShares || 0;
-      const shares = normalizeSellShares(Math.max(requestedShares, quantShares), holdingShares);
+      const shares = normalizeSellShares(structuredExitShares || quantShares, holdingShares);
       const amount = price > 0 ? Number((shares * price).toFixed(2)) : Number(order.amount.toFixed(2));
       const fee = calculateFocusTradeFee(amount);
       const netProceeds = Number((amount - fee).toFixed(2));
@@ -1122,6 +1144,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
   const availableRiskAfterPlan = Number(Math.max(0, input.riskBudget.portfolioRiskLimitAmount - riskAfterPlanAmount).toFixed(2));
   const ranking = normalizeRankingItems(value.ranking, input, orders, sellOrders, buyExecutionBlocks);
   const nearMisses = buildDecisionNearMisses(input, orders, buyExecutionBlocks);
+  const shadowPlans = buildDecisionShadowPlans(input, orders);
+  const waitReasons = normalizedAction === "wait" ? buildDecisionWaitReasons(input) : [];
   const strategyHealthGates = input.candidates.flatMap((candidate) => candidate.strategyHealth ? [{
     ...candidate.strategyHealth,
     symbol: candidate.symbol,
@@ -1143,6 +1167,8 @@ function normalizeDecision(value: DecisionSchemaValue, input: DecisionInput, fal
     sellOrders,
     ranking,
     nearMisses,
+    shadowPlans,
+    waitReasons,
     totalBudgetToUse: Number(orders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalSellAmount: Number(sellOrders.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
     totalEstimatedFee: Number((buyFee + sellFee).toFixed(2)),
@@ -1207,10 +1233,49 @@ function buildDecisionNearMisses(
         threshold: signal.adjustedBuyThreshold,
         scoreGap: Number(Math.max(0, rawGap).toFixed(1)),
         entryPermission: candidate.strategyHealth?.entryPermission ?? null,
-        blockers: [...new Set(blockers)].slice(0, 4)
+        blockers: [...new Set(blockers)].slice(0, 6),
+        blockerDetails: [
+          ...assessment.blockerDetails,
+          ...(executionBlock ? [{ code: "execution_normalization_failed", category: "execution" as const, message: executionBlock }] : [])
+        ].filter((item, index, all) => all.findIndex((candidateItem) => candidateItem.code === item.code && candidateItem.message === item.message) === index)
       }];
     })
     .sort((left, right) => left.scoreGap - right.scoreGap || right.score - left.score)
+    .slice(0, 3);
+}
+
+function buildDecisionShadowPlans(input: DecisionInput, orders: Array<{ symbol: string }>): DecisionShadowPlan[] {
+  const executable = symbolVariantSet(orders.map((order) => order.symbol));
+  return input.candidates
+    .flatMap((candidate) => {
+      if (hasSymbolVariant(executable, candidate.symbol) || candidate.latestAnalysis?.isFallback) return [];
+      if (candidate.latestAnalysis?.dataQuality?.status === "insufficient" || candidate.latestAnalysis?.dataQuality?.status === "conflicted") return [];
+      const entry = candidate.latestAnalysis?.tradePlan?.entry;
+      if (!entry?.shadowEligible || entry.expectedValueStatus !== "not_calibrated") return [];
+      if (!entry.triggerPrice || !entry.stopLossPrice || !entry.takeProfitPrice || !entry.shares || !entry.amount || !entry.totalCost || !entry.netMaxLossAmount || !entry.netRiskRewardRatio) return [];
+      const assessment = assessCandidateBuy(candidate);
+      return [{
+        symbol: candidate.symbol,
+        name: candidate.name ?? null,
+        action: candidate.isHolding ? "add" as const : "buy" as const,
+        triggerPrice: entry.triggerPrice,
+        stopLossPrice: entry.stopLossPrice,
+        takeProfitPrice: entry.takeProfitPrice,
+        shares: entry.shares,
+        amount: entry.amount,
+        totalCost: entry.totalCost,
+        roundTripFees: entry.roundTripFees ?? null,
+        netMaxLossAmount: entry.netMaxLossAmount,
+        netRiskRewardRatio: entry.netRiskRewardRatio,
+        expectedValueStatus: "not_calibrated" as const,
+        blockers: assessment.blockerDetails
+          .filter((item) => item.category === "calibration" || item.code === "analysis_status_not_entry" || item.code === "structured_entry_plan_blocked")
+          .map((item) => item.message)
+          .slice(0, 4)
+      }];
+    })
+    .sort((left, right) => (input.candidates.find((candidate) => sameSymbol(candidate.symbol, right.symbol))?.quantSignal?.buyScore ?? 0)
+      - (input.candidates.find((candidate) => sameSymbol(candidate.symbol, left.symbol))?.quantSignal?.buyScore ?? 0))
     .slice(0, 3);
 }
 
@@ -1220,16 +1285,17 @@ function buildBuyPlanMeta(input: {
   price: number;
   shares: number;
 }) {
-  const triggerPrice = normalizedPrice(input.order.triggerPrice) ?? normalizedPrice(input.price);
-  const stopLossPrice = normalizedPrice(input.order.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
-  const takeProfitPrice = normalizedPrice(input.order.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
+  const structured = input.candidate?.latestAnalysis?.tradePlan?.entry;
+  const triggerPrice = normalizedPrice(structured?.triggerPrice) ?? normalizedPrice(input.order.triggerPrice) ?? normalizedPrice(input.price);
+  const stopLossPrice = normalizedPrice(structured?.stopLossPrice) ?? normalizedPrice(input.order.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
+  const takeProfitPrice = normalizedPrice(structured?.takeProfitPrice) ?? normalizedPrice(input.order.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
   return {
     planType: input.order.planType ?? inferBuyPlanType(input.candidate),
     triggerPrice,
     stopLossPrice,
     takeProfitPrice,
-    maxLossAmount: normalizedMoney(input.order.maxLossAmount) ?? estimateMaxLossAmount({ shares: input.shares, triggerPrice, stopLossPrice }),
-    riskRewardRatio: normalizedRatio(input.order.riskRewardRatio) ?? input.candidate?.quantSignal?.riskRewardRatio ?? estimateRiskRewardRatio({ triggerPrice, stopLossPrice, takeProfitPrice }),
+    maxLossAmount: normalizedMoney(structured?.maxLossAmount) ?? normalizedMoney(input.order.maxLossAmount) ?? estimateMaxLossAmount({ shares: input.shares, triggerPrice, stopLossPrice }),
+    riskRewardRatio: normalizedRatio(structured?.riskRewardRatio) ?? normalizedRatio(input.order.riskRewardRatio) ?? input.candidate?.quantSignal?.riskRewardRatio ?? estimateRiskRewardRatio({ triggerPrice, stopLossPrice, takeProfitPrice }),
     priority: input.order.priority ?? priorityFromBuyCandidate(input.candidate),
     entryCondition: input.order.entryCondition || buildEntryCondition({ candidate: input.candidate, triggerPrice }),
     executionWindow: input.order.executionWindow || buildExecutionWindow(input.candidate),
@@ -1244,14 +1310,15 @@ function buildSellPlanMeta(input: {
   shares: number;
   holdingShares: number;
 }) {
-  const triggerPrice = normalizedPrice(input.order.triggerPrice) ?? normalizedPrice(input.price);
-  const stopLossPrice = normalizedPrice(input.order.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
-  const takeProfitPrice = normalizedPrice(input.order.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
+  const structured = input.candidate?.latestAnalysis?.tradePlan?.exit;
+  const triggerPrice = normalizedPrice(structured?.triggerPrice) ?? normalizedPrice(input.price);
+  const stopLossPrice = normalizedPrice(structured?.stopLossPrice) ?? normalizedPrice(input.candidate?.stopLoss) ?? normalizedPriceFromText(input.candidate?.quantSignal?.stopLoss);
+  const takeProfitPrice = normalizedPrice(structured?.takeProfitPrice) ?? normalizedPrice(input.candidate?.targetPrice) ?? normalizedPriceFromText(input.candidate?.quantSignal?.takeProfit);
   return {
     triggerPrice,
     stopLossPrice,
     takeProfitPrice,
-    sellRatioPct: normalizedRatio(input.order.sellRatioPct) ?? percent(input.shares, input.holdingShares),
+    sellRatioPct: percent(input.shares, input.holdingShares),
     priority: input.order.priority ?? priorityFromSellCandidate(input.candidate),
     exitCondition: input.order.exitCondition || buildExitCondition({ candidate: input.candidate, triggerPrice, stopLossPrice, takeProfitPrice }),
     executionWindow: input.order.executionWindow || buildExecutionWindow(input.candidate),
@@ -1443,8 +1510,9 @@ function normalizeBlockedRankingReason(candidate: Candidate, claimedBuy: boolean
     return `卖出/减仓未通过本地量化阈值，已降级为观察。${quantReason(candidate)}`;
   }
   if (claimedBuy && !candidateSupportsBuy(candidate)) {
+    const assessment = assessCandidateBuy(candidate);
     const constraints = candidate.quantSignal?.tradeConstraints?.length ? ` 交易约束：${candidate.quantSignal.tradeConstraints.join("；")}` : "";
-    return `买入/增持未通过本地量化、单股建议、置信度、行情新鲜度、风险收益比或交易单位校验，已降级为观察。${quantReason(candidate)}${constraints}`;
+    return `买入/增持未通过结构化单股状态与确定性门控：${assessment.blockers.slice(0, 3).join("；")}。已降级为观察。${quantReason(candidate)}${constraints}`;
   }
   return quantReason(candidate);
 }
@@ -1453,7 +1521,6 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
   const candidate = input.candidates.find((item) => sameSymbol(item.symbol, order.symbol));
   const signal = candidate?.quantSignal;
   if (!candidate || !signal) return 0;
-  const confidence = candidate.latestAnalysis?.confidence ?? 0;
   const riskReward = signal.riskRewardRatio ?? 1.25;
   const supportBonus = signal.supportDistancePct !== null && signal.supportDistancePct <= 3.5 ? 6 : 0;
   const holdingPenalty = candidate.isHolding ? 3 : 0;
@@ -1461,13 +1528,11 @@ function buyOrderQuality(order: DecisionSchemaValue["orders"][number], input: De
   return (
     signal.buyScore -
     signal.riskScore * 0.35 +
-    confidence * 12 +
     Math.min(8, riskReward * 2) +
     supportBonus -
     holdingPenalty -
     feedbackPenalty -
-    Math.max(0, signal.sellScore - 45) * 0.4 -
-    (order.priority ? order.priority * 0.8 : 0)
+    Math.max(0, signal.sellScore - 45) * 0.4
   );
 }
 
@@ -1568,22 +1633,61 @@ function sellOrderRisk(order: DecisionSchemaValue["sellOrders"][number], input: 
   );
 }
 
-function withRequiredQuantSellOrders(
+function withRequiredStructuredBuyOrders(
+  orders: DecisionSchemaValue["orders"],
+  input: DecisionInput
+): DecisionSchemaValue["orders"] {
+  const output = [...orders];
+  const existing = symbolVariantSet(output.map((order) => order.symbol));
+  const eligible = input.candidates
+    .filter(candidateSupportsBuy)
+    .sort((left, right) => (right.quantSignal?.buyScore ?? 0) - (left.quantSignal?.buyScore ?? 0));
+  for (const candidate of eligible) {
+    if (hasSymbolVariant(existing, candidate.symbol)) continue;
+    const entry = candidate.latestAnalysis?.tradePlan?.entry;
+    if (!entry?.shares || !entry.amount) continue;
+    output.push({
+      symbol: candidate.symbol,
+      action: candidate.isHolding ? "add" : "buy",
+      amount: entry.amount,
+      shares: entry.shares,
+      triggerPrice: entry.triggerPrice,
+      stopLossPrice: entry.stopLossPrice,
+      takeProfitPrice: entry.takeProfitPrice,
+      maxLossAmount: entry.maxLossAmount,
+      riskRewardRatio: entry.riskRewardRatio,
+      entryCondition: candidate.quantSignal?.entryPlan ?? "结构化单股计划与确定性门控均已满足时执行。",
+      executionWindow: buildExecutionWindow(candidate),
+      positionImpact: buildBuyPositionImpact({
+        candidate,
+        shares: entry.shares,
+        price: candidate.price ?? entry.triggerPrice ?? 0,
+        triggerPrice: entry.triggerPrice
+      }),
+      reason: `单股结构化状态为 conditional_entry，扣费后期望值为正；${entry.reason}`,
+      riskControl: buildBuyRiskControl(candidate),
+      invalidIf: buildBuyInvalidIf(candidate)
+    });
+    for (const symbol of symbolVariants(candidate.symbol)) existing.add(symbol);
+  }
+  return output;
+}
+
+function withRequiredStructuredSellOrders(
   orders: DecisionSchemaValue["sellOrders"],
-  input: DecisionInput,
-  ranking: DecisionSchemaValue["ranking"]
+  input: DecisionInput
 ): DecisionSchemaValue["sellOrders"] {
   const output = orders.filter((order) => (order.shares ?? 0) > 0 || (order.amount ?? 0) > 0);
   const existing = symbolVariantSet(output.map((order) => order.symbol));
   for (const candidate of input.candidates) {
-    const rankingClaimsSell = aiRankingClaimsSell(ranking, candidate);
-    if (!candidateSupportsSell(candidate) && !rankingClaimsSell) continue;
+    if (!candidateSupportsSell(candidate)) continue;
     if (hasSymbolVariant(existing, candidate.symbol)) continue;
-    const shares = candidate.quantSignal?.suggestedSellShares || fallbackSellShares(candidate.holdingShares ?? 0, stringifyAdvice(candidate.latestAnalysis?.holdAdvice));
+    const structuredExit = candidate.latestAnalysis?.tradePlan?.exit;
+    const shares = structuredExit?.shares || candidate.quantSignal?.suggestedSellShares || 0;
     if (!shares || shares <= 0) continue;
     output.push({
       symbol: candidate.symbol,
-      action: candidate.quantSignal?.action === "sell" ? "sell" : "reduce",
+      action: structuredExit?.action === "sell" || candidate.quantSignal?.action === "sell" ? "sell" : "reduce",
       amount: candidate.price && candidate.price > 0 ? Number((shares * candidate.price).toFixed(2)) : 0,
       shares,
       exitCondition: buildExitCondition({
@@ -1599,7 +1703,7 @@ function withRequiredQuantSellOrders(
         price: candidate.price ?? 0,
         holdingShares: candidate.holdingShares ?? 0
       }),
-      reason: buildRequiredSellReason(candidate, rankingClaimsSell),
+      reason: buildRequiredSellReason(candidate),
       riskControl: candidate.quantSignal?.exitPlan || "若风险信号消失、价格重新站回关键支撑并且量化卖出分回落，可取消减仓观察。",
       invalidIf: "最新行情或单股分析显示卖出分低于阈值，且价格重新回到安全趋势区间。"
     });
@@ -1608,31 +1712,10 @@ function withRequiredQuantSellOrders(
   return output;
 }
 
-function aiRankingClaimsSell(ranking: DecisionSchemaValue["ranking"], candidate?: Candidate | null) {
-  if (!candidate?.isHolding || !candidate.holdingShares || candidate.holdingShares < TRADING_FEE_RULE.lotSize) return false;
-  const signal = candidate.quantSignal;
-  if (
-    signal?.action === "sell" ||
-    signal?.action === "reduce" ||
-    (signal?.suggestedSellShares ?? 0) >= TRADING_FEE_RULE.lotSize ||
-    (signal?.suggestedSellRatioPct ?? 0) > 0
-  ) {
-    return true;
-  }
-  return ranking.some((item) => {
-    if (!sameSymbol(item.symbol, candidate.symbol)) return false;
-    const text = `${item.view} ${item.reason}`;
-    if (/未触发|建议股数\s*0|建议卖出比例\s*0|卖出比例\s*0|继续观察|持有观察/.test(text)) return false;
-    return /止损|离场|清仓|全部卖出|强制风控|跌破止损|破位退出/.test(text);
-  });
-}
-
-function buildRequiredSellReason(candidate: Candidate, rankingClaimsSell = false) {
+function buildRequiredSellReason(candidate: Candidate) {
   const signal = candidate.quantSignal;
   const parts = [
-    rankingClaimsSell
-      ? "AI 排名理由已触发减仓/止盈语义，但未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。"
-      : "本地量化规则触发持仓风控，AI 未返回结构化 sellOrders，系统自动补齐减仓/卖出计划。",
+    "结构化持仓退出计划或本地量化规则触发风控，系统自动补齐减仓/卖出计划。",
     signal ? `卖出分 ${signal.sellScore}，建议卖出比例 ${signal.suggestedSellRatioPct}%，建议股数 ${signal.suggestedSellShares} 股/份。` : "",
     signal?.holdingReturnPct !== null && signal?.holdingReturnPct !== undefined ? `当前持仓收益约 ${signal.holdingReturnPct}%。` : "",
     signal?.risks?.length ? `主要风险：${signal.risks.slice(0, 2).join("；")}` : ""
@@ -1648,18 +1731,49 @@ function alignSummaryWithStructuredPlan(
   sellOrders: Array<{ symbol: string; name?: string | null }>,
   normalizedAction: "buy" | "sell" | "mixed" | "wait"
 ) {
+  if (normalizedAction === "wait") return buildDeterministicWaitSummary(input);
   const unsupportedSellClaims = detectUnsupportedSellClaims(value, input, sellOrders);
   const planText = describeStructuredPlan(orders, sellOrders, normalizedAction);
   const ignoredSellText = unsupportedSellClaims.length
     ? `；已忽略未通过本地量化/持仓校验的卖出表述：${unsupportedSellClaims.join("、")}`
     : "";
-  const prefix = normalizedAction === "wait" && value.recommendedAction !== "wait"
-    ? "当前没有形成可执行的交易情景，已改为等待。"
-    : "";
-  if (planText || ignoredSellText || prefix) {
-    return `${prefix}${planText}${ignoredSellText}。AI 原始理由：${summary}`;
+  if (planText || ignoredSellText) {
+    return `${planText}${ignoredSellText}。AI 原始理由：${summary}`;
   }
   return summary;
+}
+
+function buildDecisionWaitReasons(input: DecisionInput): DecisionWaitReason[] {
+  const assessments = input.candidates.map((candidate) => assessCandidateBuy(candidate));
+  const categories: DecisionWaitReason["category"][] = ["data", "calibration", "market", "quant", "risk", "execution", "analysis"];
+  const labels: Record<DecisionWaitReason["category"], string> = {
+    data: "证据或时效未闭合",
+    calibration: "扣费后期望值尚未校准为正",
+    market: "价格或量能条件未满足",
+    quant: "量化分数/动作未达到门槛",
+    risk: "组合、策略健康或冷静期限制",
+    execution: "止损、目标、费用或整手约束不合格",
+    analysis: "结构化单股状态尚未进入条件入场"
+  };
+  return categories.flatMap((category) => {
+    const candidateDetails = assessments.filter((assessment) => assessment.blockerDetails.some((item) => item.category === category));
+    if (!candidateDetails.length) return [];
+    const codes = [...new Set(candidateDetails.flatMap((assessment) => assessment.blockerDetails.filter((item) => item.category === category).map((item) => item.code)))];
+    return [{ category, candidateCount: candidateDetails.length, codes, message: labels[category] }];
+  });
+}
+
+function buildDeterministicWaitSummary(input: DecisionInput) {
+  if (!input.candidates.length) return "当前没有候选标的，无法形成交易计划。";
+  const reasons = buildDecisionWaitReasons(input);
+  const ordered = reasons
+    .filter((item) => item.candidateCount > 0)
+    .slice(0, 4)
+    .map((item) => `${item.candidateCount}/${input.candidates.length} 只${item.message}`);
+  const marketText = input.marketContext.marketRegime === "risk_off"
+    ? "确定性市场基准处于偏防守状态，并提高了买入门槛。"
+    : `确定性市场基准为${marketRegimeLabel(input.marketContext.marketRegime)}，没有单独禁止买入。`;
+  return `当前没有可执行计划。主要阻断：${ordered.length ? ordered.join("；") : "没有候选通过全部结构化门控"}。${marketText}`;
 }
 
 function describeStructuredPlan(
@@ -1771,13 +1885,13 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
   const sellCandidates = input.candidates.filter(candidateSupportsSell);
   const ranked = input.candidates
     .filter(candidateSupportsBuy)
-    .sort((a, b) => (b.quantSignal?.buyScore ?? 0) - (a.quantSignal?.buyScore ?? 0) || (b.latestAnalysis?.confidence ?? 0) - (a.latestAnalysis?.confidence ?? 0));
+    .sort((a, b) => (b.quantSignal?.buyScore ?? 0) - (a.quantSignal?.buyScore ?? 0));
   const best = ranked[0];
   const sellTarget = sellCandidates[0];
-  if ((!best?.price || (best.latestAnalysis?.confidence ?? 0) < 0.55) && !sellTarget?.price) {
+  if (!best?.price && !sellTarget?.price) {
     return normalizeDecision(
       {
-        summary: "当前没有足够清晰的买入候选，建议等待更高置信度的信号。",
+        summary: buildDeterministicWaitSummary(input),
         recommendedAction: "wait",
         totalBudgetToUse: 0,
         cashReserve: input.availableCash,
@@ -1797,7 +1911,7 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
   }
 
   if (sellTarget?.price) {
-    const sellShares = fallbackSellShares(sellTarget.holdingShares ?? 0, stringifyAdvice(sellTarget.latestAnalysis?.holdAdvice));
+    const sellShares = sellTarget.latestAnalysis?.tradePlan?.exit.shares || sellTarget.quantSignal?.suggestedSellShares || 0;
     return normalizeDecision(
       {
         summary: `本地规则检测到 ${sellTarget.symbol} 持仓风险信号，优先生成减仓观察计划，仍需等待真实 AI 服务恢复后复核。`,
@@ -1808,7 +1922,7 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
         sellOrders: [
           {
             symbol: sellTarget.symbol,
-            action: /止损|离场|回避/.test(stringifyAdvice(sellTarget.latestAnalysis?.holdAdvice)) ? "sell" : "reduce",
+            action: sellTarget.latestAnalysis?.tradePlan?.exit.action === "sell" || sellTarget.quantSignal?.action === "sell" ? "sell" : "reduce",
             amount: sellShares * sellTarget.price,
             shares: sellShares,
             triggerPrice: sellTarget.price,
@@ -1879,7 +1993,7 @@ function buildFallbackDecision(input: DecisionInput, reason: string) {
             price: best.price ?? 0,
             triggerPrice: best.price
           }),
-          reason: `${best.isHolding ? "已持仓，按本地规则仅视为增持候选。" : "未持仓，按本地规则视为新买入候选。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "趋势和置信度在候选中相对更高。"}`,
+          reason: `${best.isHolding ? "已持仓，结构化单股状态与本地规则均允许增持。" : "未持仓，结构化单股状态与本地规则均允许条件入场。"}${best.latestAnalysis?.summary ? ` ${best.latestAnalysis.summary}` : "结构化交易计划已通过确定性门控。"}`,
           riskControl: "若跌破最近分析给出的止损或关键支撑，停止加仓并复核。",
           invalidIf: "AI 服务恢复后结论相反，或价格快速偏离计划买入区间。"
         }

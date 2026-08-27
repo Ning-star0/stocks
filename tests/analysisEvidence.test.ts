@@ -73,6 +73,20 @@ test("evidence package carries 60 recent candles and deterministic market featur
   assert.match(evidence.evidenceHash, /^[a-f0-9]{64}$/);
 });
 
+test("ETF uses an explicit fund evidence gate instead of company fundamental blockers", () => {
+  const input = completeEvidenceInput();
+  const etfQuote = { ...input.quote, symbol: "515880.SH", name: "通信ETF" };
+  const evidence = buildAnalysisEvidencePackage({ ...input, symbol: etfQuote.symbol, quote: etfQuote });
+
+  assert.equal(evidence.instrument.instrumentType, "etf");
+  assert.equal(evidence.dataQuality.instrumentType, "etf");
+  assert.equal(evidence.dataQuality.instrumentEvidenceComplete, false);
+  assert.equal(evidence.dataQuality.status, "insufficient");
+  assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("ETF 产品资料")));
+  assert.ok(!evidence.dataQuality.entryBlockers.some((item) => item.includes("上市公司基本面")));
+  assert.ok(!evidence.dataQuality.entryBlockers.includes("尚未核对最新法定公告"));
+});
+
 test("missing disclosure and current news refresh become deterministic entry blockers", () => {
   const evidence = buildAnalysisEvidencePackage({
     symbol: quote.symbol,

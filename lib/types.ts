@@ -170,6 +170,7 @@ export interface AnalysisTradePlanLeg {
   calibratedWinProbability?: number | null;
   expectedValue?: number | null;
   validationSampleSize?: number | null;
+  calibrationVersion?: string | null;
   sellRatioPct?: number | null;
   estimatedPnl?: number | null;
   reason: string;
@@ -235,6 +236,10 @@ export interface AiAnalysisResult {
   fallbackReason?: string;
   dataQuality?: {
     status: "complete" | "partial" | "insufficient" | "conflicted";
+    instrumentType: "a_share_stock" | "etf" | "index" | "unknown";
+    instrumentClassificationSource: "exchange_symbol" | "unknown";
+    instrumentEvidencePolicyVersion: string;
+    instrumentEvidenceComplete: boolean;
     quoteFresh: boolean;
     klineFresh: boolean;
     latestDisclosureChecked: boolean;
