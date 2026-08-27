@@ -16,9 +16,10 @@ for required_language in chi_sim eng; do
 done
 echo "=== 拉取代码 ===" && git pull origin main
 echo "=== 安装依赖 ===" && npm ci
-echo "=== 清理旧构建 ===" && rm -rf .next
 echo "=== 生成 Prisma ===" && npx prisma generate
 echo "=== 数据库迁移 ===" && npx prisma migrate deploy
+echo "=== 隔离数据库端到端验收 ===" && npm run test:db:isolated
+echo "=== 清理旧构建 ===" && rm -rf .next
 echo "=== 构建 ===" && npm run build
 echo "=== 准备 standalone 环境 ==="
 cp .env .next/standalone/.env
