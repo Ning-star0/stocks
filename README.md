@@ -112,9 +112,13 @@ npm run dev
 | `DISCLOSURE_TESSERACT_BIN` | Tesseract 可执行文件名或绝对路径 | `tesseract` |
 | `TAVILY_API_KEY` | 联网搜索（可选） | - |
 | `TAVILY_PROJECT_ID` | Tavily 用量归因项目 ID | `stocks` |
+| `TAVILY_USAGE_SYNC_TTL_SECONDS` | Tavily 官方月用量同步缓存秒数 | `900` |
 | `NEWS_DAILY_CALL_LIMIT` | 天行成功请求日硬上限；`0` 表示不设本地上限 | `100` |
+| `NEWS_MONTHLY_CALL_LIMIT` | 天行成功请求月硬上限；`0` 表示不设本地上限 | `0` |
+| `WEB_SEARCH_DAILY_CALL_LIMIT` | Tavily 日硬上限；`0` 表示不设本地上限 | `0` |
 | `WEB_SEARCH_MONTHLY_CALL_LIMIT` | Tavily 月硬上限；`0` 表示不设本地上限 | `1000` |
 | `NEWS_CRITICAL_QUOTA_RESERVE_PCT` | 为手动关键风险核验保留的额度比例 | `20` |
+| `NEWS_QUOTA_SOFT_THRESHOLD_PCT` | 普通请求的提前降级阈值；不能晚于强制 70% 提醒 | `70` |
 | `NEWS_MAX_TIANAPI_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的天行请求 | `2` |
 | `NEWS_MAX_TAVILY_CALLS_PER_REFRESH` | 单只股票单次刷新最多新增的 Tavily 请求 | `1` |
 | `NEWS_CRITICAL_CACHE_TTL_SECONDS` | 公司重大风险候选缓存秒数 | `3600` |
@@ -139,6 +143,12 @@ npm run dev
 | 价格、指标、费用、仓位、风险、门控、最终订单状态 | 不交给模型 | 始终由服务端确定性代码计算 |
 
 普通“重新分析”默认刷新证据并应用上述实质变化门控，不会无条件穿透缓存。只有 API 显式传入 `forceRefresh: true` 才强制重新调用；该参数不改变 Flash/Pro 路由。用量页按模型显示 DeepSeek 返回的缓存命中/未命中 Token，应用缓存不计为模型调用。
+
+### 新闻额度口径与告警
+
+用量页使用版本化 `api-quota-visibility-v1` 口径，把项目共享的本地成功日志、15 分钟内有效预占、Tavily 官方月用量和服务商官方上限分开显示。门控与页面都采用更保守的生效值：`max(本地本月成功量, 官方本月用量) + 有效预占`。官方高于本地的差异只标记为共享密钥或其他项目的未归因消耗，不能算到本项目头上；Tavily 官方接口不提供日维度时，页面明确显示“服务商未提供日维度”，不会用本地今日值冒充官方今日值。官方同步失败时保留本地门控并展示失败原因，不能写成额度充足。
+
+页面固定显示 70%、85%、95% 三档提醒。95% 后即使把可配置储备比例设为 0，普通查询仍会停止，只保留关键风险核验；默认 20% 关键储备会更早停止普通查询。预计剩余股票刷新次数按所有已配置来源的单股最坏调用上限计算（默认天行 2 次、Tavily 1 次），取日/月和各来源中最紧的容量，因此是预算上限估算，不是保证还能获得多少条有效新闻。行情和 K 线未单独配置额度时不再误用联网搜索的额度上限。
 
 同一批次内已识别为相同行业的股票会共享一次主题新闻查询，再按股票名称、代码和行业关键词分别过滤。`POST /api/news/fetch` 只有在同时指定单只 `symbol` 时才接受 `forceCriticalRefresh: true`；该参数仅用于明确的重大风险核验，禁止批量穿透缓存。
 

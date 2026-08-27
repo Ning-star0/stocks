@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ApiQuotaVisibility, NewsRefreshCapacity, QuotaAlertLevel } from "@/lib/apiQuotaVisibility";
 import { readJsonResponse } from "@/lib/clientApi";
 
 type UsageItem = {
@@ -19,11 +20,13 @@ type UsageItem = {
   monthlyLimit: number | null;
   remainingToday: number | null;
   remainingMonth: number | null;
+  quotaVisibility?: ApiQuotaVisibility;
 };
 
 type UsageResponse = {
   generatedAt: string;
   items: UsageItem[];
+  newsQuota?: NewsRefreshCapacity;
   aiModels?: ModelUsageItem[];
   aiCost?: {
     currency: string;
@@ -99,7 +102,7 @@ export function ApiUsagePanel() {
               API 用量与剩余额度
             </CardTitle>
             <p className="mt-2 text-xs text-muted-foreground">
-              剩余额度按本地配置的额度上限计算；未配置额度时显示“未设置”。
+              新闻额度同时核对本项目本地账本与服务商官方用量；共享密钥产生的差异会单独显示。
             </p>
           </div>
           <Button className="shrink-0" size="sm" variant="outline" onClick={load} disabled={loading}>
@@ -115,6 +118,7 @@ export function ApiUsagePanel() {
         ) : (
           <>
             {data?.aiCost ? <AiCostSummary cost={data.aiCost} balance={data.aiBalance ?? null} /> : null}
+            {data?.newsQuota ? <NewsQuotaSummaryPanel summary={data.newsQuota} /> : null}
             <UsageSection title="AI 消耗" description="模型调用、Token 与本地估算费用。适合判断今天是否消耗异常。" items={aiItems} compact />
             <UsageSection title="外部接口" description="行情、历史 K 线、新闻和联网检索的调用情况。联网检索默认关闭，只在启用兜底搜索时计数。" items={externalItems} />
             <AiModelUsageTable rows={data?.aiModels ?? []} currency={data?.aiCost?.currency ?? ""} />
@@ -123,6 +127,46 @@ export function ApiUsagePanel() {
         {data?.generatedAt ? <div className="text-xs text-muted-foreground">统计时间：{new Date(data.generatedAt).toLocaleString("zh-CN")}</div> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function NewsQuotaSummaryPanel({ summary }: { summary: NewsRefreshCapacity }) {
+  const capacity = summary.estimatedRoutineStockRefreshes;
+  const statusText = quotaAlertText(summary.alertLevel);
+  const detail = summary.basis === "no_external_provider"
+    ? "当前没有可纳入预算估算的外部新闻源。"
+    : summary.basis === "limits_not_configured"
+      ? "已配置新闻源，但额度上限不完整，无法可靠估算剩余刷新次数。"
+      : `按已配置来源的单股最坏调用上限估算${summary.limitingProvider ? `，当前瓶颈为 ${summary.limitingProvider}` : ""}。`;
+
+  return (
+    <div className="glow-card rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-sm font-medium">新闻检索额度治理</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+        </div>
+        <Badge variant={quotaAlertVariant(summary.alertLevel)}>{statusText}</Badge>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Metric
+          label="预计剩余普通股票刷新"
+          value={capacity === null ? "无法估算" : `${capacity.toLocaleString("zh-CN")} 只`}
+          strong
+        />
+        <Metric label="普通检索" value={summary.routineAllowed ? "允许" : "已停止"} />
+        <Metric label="95% 后" value="仅关键风险核验" />
+      </div>
+      {summary.providers.length ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          {summary.providers.map((provider) => (
+            <span key={provider.provider} className="rounded-full border border-border/70 bg-background/60 px-2.5 py-1">
+              {provider.provider}：每只最多 {provider.maxCallsPerRefresh} 次，剩余 {provider.estimatedRoutineRefreshes ?? "未设上限"} 只
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -244,8 +288,9 @@ function AiModelUsageTable({ rows, currency }: { rows: ModelUsageItem[]; currenc
 }
 
 function UsageCard({ item }: { item: UsageItem }) {
-  const monthPercent = item.monthlyLimit ? Math.min(100, Math.round((item.usedMonth / item.monthlyLimit) * 100)) : null;
-  const todayPercent = item.dailyLimit ? Math.min(100, Math.round((item.usedToday / item.dailyLimit) * 100)) : null;
+  const quota = item.quotaVisibility;
+  const monthPercent = quota?.usagePercentMonth ?? (item.monthlyLimit ? Math.round((item.usedMonth / item.monthlyLimit) * 100) : null);
+  const todayPercent = quota?.usagePercentToday ?? (item.dailyLimit ? Math.round((item.usedToday / item.dailyLimit) * 100) : null);
   return (
     <div className="glow-card glow-click-card rounded-xl border border-border/70 bg-background/45 p-4 transition-colors hover:border-primary/25">
       <div className="flex items-start justify-between gap-3">
@@ -253,12 +298,15 @@ function UsageCard({ item }: { item: UsageItem }) {
           <div className="font-medium">{item.label}</div>
           <div className="mt-1 text-xs text-muted-foreground">{item.provider}</div>
         </div>
-        <Badge variant={statusVariant(monthPercent)}>{monthPercent === null ? "未设额度" : `${monthPercent}%`}</Badge>
+        <Badge variant={quota ? quotaAlertVariant(quota.alertLevel) : statusVariant(monthPercent)}>
+          {quota ? quotaAlertText(quota.alertLevel) : monthPercent === null ? "未设额度" : `${formatPercent(monthPercent)}`}
+        </Badge>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <Metric label="今日已用" value={formatUsage(item.usedToday, item.unit)} />
-        <Metric label="本月已用" value={formatUsage(item.usedMonth, item.unit)} strong />
+        <Metric label={quota ? "本地今日" : "今日已用"} value={formatUsage(item.usedToday, item.unit)} />
+        <Metric label={quota ? "本地本月" : "本月已用"} value={formatUsage(item.usedMonth, item.unit)} strong />
       </div>
+      {quota ? <QuotaDetails quota={quota} unit={item.unit} /> : null}
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>今日剩余 {formatRemaining(item.remainingToday, item.unit)}</span>
         <span>本月剩余 {formatRemaining(item.remainingMonth, item.unit)}</span>
@@ -271,6 +319,45 @@ function UsageCard({ item }: { item: UsageItem }) {
   );
 }
 
+function QuotaDetails({ quota, unit }: { quota: ApiQuotaVisibility; unit: string }) {
+  const gap = quota.officialLocalGapMonth;
+  return (
+    <div className="mt-3 space-y-1 rounded-lg border border-border/70 bg-muted/15 px-3 py-2 text-xs leading-5 text-muted-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <span>官方今日</span>
+        <span className="text-right">服务商未提供日维度</span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span>官方本月</span>
+        <span className="text-right tabular-nums">
+          {quota.officialAvailable && quota.officialUsedMonth !== null ? formatUsage(quota.officialUsedMonth, unit) : "未接入 / 同步失败"}
+        </span>
+      </div>
+      {gap !== null ? (
+        <div className="flex items-center justify-between gap-3">
+          <span>官方－本地差异</span>
+          <span className={gap > 0 ? "text-amber-700 dark:text-amber-300" : "tabular-nums"}>{formatSigned(gap, unit)}</span>
+        </div>
+      ) : null}
+      <div className="flex items-center justify-between gap-3">
+        <span>生效口径（含预占）</span>
+        <span className="tabular-nums">{formatUsage(quota.effectiveUsedMonth, unit)}</span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span>关键风险储备（日 / 月）</span>
+        <span className="text-right tabular-nums">{formatRemaining(quota.criticalReserveToday, unit)} / {formatRemaining(quota.criticalReserveMonth, unit)}</span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span>普通查询剩余（日 / 月）</span>
+        <span className="text-right tabular-nums">{formatRemaining(quota.routineRemainingToday, unit)} / {formatRemaining(quota.routineRemainingMonth, unit)}</span>
+      </div>
+      {quota.officialSyncedAt ? <div>官方同步：{new Date(quota.officialSyncedAt).toLocaleString("zh-CN")}</div> : null}
+      {quota.officialError ? <div className="text-amber-700 dark:text-amber-300">官方用量不可用：{quota.officialError}</div> : null}
+      {gap !== null && gap > 0 ? <div className="text-amber-700 dark:text-amber-300">差异可能来自共享密钥的其他项目消耗，不能归因于本项目。</div> : null}
+    </div>
+  );
+}
+
 function ProgressLine({ label, percent }: { label: string; percent: number | null }) {
   return (
     <div className="grid grid-cols-[2.5rem_1fr_2.5rem] items-center gap-2 text-[11px] text-muted-foreground">
@@ -278,7 +365,7 @@ function ProgressLine({ label, percent }: { label: string; percent: number | nul
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent ?? 0}%` }} />
       </div>
-      <span className="text-right tabular-nums">{percent === null ? "--" : `${percent}%`}</span>
+      <span className="text-right tabular-nums">{percent === null ? "--" : formatPercent(percent)}</span>
     </div>
   );
 }
@@ -302,9 +389,34 @@ function formatRemaining(value: number | null, unit: string) {
 
 function statusVariant(percent: number | null) {
   if (percent === null) return "secondary";
-  if (percent >= 90) return "danger";
+  if (percent >= 95) return "danger";
   if (percent >= 70) return "warning";
   return "success";
+}
+
+function quotaAlertVariant(level: QuotaAlertLevel) {
+  if (level === "critical_95" || level === "exhausted") return "danger";
+  if (level === "notice_70" || level === "warning_85") return "warning";
+  if (level === "normal") return "success";
+  return "secondary";
+}
+
+function quotaAlertText(level: QuotaAlertLevel) {
+  if (level === "exhausted") return "100% 已耗尽";
+  if (level === "critical_95") return "95% 仅关键核验";
+  if (level === "warning_85") return "85% 高消耗";
+  if (level === "notice_70") return "70% 提醒";
+  if (level === "normal") return "额度正常";
+  return "额度未设置";
+}
+
+function formatPercent(value: number) {
+  return `${Number(value.toFixed(2))}%`;
+}
+
+function formatSigned(value: number, unit: string) {
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toLocaleString("zh-CN")} ${unit}`;
 }
 
 function formatCost(value: number, currency: string) {

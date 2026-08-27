@@ -42,6 +42,17 @@ export type ApiQuotaReservation = {
   metadata: Record<string, unknown>;
 };
 
+export type OfficialApiUsageSnapshot = {
+  provider: string;
+  apiName: string;
+  available: boolean;
+  used: number | null;
+  limit: number | null;
+  checkedAt: string;
+  projectId: string | null;
+  error: string | null;
+};
+
 type ReserveApiQuotaInput = {
   userId?: string | null;
   provider: string;
@@ -55,7 +66,7 @@ type ReserveApiQuotaInput = {
   now?: Date;
 };
 
-const RESERVATION_TTL_MS = 15 * 60 * 1000;
+export const API_QUOTA_RESERVATION_TTL_MS = 15 * 60 * 1000;
 
 export async function reserveApiQuota(input: ReserveApiQuotaInput): Promise<ApiQuotaReservation> {
   const now = input.now ?? new Date();
@@ -64,9 +75,10 @@ export async function reserveApiQuota(input: ReserveApiQuotaInput): Promise<ApiQ
   const provider = input.provider.trim().toLowerCase();
   const apiName = input.apiName.trim().toLowerCase();
   const policy = quotaPolicy(provider, apiName);
-  const official = await loadOfficialUsage(provider, apiName);
+  const officialSnapshot = await getOfficialApiUsage(provider, apiName);
+  const official = officialSnapshot.available && officialSnapshot.used !== null ? officialSnapshot : null;
   const windows = quotaWindowStarts(now);
-  const activeReservationCutoff = new Date(now.getTime() - RESERVATION_TTL_MS);
+  const activeReservationCutoff = new Date(now.getTime() - API_QUOTA_RESERVATION_TTL_MS);
   const lockKey = `api_quota:${provider}:${apiName}`;
 
   const result = await prisma.$transaction(async (tx) => {
@@ -222,7 +234,7 @@ export function evaluateApiQuota(input: {
 
   const dailyRatio = ratioAfter(input.policy.dailyLimit, dailyUsed, amount);
   const monthlyRatio = ratioAfter(input.policy.monthlyLimit, monthlyUsed, amount);
-  const low = Math.max(dailyRatio, monthlyRatio) >= input.policy.softThresholdPct / 100;
+  const low = Math.max(dailyRatio, monthlyRatio) >= Math.min(input.policy.softThresholdPct, 70) / 100;
   return {
     allowed: true,
     status: low ? "quota_low" : "available",
@@ -236,11 +248,20 @@ export function evaluateApiQuota(input: {
 
 export function quotaPolicy(provider: string, apiName: string): ApiQuotaPolicy {
   const isNews = apiName === "news";
+  const isWebSearch = apiName === "web_search";
   const dailyFallback = provider === "tianapi" && isNews ? 100 : null;
-  const monthlyFallback = provider === "tavily" && apiName === "web_search" ? 1000 : null;
+  const monthlyFallback = provider === "tavily" && isWebSearch ? 1000 : null;
   return {
-    dailyLimit: envQuota(isNews ? "NEWS_DAILY_CALL_LIMIT" : "WEB_SEARCH_DAILY_CALL_LIMIT", dailyFallback),
-    monthlyLimit: envQuota(isNews ? "NEWS_MONTHLY_CALL_LIMIT" : "WEB_SEARCH_MONTHLY_CALL_LIMIT", monthlyFallback),
+    dailyLimit: isNews
+      ? envQuota("NEWS_DAILY_CALL_LIMIT", dailyFallback)
+      : isWebSearch
+        ? envQuota("WEB_SEARCH_DAILY_CALL_LIMIT", dailyFallback)
+        : null,
+    monthlyLimit: isNews
+      ? envQuota("NEWS_MONTHLY_CALL_LIMIT", monthlyFallback)
+      : isWebSearch
+        ? envQuota("WEB_SEARCH_MONTHLY_CALL_LIMIT", monthlyFallback)
+        : null,
     criticalReservePct: boundedNumber(process.env.NEWS_CRITICAL_QUOTA_RESERVE_PCT, 20, 0, 90),
     softThresholdPct: boundedNumber(process.env.NEWS_QUOTA_SOFT_THRESHOLD_PCT, 70, 1, 100)
   };
@@ -277,13 +298,18 @@ async function sumUsage(
   return row._sum.amount ?? 0;
 }
 
-async function loadOfficialUsage(provider: string, apiName: string): Promise<{ used: number; limit: number | null } | null> {
-  if (provider !== "tavily" || apiName !== "web_search") return null;
+export async function getOfficialApiUsage(provider: string, apiName: string): Promise<OfficialApiUsageSnapshot> {
+  const normalizedProvider = provider.trim().toLowerCase();
+  const normalizedApiName = apiName.trim().toLowerCase();
+  const checkedAt = new Date().toISOString();
+  if (normalizedProvider !== "tavily" || normalizedApiName !== "web_search") {
+    return unavailableOfficialUsage(normalizedProvider, normalizedApiName, checkedAt, null, "该接口未接入官方用量同步。");
+  }
   const key = normalizeSecret(process.env.TAVILY_API_KEY);
-  if (!key) return null;
+  if (!key) return unavailableOfficialUsage(normalizedProvider, normalizedApiName, checkedAt, null, "Tavily API key 未配置。");
   const projectId = normalizeProjectId(process.env.TAVILY_PROJECT_ID);
-  const cacheKey = `provider_usage:tavily:v1:${projectId || "account"}`;
-  const cached = await getCache<{ used: number; limit: number | null }>(cacheKey);
+  const cacheKey = `provider_usage:tavily:v2:${projectId || "account"}`;
+  const cached = await getCache<OfficialApiUsageSnapshot>(cacheKey);
   if (cached) return cached;
   try {
     const response = await fetch("https://api.tavily.com/usage", {
@@ -293,19 +319,37 @@ async function loadOfficialUsage(provider: string, apiName: string): Promise<{ u
       },
       cache: "no-store"
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return unavailableOfficialUsage(normalizedProvider, normalizedApiName, checkedAt, projectId, `Tavily usage HTTP ${response.status}`);
+    }
     const payload = await response.json() as {
       key?: { usage?: number; limit?: number | null };
       account?: { plan_usage?: number; plan_limit?: number | null };
     };
-    const value = {
-      used: Math.max(0, Number(payload.key?.usage ?? payload.account?.plan_usage ?? 0)),
-      limit: positiveLimit(payload.key?.limit ?? payload.account?.plan_limit)
+    const used = nonNegativeNumber(payload.key?.usage ?? payload.account?.plan_usage);
+    if (used === null) {
+      return unavailableOfficialUsage(normalizedProvider, normalizedApiName, checkedAt, projectId, "Tavily usage 响应缺少有效用量字段。");
+    }
+    const value: OfficialApiUsageSnapshot = {
+      provider: normalizedProvider,
+      apiName: normalizedApiName,
+      available: true,
+      used,
+      limit: positiveLimit(payload.key?.limit ?? payload.account?.plan_limit),
+      checkedAt,
+      projectId: projectId || null,
+      error: null
     };
     await setCache(cacheKey, value, positiveInteger(Number(process.env.TAVILY_USAGE_SYNC_TTL_SECONDS), 900));
     return value;
-  } catch {
-    return null;
+  } catch (error) {
+    return unavailableOfficialUsage(
+      normalizedProvider,
+      normalizedApiName,
+      checkedAt,
+      projectId,
+      error instanceof Error ? error.message : "Tavily usage 同步失败。"
+    );
   }
 }
 
@@ -330,7 +374,8 @@ function decision(
 
 function quotaCeiling(limit: number | null, priority: ApiQuotaPriority, reservePct: number) {
   if (limit === null) return null;
-  return priority === "critical" ? limit : Math.floor(limit * (1 - reservePct / 100));
+  const routineReservePct = Math.max(reservePct, 5);
+  return priority === "critical" ? limit : Math.floor(limit * (1 - routineReservePct / 100));
 }
 
 function remaining(limit: number | null, used: number) {
@@ -361,6 +406,12 @@ function positiveLimit(value: unknown) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function nonNegativeNumber(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const number = Math.floor(Number(value));
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
 function positiveInteger(value: unknown, fallback: number) {
   const number = Math.floor(Number(value));
   return Number.isFinite(number) && number > 0 ? number : fallback;
@@ -378,6 +429,25 @@ function normalizeSecret(value?: string) {
 
 function normalizeProjectId(value?: string) {
   return String(value ?? "stocks").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+}
+
+function unavailableOfficialUsage(
+  provider: string,
+  apiName: string,
+  checkedAt: string,
+  projectId: string | null,
+  error: string
+): OfficialApiUsageSnapshot {
+  return {
+    provider,
+    apiName,
+    available: false,
+    used: null,
+    limit: null,
+    checkedAt,
+    projectId,
+    error
+  };
 }
 
 function compactMetadata(value: Record<string, unknown>) {

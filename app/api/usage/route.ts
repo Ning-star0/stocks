@@ -3,7 +3,19 @@ import { NextResponse } from "next/server";
 import { getAiConfig } from "@/lib/ai/config";
 import { getDeepSeekBalance } from "@/lib/ai/balance";
 import { readQuota } from "@/lib/apiUsage";
-import { quotaPolicy, quotaWindowStarts } from "@/lib/apiQuota";
+import {
+  API_QUOTA_RESERVATION_TTL_MS,
+  getOfficialApiUsage,
+  quotaPolicy,
+  quotaWindowStarts,
+  type OfficialApiUsageSnapshot
+} from "@/lib/apiQuota";
+import {
+  buildApiQuotaVisibility,
+  estimateNewsRefreshCapacity,
+  type ApiQuotaVisibility,
+  type NewsRefreshCapacity
+} from "@/lib/apiQuotaVisibility";
 import { getCurrentUser } from "@/lib/currentUser";
 import { apiError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -19,6 +31,7 @@ type UsageItem = {
   monthlyLimit: number | null;
   remainingToday: number | null;
   remainingMonth: number | null;
+  quotaVisibility?: ApiQuotaVisibility;
 };
 
 type ModelUsageItem = {
@@ -45,18 +58,41 @@ export async function GET() {
     const now = new Date();
     const { dayStart: todayStart, monthStart } = quotaWindowStarts(now);
 
-    const [aiConfig, aiToday, aiMonth, apiLogs, aiBalance] = await Promise.all([
+    const [aiConfig, aiToday, aiMonth, apiLogs, aiBalance, tavilyOfficialUsage] = await Promise.all([
       getAiConfig(),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: todayStart } } }),
       prisma.aiUsageLog.findMany({ where: { userId: user.id, createdAt: { gte: monthStart } } }),
       prisma.apiUsageLog.findMany({
-        where: {
-          createdAt: { gte: monthStart },
-          OR: [{ userId: user.id }, { userId: null }]
-        }
+        where: { createdAt: { gte: monthStart } }
       }),
-      getDeepSeekBalance()
+      getDeepSeekBalance(),
+      getOfficialApiUsage("tavily", "web_search")
     ]);
+
+    const newsProvider = normalizeProvider(process.env.NEWS_PROVIDER || "mock");
+    const newsItem = buildApiItem({
+      key: "news",
+      label: "新闻接口",
+      provider: newsProvider,
+      logs: apiLogs,
+      apiName: "news",
+      dailyLimitEnv: "NEWS_DAILY_CALL_LIMIT",
+      monthlyLimitEnv: "NEWS_MONTHLY_CALL_LIMIT",
+      quotaGoverned: newsProvider === "tianapi",
+      now
+    });
+    const webSearchItem = buildApiItem({
+      key: "web_search",
+      label: "联网检索",
+      provider: hasConfiguredSecret(process.env.TAVILY_API_KEY) ? "tavily" : "未配置",
+      logs: apiLogs,
+      apiName: "web_search",
+      dailyLimitEnv: "WEB_SEARCH_DAILY_CALL_LIMIT",
+      monthlyLimitEnv: "WEB_SEARCH_MONTHLY_CALL_LIMIT",
+      quotaGoverned: hasConfiguredSecret(process.env.TAVILY_API_KEY),
+      officialUsage: tavilyOfficialUsage,
+      now
+    });
 
     const items: UsageItem[] = [
       buildAiCallsItem(aiToday.filter((row) => !row.cacheHit).length, aiMonth.filter((row) => !row.cacheHit).length),
@@ -68,7 +104,8 @@ export async function GET() {
         logs: apiLogs,
         apiName: "quote",
         dailyLimitEnv: "QUOTE_DAILY_CALL_LIMIT",
-        monthlyLimitEnv: "QUOTE_MONTHLY_CALL_LIMIT"
+        monthlyLimitEnv: "QUOTE_MONTHLY_CALL_LIMIT",
+        now
       }),
       buildApiItem({
         key: "history",
@@ -77,27 +114,26 @@ export async function GET() {
         logs: apiLogs,
         apiName: "history",
         dailyLimitEnv: "HISTORY_DAILY_CALL_LIMIT",
-        monthlyLimitEnv: "HISTORY_MONTHLY_CALL_LIMIT"
+        monthlyLimitEnv: "HISTORY_MONTHLY_CALL_LIMIT",
+        now
       }),
-      buildApiItem({
-        key: "news",
-        label: "新闻接口",
-        provider: process.env.NEWS_PROVIDER || "mock",
-        logs: apiLogs,
-        apiName: "news",
-        dailyLimitEnv: "NEWS_DAILY_CALL_LIMIT",
-        monthlyLimitEnv: "NEWS_MONTHLY_CALL_LIMIT"
-      }),
-      buildApiItem({
-        key: "web_search",
-        label: "联网检索",
-        provider: process.env.TAVILY_API_KEY ? "tavily" : "未配置",
-        logs: apiLogs,
-        apiName: "web_search",
-        dailyLimitEnv: "WEB_SEARCH_DAILY_CALL_LIMIT",
-        monthlyLimitEnv: "WEB_SEARCH_MONTHLY_CALL_LIMIT"
-      })
+      newsItem,
+      webSearchItem
     ];
+    const newsQuota: NewsRefreshCapacity = estimateNewsRefreshCapacity([
+      ...(newsProvider === "tianapi" && newsItem.quotaVisibility ? [{
+        provider: "tianapi",
+        configured: true,
+        maxCallsPerRefresh: positiveIntegerEnv("NEWS_MAX_TIANAPI_CALLS_PER_REFRESH", 2),
+        quota: newsItem.quotaVisibility
+      }] : []),
+      ...(hasConfiguredSecret(process.env.TAVILY_API_KEY) && webSearchItem.quotaVisibility ? [{
+        provider: "tavily",
+        configured: true,
+        maxCallsPerRefresh: positiveIntegerEnv("NEWS_MAX_TAVILY_CALLS_PER_REFRESH", 1),
+        quota: webSearchItem.quotaVisibility
+      }] : [])
+    ]);
 
     return NextResponse.json({
       generatedAt: now.toISOString(),
@@ -106,6 +142,7 @@ export async function GET() {
         monthStart: monthStart.toISOString()
       },
       items,
+      newsQuota,
       aiModels: buildAiModelItems(aiToday, aiMonth),
       aiCost: {
         currency: aiConfig.costCurrency,
@@ -157,20 +194,57 @@ function buildApiItem(input: {
   apiName: string;
   dailyLimitEnv: string;
   monthlyLimitEnv: string;
+  quotaGoverned?: boolean;
+  officialUsage?: OfficialApiUsageSnapshot | null;
+  now: Date;
 }): UsageItem {
-  const now = new Date();
-  const { dayStart: todayStart } = quotaWindowStarts(now);
-  const matched = input.logs.filter((log) => log.apiName === input.apiName && log.status === "success");
-  const policy = quotaPolicy(input.provider, input.apiName);
+  const { dayStart: todayStart } = quotaWindowStarts(input.now);
+  const normalizedProvider = normalizeProvider(input.provider);
+  const providerLogs = input.logs.filter((log) => log.apiName === input.apiName && normalizeProvider(log.provider) === normalizedProvider);
+  const succeeded = providerLogs.filter((log) => log.status === "success");
+  const activeReservationCutoff = new Date(input.now.getTime() - API_QUOTA_RESERVATION_TTL_MS);
+  const reserved = providerLogs.filter((log) => log.status === "reserved" && log.createdAt >= activeReservationCutoff);
+  const localUsedToday = sumAmount(succeeded.filter((log) => log.createdAt >= todayStart));
+  const localUsedMonth = sumAmount(succeeded);
+  const dailyLimit = readQuota(input.dailyLimitEnv);
+  const monthlyLimit = readQuota(input.monthlyLimitEnv);
+
+  if (input.quotaGoverned) {
+    const policy = quotaPolicy(normalizedProvider, input.apiName);
+    const quotaVisibility = buildApiQuotaVisibility({
+      localUsedToday,
+      localUsedMonth,
+      reservedToday: sumAmount(reserved.filter((log) => log.createdAt >= todayStart)),
+      reservedMonth: sumAmount(reserved),
+      dailyLimit: dailyLimit ?? policy.dailyLimit,
+      monthlyLimit: monthlyLimit ?? policy.monthlyLimit,
+      criticalReservePct: policy.criticalReservePct,
+      official: input.officialUsage ?? null
+    });
+    return {
+      key: input.key,
+      label: input.label,
+      provider: input.provider,
+      usedToday: localUsedToday,
+      usedMonth: localUsedMonth,
+      unit: "次",
+      dailyLimit: quotaVisibility.effectiveDailyLimit,
+      monthlyLimit: quotaVisibility.effectiveMonthlyLimit,
+      remainingToday: quotaVisibility.remainingToday,
+      remainingMonth: quotaVisibility.remainingMonth,
+      quotaVisibility
+    };
+  }
+
   return withRemaining({
     key: input.key,
     label: input.label,
     provider: input.provider,
-    usedToday: sumAmount(matched.filter((log) => log.createdAt >= todayStart)),
-    usedMonth: sumAmount(matched),
+    usedToday: localUsedToday,
+    usedMonth: localUsedMonth,
     unit: "次",
-    dailyLimit: readQuota(input.dailyLimitEnv) ?? policy.dailyLimit,
-    monthlyLimit: readQuota(input.monthlyLimitEnv) ?? policy.monthlyLimit
+    dailyLimit,
+    monthlyLimit
   });
 }
 
@@ -265,4 +339,18 @@ function decimalToNumber(value: unknown) {
 
 function roundCost(value: number) {
   return Number(value.toFixed(6));
+}
+
+function normalizeProvider(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function hasConfiguredSecret(value?: string) {
+  const secret = String(value ?? "").trim().replace(/^["']|["']$/g, "");
+  return Boolean(secret) && !secret.toLowerCase().includes("change_me");
+}
+
+function positiveIntegerEnv(name: string, fallback: number) {
+  const value = Math.floor(Number(process.env[name]));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
