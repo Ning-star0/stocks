@@ -161,8 +161,13 @@ test("persisted incomplete evidence stays user-scoped and blocks conditional ent
       now
     });
     assert.equal(evidence.dataQuality.status, "insufficient");
+    assert.equal(evidence.dataQuality.newsQuotaStatus, "quota_exhausted");
+    assert.equal(evidence.dataQuality.fundamentalsAvailable, false);
+    assert.equal(evidence.dataQuality.criticalDisclosuresRead, false);
+    assert.ok(evidence.dataQuality.missingFields.includes("fundamentals"));
+    assert.ok(evidence.dataQuality.missingFields.includes("criticalDisclosureContent"));
     assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("新闻检索额度已用尽")));
-    assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("缺少基本面")));
+    assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("基本面风险过滤")));
     assert.ok(evidence.dataQuality.entryBlockers.some((item) => item.includes("关键公告仅有元数据")));
 
     const plan = buildAnalysisTradePlan(analysisCandidate(), analysisInput(evidence));

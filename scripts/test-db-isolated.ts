@@ -10,6 +10,7 @@ const DB_TEST_FILES = [
   "tests/analysisPersistenceDb.test.ts",
   "tests/shadowForecastDb.test.ts"
 ];
+const BASELINE_PATH = path.join(process.cwd(), "prisma", "baseline", "current-schema.sql");
 
 async function main() {
   const baseDatabaseUrl = process.env.DATABASE_URL || await readEnvValue("DATABASE_URL");
@@ -22,15 +23,15 @@ async function main() {
   let schemaCreated = false;
 
   try {
+    await verifyCurrentSchemaBaseline();
     await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
     schemaCreated = true;
     console.log(`[db-e2e] 已创建隔离 schema：${schema}`);
 
-    // Legacy migration names predate the timestamp convention and are not
-    // replayable in lexical order on an empty database. For behavioral E2E
-    // tests, materialize the authoritative current Prisma schema instead of
-    // mutating historical migration checksums or touching production tables.
-    await runCommand("prisma", ["db", "push", "--skip-generate"], {
+    // Production migrations remain immutable. Isolated behavioral tests apply
+    // a reviewed baseline generated from the current Prisma schema; the
+    // baseline is verified above before any database object is created.
+    await runCommand("prisma", ["db", "execute", "--file", BASELINE_PATH, "--schema", "prisma/schema.prisma"], {
       DATABASE_URL: isolatedDatabaseUrl
     });
     await runCommand("tsx", ["--test", ...DB_TEST_FILES], {
@@ -45,6 +46,17 @@ async function main() {
     }
     await admin.$disconnect();
   }
+}
+
+async function verifyCurrentSchemaBaseline() {
+  const [committed, generated] = await Promise.all([
+    readFile(BASELINE_PATH, "utf8"),
+    runCommandCapture("prisma", ["migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/schema.prisma", "--script"], {})
+  ]);
+  if (normalizeSql(committed) !== normalizeSql(generated)) {
+    throw new Error("当前 Prisma schema 与 prisma/baseline/current-schema.sql 不一致；请重新生成并审查隔离测试基线。");
+  }
+  console.log("[db-e2e] 当前 Prisma schema 与已审查基线一致。");
 }
 
 async function runCommand(binary: "prisma" | "tsx", args: string[], extraEnv: Record<string, string>) {
@@ -66,6 +78,35 @@ async function runCommand(binary: "prisma" | "tsx", args: string[], extraEnv: Re
       else reject(new Error(`${binary} ${args.join(" ")} 执行失败（code=${code ?? "null"}, signal=${signal ?? "none"}）。`));
     });
   });
+}
+
+async function runCommandCapture(binary: "prisma", args: string[], extraEnv: Record<string, string>) {
+  const executable = path.join(
+    process.cwd(),
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? `${binary}.cmd` : binary
+  );
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(executable, args, {
+      cwd: process.cwd(),
+      env: { ...process.env, ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr?.on("data", (chunk) => { stderr += String(chunk); });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`${binary} ${args.join(" ")} 执行失败（code=${code ?? "null"}, signal=${signal ?? "none"}）。${stderr ? `\n${stderr}` : ""}`));
+    });
+  });
+}
+
+function normalizeSql(value: string) {
+  return value.replace(/\r\n/g, "\n").trim();
 }
 
 function withSchema(databaseUrl: string, schema: string) {
