@@ -278,6 +278,26 @@ test("context hash changes when the peer valuation evidence changes", () => {
   assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
 });
 
+test("context hash changes when verified news industry classification changes", () => {
+  const firstReceipt = newsReceipt();
+  const secondReceipt = newsReceipt({
+    fetch: {
+      ...newsReceipt().fetch!,
+      sharedTopicKey: "sector-topic-v2:eastmoney-em2016:fixture",
+      sharedTopicSource: "verified_industry_v1",
+      industryClassification: {
+        ...newsReceipt().fetch!.industryClassification,
+        industryName: "航空运输",
+        evidenceHash: "f".repeat(64)
+      }
+    }
+  });
+  const first = buildAnalysisEvidencePackage({ ...completeEvidenceInput(), newsEvidenceRefresh: firstReceipt });
+  const second = buildAnalysisEvidencePackage({ ...completeEvidenceInput(), newsEvidenceRefresh: secondReceipt });
+
+  assert.notEqual(contextHash(first, 100_000, "偏好低回撤"), contextHash(second, 100_000, "偏好低回撤"));
+});
+
 test("context hash changes when an adjusted-profit source document changes", () => {
   const input = completeEvidenceInput();
   const source = {
@@ -896,7 +916,7 @@ function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNe
     refreshCompleted: true,
     deadlineExceeded: false,
     fetch: {
-      schemaVersion: "news-fetch-v3",
+      schemaVersion: "news-fetch-v4",
       symbol: quote.symbol,
       completed: true,
       fetched: 1,
@@ -912,7 +932,23 @@ function newsReceipt(overrides: Partial<StockNewsEvidenceRefresh> = {}): StockNe
       tianapiCalls: 2,
       tavilyCalls: 0,
       sharedTopicKey: "sector-topic-v1:banking",
+      sharedTopicSource: "alias_map_v1",
       sharedTopicReused: false,
+      industryClassification: {
+        schemaVersion: "news-industry-classification-v1",
+        status: "verified",
+        symbol: quote.symbol,
+        industryName: "银行",
+        provider: "EASTMONEY",
+        classificationMethod: "EASTMONEY_EM2016",
+        classificationSourceUrl: "https://emweb.securities.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax?code=SH600000",
+        fetchedAt: "2026-08-24T23:20:00+08:00",
+        validUntil: "2026-08-25T15:20:00.000Z",
+        maximumAgeHours: 24,
+        sourceEvidenceHash: "d".repeat(64),
+        evidenceHash: "e".repeat(64),
+        missingReason: null
+      },
       skippedQueryCount: 0,
       sourceProviders: ["tianapi"],
       failures: []

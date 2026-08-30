@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import type { NewsIndustryClassificationEvidence } from "@/lib/news/industryClassification";
 import type { NewsItem } from "@/lib/types";
 
 const fundSuffixTerms = [
@@ -135,15 +138,34 @@ export function buildSectorNewsKeywords(input: { symbol: string; name?: string |
   return [...output].map((item) => item.trim()).filter((item) => item.length >= 2).slice(0, 16);
 }
 
-export function resolveSharedSectorTopic(keywords: string[]) {
+export function resolveSharedSectorTopic(
+  keywords: string[],
+  industryClassification?: NewsIndustryClassificationEvidence | null
+) {
   const joined = normalizeText(keywords.join(" "));
   const group = sectorAliases.find((item) =>
     [...item.match, ...item.aliases].some((keyword) => joined.includes(normalizeText(keyword)))
   );
-  if (!group) return null;
+  if (group) {
+    return {
+      key: `sector-topic-v1:${group.key}`,
+      keywords: uniqueText([...group.match, ...group.aliases]).slice(0, 5),
+      source: "alias_map_v1" as const,
+      classificationEvidenceHash: industryClassification?.status === "verified"
+        ? industryClassification.evidenceHash
+        : null
+    };
+  }
+  if (industryClassification?.status !== "verified" || !industryClassification.industryName) return null;
+  const normalizedIndustry = normalizeText(industryClassification.industryName);
+  const industryKey = createHash("sha256").update(normalizedIndustry).digest("hex").slice(0, 16);
   return {
-    key: `sector-topic-v1:${group.key}`,
-    keywords: uniqueText([...group.match, ...group.aliases]).slice(0, 5)
+    key: `sector-topic-v2:eastmoney-em2016:${industryKey}`,
+    // TianAPI currently consumes one topic keyword by default, so the verified
+    // provider industry must remain first and stock-specific names stay out.
+    keywords: [industryClassification.industryName],
+    source: "verified_industry_v1" as const,
+    classificationEvidenceHash: industryClassification.evidenceHash
   };
 }
 

@@ -11,6 +11,7 @@ import { findReusableAnalysisByContextHash } from "@/lib/analysis/reusableAnalys
 import { disconnectRedisClient } from "@/lib/cache/redis";
 import { getMemoryContent, updateMemory } from "@/lib/memory";
 import { parseNewsEventContext } from "@/lib/news/eventTimeline";
+import { loadStoredIndustryClassifications } from "@/lib/news/industryClassification";
 import { getStoredStockNewsEvidenceRefresh, type StockNewsEvidenceRefresh } from "@/lib/news/prepareStockNewsEvidence";
 import { saveNewsAnalysis } from "@/lib/news/store";
 import { prisma } from "@/lib/prisma";
@@ -180,6 +181,32 @@ test("persisted incomplete evidence stays user-scoped and blocks conditional ent
   }
 });
 
+test("persisted industry classification is fresh and user scoped", {
+  skip: !runDbTests
+}, async () => {
+  const users = await createTestUsers("industry-classification");
+  const fundamentals = availableFundamentals();
+  fundamentals.valuation.peerEvidence = peerIndustryEvidence();
+  try {
+    await prisma.stockEvidenceState.create({
+      data: {
+        userId: users.first.id,
+        symbol,
+        fundamentalsRefreshAt: new Date(fundamentals.fetchedAt),
+        fundamentalsJson: toJson(fundamentals)
+      }
+    });
+
+    const first = await loadStoredIndustryClassifications({ userId: users.first.id, symbols: ["600000"], asOf: now });
+    const second = await loadStoredIndustryClassifications({ userId: users.second.id, symbols: [symbol], asOf: now });
+    assert.equal(first.get("600000")?.status, "verified");
+    assert.equal(first.get("600000")?.industryName, "银行");
+    assert.equal(second.get(symbol)?.status, "missing");
+  } finally {
+    await cleanupUsers(users.ids);
+  }
+});
+
 test("structured news expectation evidence persists through the database migration", {
   skip: !runDbTests
 }, async () => {
@@ -340,6 +367,42 @@ function availableFundamentals(): FundamentalEvidence {
   };
 }
 
+function peerIndustryEvidence(): NonNullable<FundamentalEvidence["valuation"]["peerEvidence"]> {
+  return {
+    schemaVersion: "peer-valuation-v1",
+    algorithmVersion: "eastmoney-provider-ranked-positive-multiples-v1",
+    status: "partial",
+    provider: "EASTMONEY",
+    sourceUrl: "https://datacenter-web.eastmoney.com/api/data/v1/get",
+    classificationSourceUrl: "https://emweb.securities.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax?code=SH600000",
+    fetchedAt: "2026-08-24T23:32:00+08:00",
+    maximumAgeHours: 24,
+    industryName: "银行",
+    classificationMethod: "EASTMONEY_EM2016",
+    selectionMethod: "EASTMONEY_INDUSTRY_COMPARABLE_RANK",
+    peBasis: "PE_TTM",
+    pbBasis: "PB_MRQ",
+    minimumSampleSize: 5,
+    targetSymbol: symbol,
+    targetName: quote.name ?? null,
+    targetPeTtm: 10,
+    targetPbMrq: 2,
+    financialReportPeriod: "2026-06-30",
+    peComparison: null,
+    pbComparison: null,
+    comparables: [],
+    crossCheck: {
+      maximumDifferencePct: 15,
+      peDifferencePct: 0,
+      pbDifferencePct: 0,
+      peMatched: true,
+      pbMatched: true
+    },
+    contentHash: "a".repeat(64),
+    missingReason: "固定样本只验证行业分类复用。"
+  };
+}
+
 function unavailableFundamentals(): FundamentalEvidence {
   return {
     ...availableFundamentals(),
@@ -423,7 +486,7 @@ function exhaustedNewsReceipt(): StockNewsEvidenceRefresh {
     refreshCompleted: false,
     deadlineExceeded: false,
     fetch: {
-      schemaVersion: "news-fetch-v3",
+      schemaVersion: "news-fetch-v4",
       symbol,
       completed: false,
       fetched: 0,
@@ -445,7 +508,23 @@ function exhaustedNewsReceipt(): StockNewsEvidenceRefresh {
       tianapiCalls: 0,
       tavilyCalls: 0,
       sharedTopicKey: "sector-topic-v1:banking",
+      sharedTopicSource: "alias_map_v1",
       sharedTopicReused: false,
+      industryClassification: {
+        schemaVersion: "news-industry-classification-v1",
+        status: "missing",
+        symbol,
+        industryName: null,
+        provider: null,
+        classificationMethod: null,
+        classificationSourceUrl: null,
+        fetchedAt: null,
+        validUntil: null,
+        maximumAgeHours: 24,
+        sourceEvidenceHash: null,
+        evidenceHash: null,
+        missingReason: "固定样本模拟行业分类缺失"
+      },
       skippedQueryCount: 1,
       sourceProviders: [],
       failures: ["固定样本模拟额度耗尽"]

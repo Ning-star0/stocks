@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DecisionChange } from "@/lib/decision/change";
 import type { FundamentalCashFlowQualityStatus } from "@/lib/analysis/fundamentalCoverage";
 import { getPrimaryAdvice, type PositionContext } from "@/lib/positionAdvice";
-import type { AiAnalysisResult } from "@/lib/types";
+import type { AiAnalysisResult, NewsEvidenceCoverageSummary } from "@/lib/types";
 import { formatPriceValue, toNumber } from "@/lib/utils";
 
 export function AiAnalysisPanel({
@@ -222,7 +222,8 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
           <ScopeLine label="待补 / 失败" value={`${newsCoverage.pendingRelevantCount} / ${newsCoverage.failedAnalysisCount + newsCoverage.fallbackAnalysisCount}`} />
           <ScopeLine label="天行 / Tavily" value={`${newsCoverage.tianapiCalls ?? 0} / ${newsCoverage.tavilyCalls ?? 0}`} />
           <ScopeLine label="缓存命中" value={`${newsCoverage.cacheHitCount ?? 0}`} />
-          <ScopeLine label="共享行业查询" value={newsCoverage.sharedTopicReused ? "已复用" : "未复用"} />
+          <ScopeLine label="共享行业查询" value={newsCoverage.sharedTopicKey ? (newsCoverage.sharedTopicReused ? "已复用" : "本批首次请求") : "未启用，已退回单股查询"} />
+          <ScopeLine label="行业分类" value={formatIndustryClassification(newsCoverage.industryClassification)} />
           <ScopeLine label="额度跳过" value={`${newsCoverage.skippedQueryCount ?? 0}`} />
           <ScopeLine label="新闻来源" value={(newsCoverage.sourceProviders ?? []).join(" / ") || "未记录"} />
           <ScopeLine label="事件 / 重复转载" value={`${newsCoverage.eventClusterCount ?? 0} / ${newsCoverage.duplicateArticleCount ?? 0}`} />
@@ -426,6 +427,13 @@ function EvidenceQualityPanel({ analysis }: { analysis: AiAnalysisResult }) {
       </div>
     </Block>
   );
+}
+
+function formatIndustryClassification(evidence: NewsEvidenceCoverageSummary["industryClassification"]) {
+  if (!evidence) return "旧分析未记录";
+  if (evidence.status === "verified") return `${evidence.industryName ?? "未知"} · 东方财富 EM2016 · 有效至 ${formatTime(evidence.validUntil)}`;
+  const label = evidence.status === "stale" ? "已过期" : evidence.status === "conflicted" ? "冲突" : "缺失";
+  return `${label} · ${evidence.missingReason ?? "已退回单股主题查询"}`;
 }
 
 function instrumentTypeLabel(value: NonNullable<AiAnalysisResult["dataQuality"]>["instrumentType"]) {

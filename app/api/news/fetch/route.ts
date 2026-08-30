@@ -9,6 +9,7 @@ import { JOB_PRIORITY, JOB_TYPES } from "@/lib/jobs/jobTypes";
 import { getNewsProvider } from "@/lib/news";
 import { createNewsRequestContext } from "@/lib/news/NewsProvider";
 import { createNewsBatchContext, searchSharedTopicNews } from "@/lib/news/batchCoordinator";
+import { loadStoredIndustryClassifications } from "@/lib/news/industryClassification";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import {
   buildSectorNewsKeywords,
@@ -54,7 +55,8 @@ export async function POST(request: NextRequest) {
 
     const symbols = [...new Set(watchlistItems.map((item) => item.symbol))];
     if (requestedSymbol && !symbols.length) symbols.push(requestedSymbol);
-    const newsBatch = createNewsBatchContext();
+    const industryClassifications = await loadStoredIndustryClassifications({ userId: user.id, symbols, asOf: to });
+    const newsBatch = createNewsBatchContext(undefined, industryClassifications);
     const fetched: NewsItem[] = [];
     let filteredOut = 0;
     let webSearchFallback = 0;
@@ -68,6 +70,8 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     for (const symbol of symbols) {
+      const industryClassification = industryClassifications.get(symbol.toUpperCase()) ?? null;
+      const industryName = industryClassification?.status === "verified" ? industryClassification.industryName : null;
       const context = createNewsRequestContext({
         userId: user.id,
         symbol,
@@ -77,16 +81,21 @@ export async function POST(request: NextRequest) {
       });
       const name = await resolveSymbolName(symbol);
       const keywords = buildStockNewsKeywords({ symbol, name });
-      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
+      const sectorKeywords = buildSectorNewsKeywords({
+        symbol,
+        name,
+        extraKeywords: [...(industryName ? [industryName] : []), ...keywords]
+      });
+      const sectorLabel = industryName ?? sectorKeywords[0] ?? keywords[1] ?? name ?? symbol;
       const beforeSymbolFetch = fetched.length;
 
       const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
       const relevantCodeNews = rankUsefulNews(filterRelevantNewsForStock(codeNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += codeNews.length - relevantCodeNews.length;
-      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorLabel)));
 
       const topicKeywords = sectorKeywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 5);
-      const sharedTopic = resolveSharedSectorTopic(topicKeywords);
+      const sharedTopic = resolveSharedSectorTopic(topicKeywords, industryClassification);
       const topicNews = sharedTopic
         ? await searchSharedTopicNews({
             batch: newsBatch,
@@ -97,7 +106,7 @@ export async function POST(request: NextRequest) {
         : await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
       const relevantTopicNews = rankUsefulNews(filterRelevantNewsForStock(topicNews, { symbol, name, keywords: [...keywords, ...sectorKeywords] }), sectorKeywords);
       filteredOut += topicNews.length - relevantTopicNews.length;
-      fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+      fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorLabel)));
 
       if (enableNewsWebSearch() && fetched.length - beforeSymbolFetch < 3) {
         const webSearch = await searchRelatedNews({
@@ -117,7 +126,7 @@ export async function POST(request: NextRequest) {
           resultCount: webSearch.results.length
         });
         if (webSearch.results.length) webSearchFallback += 1;
-        fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+        fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorLabel)));
       }
     }
 
@@ -192,6 +201,7 @@ export async function POST(request: NextRequest) {
       webSearchReports,
       forceCriticalRefresh,
       requestBatchId: newsBatch.id,
+      industryClassifications: [...industryClassifications.values()],
       queued: queued.length,
       news: saved.map(serializeNewsItem)
     });

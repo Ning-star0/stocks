@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { NewsProviderEvent, NewsRequestContext } from "@/lib/news/NewsProvider";
+import type { NewsIndustryClassificationEvidence } from "@/lib/news/industryClassification";
 import type { NewsItem } from "@/lib/types";
 
 type SharedTopicOutcome = {
@@ -12,10 +13,14 @@ type SharedTopicOutcome = {
 export type NewsBatchContext = {
   id: string;
   topics: Map<string, Promise<SharedTopicOutcome>>;
+  industryClassifications: Map<string, NewsIndustryClassificationEvidence>;
 };
 
-export function createNewsBatchContext(id: string = randomUUID()): NewsBatchContext {
-  return { id, topics: new Map() };
+export function createNewsBatchContext(
+  id: string = randomUUID(),
+  industryClassifications: Map<string, NewsIndustryClassificationEvidence> = new Map()
+): NewsBatchContext {
+  return { id, topics: new Map(), industryClassifications };
 }
 
 export async function searchSharedTopicNews(input: {

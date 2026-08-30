@@ -1,5 +1,6 @@
 import type { FundamentalCoverageSummary } from "@/lib/analysis/fundamentalCoverage";
 import type { EtfEvidence } from "@/lib/instruments/etfEvidence";
+import type { NewsIndustryClassificationEvidence } from "@/lib/news/industryClassification";
 
 export type Trend = "bullish" | "neutral" | "bearish";
 export type NewsSentiment = "positive" | "neutral" | "negative";
@@ -331,7 +332,10 @@ export interface NewsEvidenceCoverageSummary {
   cacheHitCount?: number;
   tianapiCalls?: number;
   tavilyCalls?: number;
+  sharedTopicKey?: string | null;
+  sharedTopicSource?: "alias_map_v1" | "verified_industry_v1" | null;
   sharedTopicReused?: boolean;
+  industryClassification?: NewsIndustryClassificationEvidence;
   skippedQueryCount?: number;
   sourceProviders?: string[];
   eventClusterCount?: number;

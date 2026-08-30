@@ -13,6 +13,10 @@ import {
 } from "@/lib/news/NewsProvider";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import {
+  loadStoredIndustryClassification,
+  type NewsIndustryClassificationEvidence
+} from "@/lib/news/industryClassification";
+import {
   buildSectorNewsKeywords,
   buildStockNewsKeywords,
   filterRelevantNewsForStock,
@@ -28,7 +32,7 @@ import { needsSimplifiedChineseSummary } from "@/lib/text/simplifiedChinese";
 import type { NewsItem } from "@/lib/types";
 
 export type FetchNewsForSymbolResult = {
-  schemaVersion: "news-fetch-v3";
+  schemaVersion: "news-fetch-v4";
   symbol: string;
   completed: boolean;
   fetched: number;
@@ -44,7 +48,9 @@ export type FetchNewsForSymbolResult = {
   tianapiCalls: number;
   tavilyCalls: number;
   sharedTopicKey: string | null;
+  sharedTopicSource: "alias_map_v1" | "verified_industry_v1" | null;
   sharedTopicReused: boolean;
+  industryClassification: NewsIndustryClassificationEvidence;
   skippedQueryCount: number;
   sourceProviders: string[];
   failures: string[];
@@ -57,6 +63,7 @@ export async function fetchNewsForSymbol(
     priority?: ApiQuotaPriority;
     requestBatchId?: string;
     batchContext?: NewsBatchContext;
+    industryClassification?: NewsIndustryClassificationEvidence;
     forceCriticalRefresh?: boolean;
   } = {}
 ): Promise<FetchNewsForSymbolResult> {
@@ -71,8 +78,17 @@ export async function fetchNewsForSymbol(
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const name = await resolveSymbolName(symbol);
+  const industryClassification = options.industryClassification
+    ?? options.batchContext?.industryClassifications.get(symbol.toUpperCase())
+    ?? await loadStoredIndustryClassification({ userId, symbol, asOf: to });
+  const verifiedIndustryName = industryClassification.status === "verified" ? industryClassification.industryName : null;
   const keywords = buildStockNewsKeywords({ symbol, name });
-  const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
+  const sectorKeywords = buildSectorNewsKeywords({
+    symbol,
+    name,
+    extraKeywords: [...(verifiedIndustryName ? [verifiedIndustryName] : []), ...keywords]
+  });
+  const sectorLabel = verifiedIndustryName ?? sectorKeywords[0] ?? keywords[1] ?? name ?? symbol;
 
   const fetched: NewsItem[] = [];
   let filteredOut = 0;
@@ -90,7 +106,7 @@ export async function fetchNewsForSymbol(
       sectorKeywords
     );
     filteredOut += codeNews.length - relevantCodeNews.length;
-    fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+    fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, sectorLabel)));
     companySearchCompleted = requestCompleted(context.events.slice(companyEventStart));
   } catch (error) {
     failures.push(`公司新闻检索失败：${errorMessage(error)}`);
@@ -98,7 +114,7 @@ export async function fetchNewsForSymbol(
 
   // 主题新闻
   const topicKeywords = sectorKeywords.filter((k) => !/^\d+$/.test(k)).slice(0, 5);
-  const sharedTopic = resolveSharedSectorTopic(topicKeywords);
+  const sharedTopic = resolveSharedSectorTopic(topicKeywords, industryClassification);
   const topicEventStart = context.events.length;
   try {
     const topicNews = options.batchContext && sharedTopic
@@ -114,7 +130,7 @@ export async function fetchNewsForSymbol(
       sectorKeywords
     );
     filteredOut += topicNews.length - relevantTopicNews.length;
-    fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+    fetched.push(...relevantTopicNews.map((item) => attachSymbol(item, symbol, sectorLabel)));
     topicSearchCompleted = requestCompleted(context.events.slice(topicEventStart));
   } catch (error) {
     failures.push(`主题新闻检索失败：${errorMessage(error)}`);
@@ -132,7 +148,7 @@ export async function fetchNewsForSymbol(
         context
       });
       if (webSearch.results.length) webSearchUsed = true;
-      fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorKeywords[0] ?? keywords[1] ?? name ?? symbol)));
+      fetched.push(...webSearch.results.map((item) => attachSymbol(item, symbol, sectorLabel)));
     } catch (error) {
       failures.push(`联网新闻补充失败：${errorMessage(error)}`);
     }
@@ -195,7 +211,7 @@ export async function fetchNewsForSymbol(
   }
 
   return {
-    schemaVersion: "news-fetch-v3",
+    schemaVersion: "news-fetch-v4",
     symbol,
     completed: companySearchCompleted && topicSearchCompleted && quotaStatus !== "quota_exhausted" && failures.length === 0,
     fetched: fetched.length,
@@ -211,7 +227,9 @@ export async function fetchNewsForSymbol(
     tianapiCalls: context.events.filter((event) => event.provider === "tianapi" && (event.status === "success" || event.status === "failed")).length,
     tavilyCalls: context.events.filter((event) => event.provider === "tavily" && (event.status === "success" || event.status === "failed")).length,
     sharedTopicKey: sharedTopic?.key ?? null,
+    sharedTopicSource: sharedTopic?.source ?? null,
     sharedTopicReused: context.events.some((event) => event.provider === "news_batch" && event.apiName === "shared_topic" && event.status === "cache_hit"),
+    industryClassification,
     skippedQueryCount: context.events.filter((event) => event.status === "quota_exhausted").length,
     sourceProviders: uniqueText(context.events
       .filter((event) => (event.provider === "tianapi" || event.provider === "tavily") && (event.status === "success" || event.status === "cache_hit"))

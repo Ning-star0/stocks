@@ -6,10 +6,11 @@ setDefaultResultOrder("ipv4first");
 loadDotEnv();
 
 async function main() {
-  const [{ getNewsProvider }, { createNewsRequestContext }, { createNewsBatchContext, searchSharedTopicNews }, { buildSectorNewsKeywords, buildStockNewsKeywords, resolveSharedSectorTopic }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
+  const [{ getNewsProvider }, { createNewsRequestContext }, { createNewsBatchContext, searchSharedTopicNews }, { loadStoredIndustryClassifications }, { buildSectorNewsKeywords, buildStockNewsKeywords, resolveSharedSectorTopic }, { enqueueJob }, { JOB_PRIORITY, JOB_TYPES }, { calculateNewsImportance }, { upsertNewsItem }, { prisma }, { getQuote }, { deleteCache }, { needsSimplifiedChineseSummary }] = await Promise.all([
     import("@/lib/news"),
     import("@/lib/news/NewsProvider"),
     import("@/lib/news/batchCoordinator"),
+    import("@/lib/news/industryClassification"),
     import("@/lib/news/relevance"),
     import("@/lib/jobs/enqueueJob"),
     import("@/lib/jobs/jobTypes"),
@@ -33,28 +34,31 @@ async function main() {
     prisma.sectorWatch.findMany({ where: { userId: user.id }, take: 20 })
   ]);
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const to = new Date().toISOString();
+  const toDate = new Date();
+  const to = toDate.toISOString();
   let fetched = 0;
   let queued = 0;
-  const newsBatch = createNewsBatchContext();
+  const industryClassifications = await loadStoredIndustryClassifications({ userId: user.id, symbols, asOf: toDate });
+  const newsBatch = createNewsBatchContext(undefined, industryClassifications);
   for (const symbol of symbols) {
+    const industryClassification = industryClassifications.get(symbol.toUpperCase()) ?? null;
+    const industryName = industryClassification?.status === "verified" ? industryClassification.industryName : null;
     const context = createNewsRequestContext({ userId: user.id, symbol, priority: "routine", requestBatchId: newsBatch.id });
     const items = await provider.searchCompanyNews(symbol, from, to, context);
     const name = await resolveSymbolName(getQuote, symbol);
-    if (name) {
-      const keywords = buildStockNewsKeywords({ symbol, name });
-      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
-      const sharedTopic = resolveSharedSectorTopic(sectorKeywords);
-      const namedItems = sharedTopic
-        ? await searchSharedTopicNews({
-            batch: newsBatch,
-            key: sharedTopic.key,
-            context,
-            load: () => provider.searchTopicNews(sharedTopic.keywords, from, to, context)
-          })
-        : await provider.searchTopicNews([name], from, to, context);
-      items.push(...namedItems.map((item) => attachSymbol(item, symbol, name)));
-    }
+    const keywords = buildStockNewsKeywords({ symbol, name });
+    const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: [...(industryName ? [industryName] : []), ...keywords] });
+    const sharedTopic = resolveSharedSectorTopic(sectorKeywords, industryClassification);
+    const topicKeywords = sectorKeywords.filter((keyword) => !/^\d+$/.test(keyword)).slice(0, 5);
+    const namedItems = sharedTopic
+      ? await searchSharedTopicNews({
+          batch: newsBatch,
+          key: sharedTopic.key,
+          context,
+          load: () => provider.searchTopicNews(sharedTopic.keywords, from, to, context)
+        })
+      : await provider.searchTopicNews(topicKeywords.length ? topicKeywords : [symbol], from, to, context);
+    items.push(...namedItems.map((item) => attachSymbol(item, symbol, industryName ?? name ?? symbol)));
 
     for (const item of items) {
       fetched += 1;
@@ -110,7 +114,14 @@ async function main() {
     }
   }
 
-  console.log(JSON.stringify({ fetched, queued }, null, 2));
+  console.log(JSON.stringify({
+    fetched,
+    queued,
+    industryClassifications: [...industryClassifications.values()].reduce<Record<string, number>>((counts, evidence) => {
+      counts[evidence.status] = (counts[evidence.status] ?? 0) + 1;
+      return counts;
+    }, {})
+  }, null, 2));
   await prisma.$disconnect();
 }
 

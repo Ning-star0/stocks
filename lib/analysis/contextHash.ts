@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisEvidencePackage } from "@/lib/analysis/evidence";
 import type { IndicatorSnapshot, Quote } from "@/lib/types";
 
-export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v18";
+export const ANALYSIS_CACHE_NAMESPACE = "ai_analysis:v19";
 
 export type AnalysisContextHashInput = {
   symbol: string;
@@ -99,6 +99,9 @@ export function createAnalysisContextHash(input: AnalysisContextHashInput) {
       refreshCompleted: input.evidence.news.refreshCompleted,
       quotaStatus: input.evidence.news.quotaStatus,
       sourceProviders: [...input.evidence.news.sourceProviders].sort(),
+      sharedTopicKey: input.evidence.news.sharedTopicKey,
+      sharedTopicSource: input.evidence.news.sharedTopicSource,
+      industryClassification: input.evidence.news.industryClassification,
       fetchedCount: input.evidence.news.fetchedCount,
       savedCount: input.evidence.news.savedCount,
       relevantCount: input.evidence.news.relevantCount,

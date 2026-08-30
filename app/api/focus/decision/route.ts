@@ -8,6 +8,7 @@ import { mapWithConcurrency } from "@/lib/concurrency/pLimit";
 import { apiError, AppError } from "@/lib/errors";
 import { generateAndStoreFocusDecision, getLatestStoredFocusDecision } from "@/lib/focus/decision";
 import { createNewsBatchContext, type NewsBatchContext } from "@/lib/news/batchCoordinator";
+import { loadStoredIndustryClassifications } from "@/lib/news/industryClassification";
 import { prisma } from "@/lib/prisma";
 import { readOptionalRequestJson } from "@/lib/serverApi";
 
@@ -41,7 +42,12 @@ export async function POST(request: NextRequest) {
       runType: "manual",
       totalSymbols: symbols.length
     });
-    const newsBatch = createNewsBatchContext(run.id);
+    const industryClassifications = await loadStoredIndustryClassifications({
+      userId: user.id,
+      symbols,
+      asOf: new Date()
+    });
+    const newsBatch = createNewsBatchContext(run.id, industryClassifications);
     await mapWithConcurrency(symbols, await getFocusStockAnalysisConcurrency(), (symbol) =>
       analyzeFocusSymbol(user.id, run.id, symbol, newsBatch, forceRefresh)
     );

@@ -8,6 +8,7 @@ import type { NewsItem } from "@/lib/types";
 import { getNewsProvider } from "@/lib/news";
 import { createNewsRequestContext } from "@/lib/news/NewsProvider";
 import { createNewsBatchContext, searchSharedTopicNews } from "@/lib/news/batchCoordinator";
+import { loadStoredIndustryClassifications } from "@/lib/news/industryClassification";
 import { calculateNewsImportance } from "@/lib/news/importance";
 import { isMarketTradingDay, nextMarketScheduledTime } from "@/lib/marketCalendar";
 import { prisma } from "@/lib/prisma";
@@ -97,24 +98,27 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[], sy
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const fetched: NewsItem[] = [];
-  const newsBatch = createNewsBatchContext();
+  const industryClassifications = await loadStoredIndustryClassifications({ userId, symbols, asOf: to });
+  const newsBatch = createNewsBatchContext(undefined, industryClassifications);
 
   for (const symbol of symbols) {
     try {
       const name = symbolNames[symbol] ?? null;
+      const industryClassification = industryClassifications.get(symbol.toUpperCase()) ?? null;
+      const industryName = industryClassification?.status === "verified" ? industryClassification.industryName : null;
       const context = createNewsRequestContext({ userId, symbol, priority: "routine", requestBatchId: newsBatch.id });
       const keywords = buildStockNewsKeywords({ symbol, name });
-      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: keywords });
+      const sectorKeywords = buildSectorNewsKeywords({ symbol, name, extraKeywords: [...(industryName ? [industryName] : []), ...keywords] });
 
       const codeNews = await provider.searchCompanyNews(symbol, from.toISOString(), to.toISOString(), context);
       const relevantCodeNews = codeNews
         .filter((item) => !isLowValueMarketMoveNews(item))
         .sort((a, b) => scoreNewsCatalyst(b, sectorKeywords) - scoreNewsCatalyst(a, keywords));
-      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol)));
+      fetched.push(...relevantCodeNews.map((item) => attachSymbol(item, symbol, industryName)));
 
       const topicKeywords = sectorKeywords.filter((kw) => !/^\d+$/.test(kw)).slice(0, 5);
       if (topicKeywords.length) {
-        const sharedTopic = resolveSharedSectorTopic(topicKeywords);
+        const sharedTopic = resolveSharedSectorTopic(topicKeywords, industryClassification);
         const topicNews = sharedTopic
           ? await searchSharedTopicNews({
               batch: newsBatch,
@@ -124,7 +128,7 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[], sy
             })
           : await provider.searchTopicNews(topicKeywords, from.toISOString(), to.toISOString(), context);
         const relevant = topicNews.filter((item) => !isLowValueMarketMoveNews(item));
-        fetched.push(...relevant.map((item) => attachSymbol(item, symbol)));
+        fetched.push(...relevant.map((item) => attachSymbol(item, symbol, industryName)));
       }
 
       // 新闻源结果不足时才允许联网检索补充，默认关闭，避免 Tavily 产生不可预期消耗。
@@ -133,7 +137,7 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[], sy
           const webResults = await searchRelatedNews({
             symbol, name, sectorKeywords, days: 7, maxResults: 5, context
           });
-          fetched.push(...webResults.results.map((item) => attachSymbol(item, symbol)));
+          fetched.push(...webResults.results.map((item) => attachSymbol(item, symbol, industryName)));
         } catch { /* 联网搜索可能不可用 */ }
       }
     } catch {
@@ -172,11 +176,11 @@ async function fetchAndStoreNewsForSymbols(userId: string, symbols: string[], sy
   }
 }
 
-function attachSymbol(item: NewsItem, symbol: string): NewsItem {
+function attachSymbol(item: NewsItem, symbol: string, sectorName?: string | null): NewsItem {
   return {
     ...item,
     symbols: [...new Set([...(item.symbols ?? []), symbol].map((s) => s.trim().toUpperCase()).filter(Boolean))],
-    sectors: item.sectors ?? []
+    sectors: [...new Set([...(item.sectors ?? []), ...(sectorName ? [sectorName] : [])].map((value) => value.trim()).filter(Boolean))]
   };
 }
 

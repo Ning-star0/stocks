@@ -11,8 +11,9 @@ import type { DisclosureEvidence, FundamentalEvidence } from "@/lib/stock-data/t
 import type { Candle, IndicatorSnapshot, Quote } from "@/lib/types";
 import { buildInstrumentProfile, type InstrumentProfile } from "@/lib/instruments/profile";
 import { buildEtfEvidence, type EtfEvidence, type EtfSubEvidenceStatus } from "@/lib/instruments/etfEvidence";
+import type { NewsIndustryClassificationEvidence } from "@/lib/news/industryClassification";
 
-export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.12.0";
+export const ANALYSIS_EVIDENCE_SCHEMA_VERSION = "1.13.0";
 export const ANALYSIS_DECISION_POLICY_VERSION = "north-star-v2";
 export const RECENT_CANDLE_LIMIT = 60;
 export const MIN_DAILY_HISTORY_CANDLES = 120;
@@ -123,7 +124,10 @@ export type AnalysisEvidencePackage = {
     cacheHitCount: number;
     tianapiCalls: number;
     tavilyCalls: number;
+    sharedTopicKey: string | null;
+    sharedTopicSource: "alias_map_v1" | "verified_industry_v1" | null;
     sharedTopicReused: boolean;
+    industryClassification: NewsIndustryClassificationEvidence | null;
     skippedQueryCount: number;
     sourceProviders: string[];
     fetchedCount: number;
@@ -149,7 +153,7 @@ export type AnalysisEvidencePackage = {
   };
   dataQuality: DataQualityReport;
   sourceManifest: Array<{
-    kind: "instrument_profile" | "quote" | "kline" | "benchmark_market" | "news" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure" | "etf_product" | "etf_liquidity" | "etf_tracking" | "etf_manager_disclosure";
+    kind: "instrument_profile" | "quote" | "kline" | "benchmark_market" | "news" | "news_industry_classification" | "fundamentals" | "valuation" | "peer_valuation" | "disclosure" | "etf_product" | "etf_liquidity" | "etf_tracking" | "etf_manager_disclosure";
     provider: string;
     asOf: string | null;
     status: "available" | "partial" | "unavailable";
@@ -386,7 +390,10 @@ export function buildAnalysisEvidencePackage(input: {
       cacheHitCount: refresh?.fetch?.cacheHitCount ?? 0,
       tianapiCalls: refresh?.fetch?.tianapiCalls ?? 0,
       tavilyCalls: refresh?.fetch?.tavilyCalls ?? 0,
+      sharedTopicKey: refresh?.fetch?.sharedTopicKey ?? null,
+      sharedTopicSource: refresh?.fetch?.sharedTopicSource ?? null,
       sharedTopicReused: refresh?.fetch?.sharedTopicReused ?? false,
+      industryClassification: refresh?.fetch?.industryClassification ?? null,
       skippedQueryCount: refresh?.fetch?.skippedQueryCount ?? 0,
       sourceProviders: refresh?.fetch?.sourceProviders ?? [],
       fetchedCount: refresh?.fetch?.fetched ?? 0,
@@ -441,6 +448,16 @@ export function buildAnalysisEvidencePackage(input: {
         provider: "database",
         asOf: refresh?.completedAt ?? normalizeTimestamp(input.lastNewsFetch),
         status: newsRefreshCompleted ? "available" as const : "partial" as const
+      },
+      {
+        kind: "news_industry_classification" as const,
+        provider: refresh?.fetch?.industryClassification?.provider ?? "not_available",
+        asOf: refresh?.fetch?.industryClassification?.fetchedAt ?? null,
+        status: refresh?.fetch?.industryClassification?.status === "verified"
+          ? "available" as const
+          : refresh?.fetch?.industryClassification?.status === "stale" || refresh?.fetch?.industryClassification?.status === "conflicted"
+            ? "partial" as const
+            : "unavailable" as const
       },
       {
         kind: "fundamentals" as const,
